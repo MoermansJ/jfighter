@@ -4,9 +4,8 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Screen;
 import com.badlogic.gdx.graphics.Color;
-import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
@@ -15,20 +14,17 @@ public class GameScreen implements Screen {
     private static final float WORLD_WIDTH = 640f;
     private static final float WORLD_HEIGHT = 480f;
 
-    private SpriteBatch batch;
     private ShapeRenderer shapeRenderer;
     private FitViewport viewport;
     private Player player;
-    private Texture playerTexture;
     private final Array<Projectile> projectiles = new Array<>();
+    private final Matrix4 playerTransform = new Matrix4();
 
     @Override
     public void show() {
-        batch = new SpriteBatch();
         shapeRenderer = new ShapeRenderer();
         viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT);
         player = new Player(100f, (WORLD_HEIGHT - Player.HEIGHT) / 2f);
-        playerTexture = new Texture(Gdx.files.internal("player.png"));
     }
 
     @Override
@@ -37,28 +33,53 @@ public class GameScreen implements Screen {
         clampPlayer();
         updateProjectiles(delta);
 
-        ScreenUtils.clear(0.08f, 0.08f, 0.12f, 1f);
+        ScreenUtils.clear(0, 0, 0, 1f);
         viewport.apply();
 
-        batch.setProjectionMatrix(viewport.getCamera().combined);
-        batch.begin();
-        batch.draw(playerTexture,
-            player.x, player.y,
-            Player.WIDTH / 2f, Player.HEIGHT / 2f,
-            Player.WIDTH, Player.HEIGHT,
-            1f, 1f,
-            player.rotation,
-            0, 0, playerTexture.getWidth(), playerTexture.getHeight(),
-            false, false);
-        batch.end();
-
         shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
+
+        // draw wireframe player with rotation transform
+        float cx = player.x + Player.WIDTH / 2f;
+        float cy = player.y + Player.HEIGHT / 2f;
+        playerTransform.setToTranslation(cx, cy, 0).rotate(0, 0, 1, player.rotation);
+        shapeRenderer.setTransformMatrix(playerTransform);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        shapeRenderer.setColor(Color.GREEN);
+        drawWireframeFighter();
+        shapeRenderer.end();
+
+        // draw projectiles in world space (reset transform)
+        shapeRenderer.setTransformMatrix(new Matrix4());
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(Color.YELLOW);
+        shapeRenderer.setColor(Color.GREEN);
         for (Projectile p : projectiles) {
             shapeRenderer.circle(p.x, p.y, Projectile.RADIUS);
         }
         shapeRenderer.end();
+    }
+
+    private void drawWireframeFighter() {
+        // all coords are local to the player center; +Y = forward (up)
+        // head
+        shapeRenderer.circle(0, 22, 7, 12);
+        // neck + spine
+        shapeRenderer.line(0, 15, 0, -6);
+        // shoulders
+        shapeRenderer.line(-12, 12, 12, 12);
+        // left arm: upper arm then forearm raised in guard
+        shapeRenderer.line(-12, 12, -18, 4);
+        shapeRenderer.line(-18, 4, -14, 14);
+        // right arm: upper arm then forearm punching forward
+        shapeRenderer.line(12, 12, 18, 4);
+        shapeRenderer.line(18, 4, 16, 14);
+        // hips
+        shapeRenderer.line(-8, -6, 8, -6);
+        // left leg
+        shapeRenderer.line(-8, -6, -10, -18);
+        shapeRenderer.line(-10, -18, -8, -28);
+        // right leg
+        shapeRenderer.line(8, -6, 10, -18);
+        shapeRenderer.line(10, -18, 8, -28);
     }
 
     private void handleInput(float delta) {
@@ -75,9 +96,10 @@ public class GameScreen implements Screen {
             player.rotateRight(delta);
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
-            float cx = player.x + Player.WIDTH / 2f;
-            float cy = player.y + Player.HEIGHT / 2f;
-            projectiles.add(new Projectile(cx, cy, player.rotation));
+            projectiles.add(new Projectile(
+                player.x + Player.WIDTH / 2f,
+                player.y + Player.HEIGHT / 2f,
+                player.rotation));
         }
     }
 
@@ -114,8 +136,6 @@ public class GameScreen implements Screen {
 
     @Override
     public void dispose() {
-        batch.dispose();
         shapeRenderer.dispose();
-        playerTexture.dispose();
     }
 }
