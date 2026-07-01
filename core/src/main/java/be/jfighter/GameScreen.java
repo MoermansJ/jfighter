@@ -34,7 +34,14 @@ public class GameScreen implements Screen {
         viewport.apply();
         batch.setProjectionMatrix(viewport.getCamera().combined);
         batch.begin();
-        batch.draw(playerTexture, player.x, player.y, Player.WIDTH, Player.HEIGHT);
+        batch.draw(playerTexture,
+            player.x, player.y,
+            Player.WIDTH / 2f, Player.HEIGHT / 2f,
+            Player.WIDTH, Player.HEIGHT,
+            1f, 1f,
+            player.rotation,
+            0, 0, playerTexture.getWidth(), playerTexture.getHeight(),
+            false, false);
         batch.end();
     }
 
@@ -44,6 +51,12 @@ public class GameScreen implements Screen {
         }
         if (Gdx.input.isKeyPressed(Input.Keys.S) || Gdx.input.isKeyPressed(Input.Keys.DOWN)) {
             player.moveDown(delta);
+        }
+        if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
+            player.rotateLeft(delta);
+        }
+        if (Gdx.input.isKeyPressed(Input.Keys.RIGHT)) {
+            player.rotateRight(delta);
         }
     }
 
