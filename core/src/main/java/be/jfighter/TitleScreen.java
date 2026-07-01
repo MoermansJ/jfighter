@@ -52,10 +52,14 @@ public class TitleScreen implements Screen {
 
         if (hovered && Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
             game.setScreen(new GameScreen());
+            return;
         }
 
         batch.begin();
         batch.draw(background, 0, 0, 640, 480);
+        batch.end();
+
+        batch.begin();
         font.setColor(hovered ? Color.YELLOW : Color.WHITE);
         float textX = BUTTON.x + (BUTTON.width - buttonLayout.width) / 2f;
         float textY = BUTTON.y + (BUTTON.height + buttonLayout.height) / 2f;
