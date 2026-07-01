@@ -18,7 +18,7 @@ public class GameScreen implements Screen {
     private FitViewport viewport;
     private Player player;
     private final Array<Projectile> projectiles = new Array<>();
-    private final Matrix4 playerTransform = new Matrix4();
+    private final Matrix4 transform = new Matrix4();
 
     @Override
     public void show() {
@@ -30,72 +30,79 @@ public class GameScreen implements Screen {
     @Override
     public void render(float delta) {
         handleInput(delta);
+        player.applyDrag(delta);
+        player.updatePosition(delta);
         clampPlayer();
         updateProjectiles(delta);
 
         ScreenUtils.clear(0, 0, 0, 1f);
         viewport.apply();
-
         shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
 
-        // draw wireframe player with rotation transform
+        // player wireframe (line mode, rotated transform)
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
-        playerTransform.setToTranslation(cx, cy, 0).rotate(0, 0, 1, player.rotation);
-        shapeRenderer.setTransformMatrix(playerTransform);
+        transform.setToTranslation(cx, cy, 0).rotate(0, 0, 1, player.rotation);
+        shapeRenderer.setTransformMatrix(transform);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         shapeRenderer.setColor(Color.GREEN);
-        drawWireframeFighter();
+        drawB2();
+        if (player.thrustLevel > 0.02f) drawExhaust();
         shapeRenderer.end();
 
-        // draw projectiles in world space (reset transform)
-        shapeRenderer.setTransformMatrix(new Matrix4());
+        // projectile capsules (filled mode, per-projectile transform)
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
         shapeRenderer.setColor(Color.GREEN);
         for (Projectile p : projectiles) {
-            shapeRenderer.circle(p.x, p.y, Projectile.RADIUS);
+            transform.setToTranslation(p.x, p.y, 0).rotate(0, 0, 1, p.rotation);
+            shapeRenderer.setTransformMatrix(transform);
+            shapeRenderer.rect(-2, -7, 4, 14);
+            shapeRenderer.circle(0,  7, 2, 8);
+            shapeRenderer.circle(0, -7, 2, 8);
         }
         shapeRenderer.end();
     }
 
-    private void drawWireframeFighter() {
-        // B-2 Spirit top-down view; +Y = nose/forward
-
-        // leading edges (swept back ~33 degrees)
+    private void drawB2() {
+        // leading edges
         shapeRenderer.line(0, 20, 28, 0);
         shapeRenderer.line(0, 20, -28, 0);
-
-        // trailing edge — characteristic W notch (right side)
+        // trailing edge W (right)
         shapeRenderer.line(28, 0, 22, -12);
         shapeRenderer.line(22, -12, 14, -4);
         shapeRenderer.line(14, -4, 6, -16);
         shapeRenderer.line(6, -16, 0, -10);
-
-        // trailing edge — W notch (left side, mirrored)
+        // trailing edge W (left)
         shapeRenderer.line(-28, 0, -22, -12);
         shapeRenderer.line(-22, -12, -14, -4);
         shapeRenderer.line(-14, -4, -6, -16);
         shapeRenderer.line(-6, -16, 0, -10);
-
-        // centerline spine
+        // centerline + cockpit
         shapeRenderer.line(0, 18, 0, -10);
-
-        // cockpit canopy
         shapeRenderer.circle(0, 14, 3, 8);
-
-        // engine exhaust slots (2 per side on the trailing section)
+        // engine exhaust slots
         shapeRenderer.line(-14, -2, -10, -10);
         shapeRenderer.line(-10, -2, -6, -10);
         shapeRenderer.line(6, -10, 10, -2);
         shapeRenderer.line(10, -10, 14, -2);
     }
 
+    private void drawExhaust() {
+        float sz = player.thrustLevel * 14f;
+        shapeRenderer.line(-14, -10, -10, -10 - sz);
+        shapeRenderer.line(-6,  -10, -10, -10 - sz);
+        shapeRenderer.line(6,   -10,  10, -10 - sz);
+        shapeRenderer.line(14,  -10,  10, -10 - sz);
+    }
+
     private void handleInput(float delta) {
         if (Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.UP)) {
-            player.moveForward(delta);
+            player.applyThrust(delta);
+        } else {
+            player.spinDownThrust(delta);
         }
         if (Gdx.input.isKeyPressed(Input.Keys.S) || Gdx.input.isKeyPressed(Input.Keys.DOWN)) {
-            player.moveBackward(delta);
+            player.applyBrake(delta);
         }
         if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
             player.rotateLeft(delta);
@@ -122,8 +129,10 @@ public class GameScreen implements Screen {
     }
 
     private void clampPlayer() {
-        player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH - Player.WIDTH));
-        player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT - Player.HEIGHT));
+        if (player.x < 0) { player.x = 0; if (player.vx < 0) player.vx = 0; }
+        if (player.x > WORLD_WIDTH - Player.WIDTH)  { player.x = WORLD_WIDTH - Player.WIDTH;  if (player.vx > 0) player.vx = 0; }
+        if (player.y < 0) { player.y = 0; if (player.vy < 0) player.vy = 0; }
+        if (player.y > WORLD_HEIGHT - Player.HEIGHT) { player.y = WORLD_HEIGHT - Player.HEIGHT; if (player.vy > 0) player.vy = 0; }
     }
 
     @Override

@@ -4,16 +4,17 @@ import com.badlogic.gdx.math.MathUtils;
 
 public class Projectile {
     public static final float SPEED = 400f;
-    public static final float RADIUS = 5f;
 
     public float x;
     public float y;
+    public final float rotation;
     private final float vx;
     private final float vy;
 
     public Projectile(float originX, float originY, float rotation) {
         this.x = originX;
         this.y = originY;
+        this.rotation = rotation;
         this.vx = -MathUtils.sinDeg(rotation);
         this.vy = MathUtils.cosDeg(rotation);
     }
