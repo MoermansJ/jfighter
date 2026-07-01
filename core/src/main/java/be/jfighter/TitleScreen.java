@@ -51,7 +51,7 @@ public class TitleScreen implements Screen {
         boolean hovered = BUTTON.contains(mouse.x, mouse.y);
 
         if (hovered && Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
-            game.setScreen(new GameScreen());
+            game.setScreen(new OverworldScreen(game, new GameState()));
             return;
         }
 

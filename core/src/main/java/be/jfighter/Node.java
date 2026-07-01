@@ -1,0 +1,21 @@
+package be.jfighter;
+
+import java.util.List;
+
+public class Node {
+    public enum Type { HOME, COMBAT, TRADER, LOOT }
+
+    public final int id;
+    public final float x;
+    public final float y;
+    public final Type type;
+    public final List<Integer> connections;
+
+    public Node(int id, float x, float y, Type type, List<Integer> connections) {
+        this.id = id;
+        this.x = x;
+        this.y = y;
+        this.type = type;
+        this.connections = connections;
+    }
+}

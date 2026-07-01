@@ -14,11 +14,19 @@ public class GameScreen implements Screen {
     private static final float WORLD_WIDTH = 640f;
     private static final float WORLD_HEIGHT = 480f;
 
+    private final JFighter game;
+    private final GameState state;
+
     private ShapeRenderer shapeRenderer;
     private FitViewport viewport;
     private Player player;
     private final Array<Projectile> projectiles = new Array<>();
     private final Matrix4 transform = new Matrix4();
+
+    public GameScreen(JFighter game, GameState state) {
+        this.game = game;
+        this.state = state;
+    }
 
     @Override
     public void show() {
@@ -95,6 +103,10 @@ public class GameScreen implements Screen {
     }
 
     private void handleInput(float delta) {
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+            game.setScreen(new OverworldScreen(game, state));
+            return;
+        }
         if (Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.UP)) {
             player.applyThrust(delta);
         } else {
