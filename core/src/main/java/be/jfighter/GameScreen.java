@@ -30,7 +30,6 @@ public class GameScreen implements Screen {
     @Override
     public void render(float delta) {
         handleInput(delta);
-        player.applyDrag(delta);
         player.updatePosition(delta);
         clampPlayer();
         updateProjectiles(delta);

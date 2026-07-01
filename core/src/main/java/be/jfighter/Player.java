@@ -10,7 +10,6 @@ public class Player {
     private static final float MAX_THRUST = 220f;
     private static final float THRUST_SPINUP = 0.7f;   // fraction of full thrust gained per second
     private static final float THRUST_SPINDOWN = 2.0f; // fraction lost per second when released
-    private static final float DRAG = 0.35f;            // exponential drag coefficient
     private static final float MAX_SPEED = 280f;
     private static final float BRAKE_FORCE = 140f;
 
@@ -41,12 +40,6 @@ public class Player {
         vx -= -MathUtils.sinDeg(rotation) * BRAKE_FORCE * delta;
         vy -=  MathUtils.cosDeg(rotation) * BRAKE_FORCE * delta;
         clampSpeed();
-    }
-
-    public void applyDrag(float delta) {
-        float factor = (float) Math.exp(-DRAG * delta);
-        vx *= factor;
-        vy *= factor;
     }
 
     public void updatePosition(float delta) {
