@@ -3,8 +3,7 @@ package be.jfighter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.Screen;
-import com.badlogic.gdx.graphics.Color;
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
@@ -14,16 +13,16 @@ public class GameScreen implements Screen {
     private static final float WORLD_HEIGHT = 480f;
 
     private SpriteBatch batch;
-    private ShapeRenderer shapeRenderer;
     private FitViewport viewport;
     private Player player;
+    private Texture playerTexture;
 
     @Override
     public void show() {
         batch = new SpriteBatch();
-        shapeRenderer = new ShapeRenderer();
         viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT);
         player = new Player(100f, (WORLD_HEIGHT - Player.HEIGHT) / 2f);
+        playerTexture = new Texture(Gdx.files.internal("player.png"));
     }
 
     @Override
@@ -33,12 +32,10 @@ public class GameScreen implements Screen {
 
         ScreenUtils.clear(0.08f, 0.08f, 0.12f, 1f);
         viewport.apply();
-
-        shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(Color.CYAN);
-        shapeRenderer.rect(player.x, player.y, Player.WIDTH, Player.HEIGHT);
-        shapeRenderer.end();
+        batch.setProjectionMatrix(viewport.getCamera().combined);
+        batch.begin();
+        batch.draw(playerTexture, player.x, player.y, Player.WIDTH, Player.HEIGHT);
+        batch.end();
     }
 
     private void handleInput(float delta) {
@@ -73,6 +70,6 @@ public class GameScreen implements Screen {
     @Override
     public void dispose() {
         batch.dispose();
-        shapeRenderer.dispose();
+        playerTexture.dispose();
     }
 }
