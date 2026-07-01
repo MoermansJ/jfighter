@@ -14,8 +14,8 @@ public class Projectile {
     public Projectile(float originX, float originY, float rotation) {
         this.x = originX;
         this.y = originY;
-        this.vx = MathUtils.cosDeg(rotation);
-        this.vy = MathUtils.sinDeg(rotation);
+        this.vx = -MathUtils.sinDeg(rotation);
+        this.vy = MathUtils.cosDeg(rotation);
     }
 
     public void update(float delta) {

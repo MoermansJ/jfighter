@@ -1,5 +1,7 @@
 package be.jfighter;
 
+import com.badlogic.gdx.math.MathUtils;
+
 public class Player {
     public static final float WIDTH = 40f;
     public static final float HEIGHT = 60f;
@@ -15,12 +17,14 @@ public class Player {
         this.y = y;
     }
 
-    public void moveUp(float delta) {
-        y += SPEED * delta;
+    public void moveForward(float delta) {
+        x += -MathUtils.sinDeg(rotation) * SPEED * delta;
+        y += MathUtils.cosDeg(rotation) * SPEED * delta;
     }
 
-    public void moveDown(float delta) {
-        y -= SPEED * delta;
+    public void moveBackward(float delta) {
+        x -= -MathUtils.sinDeg(rotation) * SPEED * delta;
+        y -= MathUtils.cosDeg(rotation) * SPEED * delta;
     }
 
     public void rotateLeft(float delta) {

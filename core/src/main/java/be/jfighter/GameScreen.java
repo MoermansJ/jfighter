@@ -63,10 +63,10 @@ public class GameScreen implements Screen {
 
     private void handleInput(float delta) {
         if (Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.UP)) {
-            player.moveUp(delta);
+            player.moveForward(delta);
         }
         if (Gdx.input.isKeyPressed(Input.Keys.S) || Gdx.input.isKeyPressed(Input.Keys.DOWN)) {
-            player.moveDown(delta);
+            player.moveBackward(delta);
         }
         if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
             player.rotateLeft(delta);
@@ -92,6 +92,7 @@ public class GameScreen implements Screen {
     }
 
     private void clampPlayer() {
+        player.x = Math.max(0, Math.min(player.x, WORLD_WIDTH - Player.WIDTH));
         player.y = Math.max(0, Math.min(player.y, WORLD_HEIGHT - Player.HEIGHT));
     }
 
