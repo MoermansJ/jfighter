@@ -59,27 +59,35 @@ public class GameScreen implements Screen {
     }
 
     private void drawWireframeFighter() {
-        // all coords are local to the player center; +Y = forward (up)
-        // head
-        shapeRenderer.circle(0, 22, 7, 12);
-        // neck + spine
-        shapeRenderer.line(0, 15, 0, -6);
-        // shoulders
-        shapeRenderer.line(-12, 12, 12, 12);
-        // left arm: upper arm then forearm raised in guard
-        shapeRenderer.line(-12, 12, -18, 4);
-        shapeRenderer.line(-18, 4, -14, 14);
-        // right arm: upper arm then forearm punching forward
-        shapeRenderer.line(12, 12, 18, 4);
-        shapeRenderer.line(18, 4, 16, 14);
-        // hips
-        shapeRenderer.line(-8, -6, 8, -6);
-        // left leg
-        shapeRenderer.line(-8, -6, -10, -18);
-        shapeRenderer.line(-10, -18, -8, -28);
-        // right leg
-        shapeRenderer.line(8, -6, 10, -18);
-        shapeRenderer.line(10, -18, 8, -28);
+        // B-2 Spirit top-down view; +Y = nose/forward
+
+        // leading edges (swept back ~33 degrees)
+        shapeRenderer.line(0, 20, 28, 0);
+        shapeRenderer.line(0, 20, -28, 0);
+
+        // trailing edge — characteristic W notch (right side)
+        shapeRenderer.line(28, 0, 22, -12);
+        shapeRenderer.line(22, -12, 14, -4);
+        shapeRenderer.line(14, -4, 6, -16);
+        shapeRenderer.line(6, -16, 0, -10);
+
+        // trailing edge — W notch (left side, mirrored)
+        shapeRenderer.line(-28, 0, -22, -12);
+        shapeRenderer.line(-22, -12, -14, -4);
+        shapeRenderer.line(-14, -4, -6, -16);
+        shapeRenderer.line(-6, -16, 0, -10);
+
+        // centerline spine
+        shapeRenderer.line(0, 18, 0, -10);
+
+        // cockpit canopy
+        shapeRenderer.circle(0, 14, 3, 8);
+
+        // engine exhaust slots (2 per side on the trailing section)
+        shapeRenderer.line(-14, -2, -10, -10);
+        shapeRenderer.line(-10, -2, -6, -10);
+        shapeRenderer.line(6, -10, 10, -2);
+        shapeRenderer.line(10, -10, 14, -2);
     }
 
     private void handleInput(float delta) {
