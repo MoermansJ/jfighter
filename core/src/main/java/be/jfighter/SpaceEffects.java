@@ -27,11 +27,14 @@ public class SpaceEffects {
     // velocity indicator
     public static final float VEL_LOOKAHEAD = 0.4f;   // seconds of drift previewed
     public static final float VEL_MIN_SPEED = 25f;    // hidden below this speed
-    // starfield: three parallax layers, far to near
+    // starfield: three parallax layers, far to near — weak parallax and small sizes
+    // keep the backdrop feeling distant; per-star brightness is widely varied
     private static final int[] STAR_COUNTS = {70, 45, 25};
-    private static final float[] STAR_PARALLAX = {0.12f, 0.3f, 0.55f};
-    private static final float[] STAR_SIZE = {0.9f, 1.4f, 2f};
+    private static final float[] STAR_PARALLAX = {0.05f, 0.14f, 0.32f};
+    private static final float[] STAR_SIZE = {0.7f, 1.1f, 1.6f};
     private static final float[] STAR_BRIGHT = {0.35f, 0.55f, 0.85f};
+    private static final float FLICKER_BELOW = 0.45f; // dim stars carry a constant low shimmer
+    private static final float FLICKER_SPEED = 2.2f;
     private static final float MARGIN = 80f; // stars/debris extend past the world for zoom-out
     // twinkles: a star flares up for a second or two
     private static final float TWINKLE_CHANCE_PER_SEC = 1.2f; // average new twinkles per second
@@ -60,6 +63,8 @@ public class SpaceEffects {
 
     private final float[][] starX = new float[STAR_COUNTS.length][];
     private final float[][] starY = new float[STAR_COUNTS.length][];
+    private final float[][] starB = new float[STAR_COUNTS.length][];     // per-star brightness multiplier
+    private final float[][] starPhase = new float[STAR_COUNTS.length][]; // flicker phase
     private final float[] layerOffX = new float[STAR_COUNTS.length];
     private final float[] layerOffY = new float[STAR_COUNTS.length];
     private final Array<Fragment> debris = new Array<>();
@@ -111,9 +116,15 @@ public class SpaceEffects {
             starCount[l] = Math.max(1, Math.round(STAR_COUNTS[l] * areaScale));
             starX[l] = new float[starCount[l]];
             starY[l] = new float[starCount[l]];
+            starB[l] = new float[starCount[l]];
+            starPhase[l] = new float[starCount[l]];
             for (int i = 0; i < starCount[l]; i++) {
                 starX[l][i] = MathUtils.random(spanW);
                 starY[l][i] = MathUtils.random(spanH);
+                // mostly dim, a few bright outliers
+                starB[l][i] = MathUtils.randomBoolean(0.15f)
+                    ? MathUtils.random(1f, 1.5f) : MathUtils.random(0.3f, 0.8f);
+                starPhase[l][i] = MathUtils.random(MathUtils.PI2);
             }
         }
         // one big ringed gas giant, one small rocky world, well apart
@@ -325,12 +336,16 @@ public class SpaceEffects {
         shapes.setTransformMatrix(identity);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (int l = 0; l < STAR_COUNTS.length; l++) {
-            float b = STAR_BRIGHT[l];
-            shapes.setColor(b, b, Math.min(1f, b + 0.08f), 1f);
             for (int i = 0; i < starCount[l]; i++) {
+                float b = STAR_BRIGHT[l] * starB[l][i];
+                if (b < FLICKER_BELOW) {
+                    // constant low-amplitude shimmer on the dimmest, most distant stars
+                    b *= 0.75f + 0.25f * MathUtils.sin(time * FLICKER_SPEED + starPhase[l][i]);
+                }
+                shapes.setColor(b, b, Math.min(1f, b + 0.08f), 1f);
                 float px = wrap(starX[l][i] + layerOffX[l], spanW) - MARGIN;
                 float py = wrap(starY[l][i] + layerOffY[l], spanH) - MARGIN;
-                shapes.circle(px, py, STAR_SIZE[l], 6);
+                shapes.circle(px, py, STAR_SIZE[l] * Math.min(1.25f, 0.6f + 0.55f * starB[l][i]), 6);
             }
         }
         // twinkling stars redrawn bigger and brighter
