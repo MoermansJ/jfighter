@@ -129,7 +129,7 @@ public class LootScreen implements Screen {
     private static final String[][] CONTROLS = {
         {"SPACE", "cast / cut net"},
         {"E", "tractor hook"},
-        {"F", "eject stow in net"},
+        {"F", "eject stowage"},
         {"LMB", "set autopilot"},
         {"RMB", "cancel autopilot"},
         {"ESC", "leave instance"},
@@ -351,9 +351,21 @@ public class LootScreen implements Screen {
             float dy = crate.y - clawY;
             if (dx * dx + dy * dy < PINCER_RANGE * PINCER_RANGE) {
                 detachNetPoints(crate);
+                removeFromCatches(crate);
                 pincerHeld.add(crate);
                 grabPulse = 1f;
                 game.sfx.playThud(0.3f);
+            }
+        }
+    }
+
+    /** The crate leaves every sealed ring's catch; a stow net that just lost its last item collapses. */
+    private void removeFromCatches(Loot crate) {
+        for (int i = freeNets.size - 1; i >= 0; i--) {
+            Net net = freeNets.get(i);
+            if (!net.closed) continue;
+            if (net.contents.removeValue(crate, true) && net.contents.isEmpty()) {
+                disintegrate(net);
             }
         }
     }
@@ -952,6 +964,7 @@ public class LootScreen implements Screen {
             }
             lootItems.removeIndex(i);
             pincerHeld.removeValue(crate, true);
+            removeFromCatches(crate); // a net delivered empty collapses too
             state.credits += CREDITS_PER_LOOT;
             catchFlash = CATCH_FLASH_TIME;
             game.sfx.playCatch();
