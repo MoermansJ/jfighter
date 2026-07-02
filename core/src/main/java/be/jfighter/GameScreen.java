@@ -16,10 +16,12 @@ import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 
 public class GameScreen implements Screen {
-    // combat arena matches the salvage arena, so both instances read as the same universe
-    // (same starfield/debris density and dressing via SpaceEffects area scaling)
-    private static final float ARENA_WIDTH = 1440f;
-    private static final float ARENA_HEIGHT = 810f;
+    // a massively larger battlespace: several screens across; the camera follows the
+    // controlled ship and the radar carries the overview (densities scale via SpaceEffects)
+    private static final float ARENA_WIDTH = 3600f;
+    private static final float ARENA_HEIGHT = 2025f;
+    private static final float VIEW_WIDTH = 1440f;  // camera window
+    private static final float VIEW_HEIGHT = 810f;
     // HUD renders through its own 960x540 ortho matrix, unaffected by camera zoom
     private static final float HUD_W = JFighter.WORLD_WIDTH;
     private static final float HUD_H = JFighter.WORLD_HEIGHT;
@@ -139,7 +141,7 @@ public class GameScreen implements Screen {
         batch = new SpriteBatch();
         font = game.fonts.font;
         Fonts.scale(font, 1.4f);
-        viewport = new FitViewport(ARENA_WIDTH, ARENA_HEIGHT);
+        viewport = new FitViewport(VIEW_WIDTH, VIEW_HEIGHT);
         player = new Player(120f, (ARENA_HEIGHT - Player.HEIGHT) / 2f);
         player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0]); // engine crew
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
@@ -149,7 +151,7 @@ public class GameScreen implements Screen {
     }
 
     private void spawnEnemies() {
-        int count = MathUtils.random(2, 3);
+        int count = MathUtils.random(3, 5);
         for (int i = 0; i < count; i++) {
             float x, y;
             do {
@@ -228,7 +230,16 @@ public class GameScreen implements Screen {
 
         ScreenUtils.clear(0, 0, 0, 1f);
         viewport.apply();
-        effects.applyZoom(viewport, player, delta);
+        effects.applyZoom(viewport, controlledBody(), delta);
+        // follow camera, clamped inside the arena
+        com.badlogic.gdx.graphics.OrthographicCamera cam =
+            (com.badlogic.gdx.graphics.OrthographicCamera) viewport.getCamera();
+        float halfW = viewport.getWorldWidth() * cam.zoom / 2f;
+        float halfH = viewport.getWorldHeight() * cam.zoom / 2f;
+        Player followed = controlledBody();
+        cam.position.x = MathUtils.clamp(followed.x + Player.WIDTH / 2f, halfW, ARENA_WIDTH - halfW);
+        cam.position.y = MathUtils.clamp(followed.y + Player.HEIGHT / 2f, halfH, ARENA_HEIGHT - halfH);
+        cam.update();
         shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
 
         effects.renderBackground(shapeRenderer);
