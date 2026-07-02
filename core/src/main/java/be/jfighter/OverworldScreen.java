@@ -68,6 +68,10 @@ public class OverworldScreen implements Screen {
 
     @Override
     public void render(float delta) {
+        if (Dev.MODE) {
+            state.fuel = state.maxFuel; // infinite fuel
+            if (state.credits < 99999) state.credits = 99999; // infinite credits
+        }
         updateHover();
         // stop rendering once the screen switches: hide() disposed our resources
         if (handleInput()) return;
@@ -186,6 +190,7 @@ public class OverworldScreen implements Screen {
             font.draw(batch, "Station: " + station, ROSTER_X, detailY - 22);
             font.draw(batch, "Click a compartment to station", ROSTER_X, detailY - 44);
         }
+        Dev.drawIndicator(batch, font, WORLD_WIDTH, WORLD_HEIGHT);
         font.getData().setScale(1.4f);
         batch.end();
 

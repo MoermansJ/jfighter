@@ -59,6 +59,8 @@ public class TraderScreen implements Screen {
         font.draw(batch, "F: buy " + (int) FUEL_AMOUNT + " fuel (" + FUEL_PRICE + " cr)", 380, 230);
         font.setColor(Color.GRAY);
         font.draw(batch, "Press ESC to return to map", 320, 170);
+        Dev.drawIndicator(batch, font, JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
+        font.getData().setScale(2f); // restore title scale for next frame
         batch.end();
     }
 

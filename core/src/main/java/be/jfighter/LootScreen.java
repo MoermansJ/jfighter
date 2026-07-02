@@ -1595,6 +1595,7 @@ public class LootScreen implements Screen {
             GlyphLayout gl = new GlyphLayout(font, msg);
             font.draw(batch, msg, (HUD_W - gl.width) / 2f, HUD_H / 2f);
         }
+        Dev.drawIndicator(batch, font, HUD_W, HUD_H);
         batch.end();
 
         drawControlsHelp();

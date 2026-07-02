@@ -94,6 +94,7 @@ public class GameScreen implements Screen {
             WORLD_WIDTH - SpaceEffects.THROTTLE_HUD_MARGIN - SpaceEffects.THROTTLE_BLOCK_W,
             SpaceEffects.THROTTLE_HUD_MARGIN
                 + Player.THROTTLE_STEPS * (SpaceEffects.THROTTLE_BLOCK_H + SpaceEffects.THROTTLE_BLOCK_GAP) + 20);
+        Dev.drawIndicator(batch, font, WORLD_WIDTH, WORLD_HEIGHT);
         batch.end();
     }
 
