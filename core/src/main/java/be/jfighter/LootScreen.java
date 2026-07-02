@@ -132,16 +132,14 @@ public class LootScreen implements Screen {
     private float grabPulse;     // jaw-snap animation, spikes on capture
     private float ejectCooldown; // capture disabled briefly after an eject
     private float prevShipVx, prevShipVy; // for hold slosh from ship acceleration
-    private boolean showControls;
-
-    private static final String[][] CONTROLS = {
+    private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
         {"SPACE", "cast / cut net"},
         {"E", "tractor hook"},
         {"F", "eject stowage"},
         {"LMB", "set autopilot"},
         {"RMB", "cancel autopilot"},
         {"ESC", "leave instance"},
-    };
+    });
     private final Array<Loot> lootItems = new Array<>();
     private float catchFlash;
     private float hulkRotation;
@@ -331,9 +329,7 @@ public class LootScreen implements Screen {
         if (Gdx.input.isKeyJustPressed(Input.Keys.F)) {
             ejectPincer();
         }
-        if (Gdx.input.isKeyJustPressed(Input.Keys.H)) {
-            showControls = !showControls;
-        }
+        controlsHelp.handleInput();
         if (Gdx.input.isKeyJustPressed(Input.Keys.E)) {
             if (hookState == HookState.STOWED) {
                 hookState = HookState.EXTENDING;
@@ -1601,44 +1597,7 @@ public class LootScreen implements Screen {
         Dev.drawIndicator(batch, font, HUD_W, HUD_H);
         batch.end();
 
-        drawControlsHelp();
-    }
-
-    /** Bottom-left help: a keycap-style [H] prompt, expanding into the full control scheme. */
-    private void drawControlsHelp() {
-        Array<String[]> rows = new Array<>();
-        if (showControls) {
-            rows.add(new String[]{"H", "hide controls"});
-            for (String[] c : CONTROLS) rows.add(c);
-        } else {
-            rows.add(new String[]{"H", "show controls"});
-        }
-        float rowH = 27f;
-        float[] capW = new float[rows.size];
-        for (int i = 0; i < rows.size; i++) {
-            capW[i] = new GlyphLayout(font, rows.get(i)[0]).width + 12f;
-        }
-
-        shapes.setProjectionMatrix(hudMatrix);
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.55f, 0.55f, 0.55f, 1f);
-        for (int i = 0; i < rows.size; i++) {
-            float y = 10 + (rows.size - 1 - i) * rowH;
-            shapes.rect(10, y, capW[i], 22);
-            shapes.line(12, y + 3, 8 + capW[i], y + 3); // keycap base edge
-        }
-        shapes.end();
-
-        batch.setProjectionMatrix(hudMatrix);
-        batch.begin();
-        for (int i = 0; i < rows.size; i++) {
-            float y = 10 + (rows.size - 1 - i) * rowH;
-            font.setColor(0.85f, 0.85f, 0.85f, 1f);
-            font.draw(batch, rows.get(i)[0], 16, y + 19);
-            font.setColor(0.55f, 0.55f, 0.55f, 1f);
-            font.draw(batch, rows.get(i)[1], 10 + capW[i] + 10, y + 19);
-        }
-        batch.end();
+        controlsHelp.draw(shapes, batch, font, hudMatrix);
     }
 
     @Override

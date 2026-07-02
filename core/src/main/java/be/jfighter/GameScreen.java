@@ -45,6 +45,14 @@ public class GameScreen implements Screen {
     private final Array<Enemy> enemies = new Array<>();
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
+    private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
+        {"SPACE", "fire"},
+        {"UP/DOWN", "throttle"},
+        {"LEFT/RIGHT", "turn"},
+        {"LMB", "set autopilot"},
+        {"RMB", "cancel autopilot"},
+        {"ESC", "leave instance"},
+    });
 
     // death effects: assembled from sparks, tumbling hull shards and blast rings,
     // with a random kind and jittered parameters so no two kills look identical
@@ -190,6 +198,8 @@ public class GameScreen implements Screen {
                 + Player.THROTTLE_STEPS * (SpaceEffects.THROTTLE_BLOCK_H + SpaceEffects.THROTTLE_BLOCK_GAP) + 20);
         Dev.drawIndicator(batch, font, HUD_W, HUD_H);
         batch.end();
+
+        controlsHelp.draw(shapeRenderer, batch, font, hudMatrix);
     }
 
     /** Returns true when the screen was switched and rendering must stop. */
@@ -211,6 +221,7 @@ public class GameScreen implements Screen {
         if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT)) {
             effects.clearAutopilot();
         }
+        controlsHelp.handleInput();
         return false;
     }
 
