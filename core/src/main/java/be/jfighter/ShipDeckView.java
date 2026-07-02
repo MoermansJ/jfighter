@@ -317,6 +317,7 @@ public class ShipDeckView {
                 s.fallT = c.isDead() ? 1f : 0f;
                 return s;
             });
+            c.damageFlash = Math.max(0f, c.damageFlash - delta);
             if (c.isDead()) {
                 sim.moving = false;
                 sim.fallT = Math.min(1f, sim.fallT + delta / FALL_DURATION);
@@ -342,6 +343,7 @@ public class ShipDeckView {
             float oxy = room != -1 ? state.oxygen[room] : state.oxygen[COMP_CORRIDOR];
             if (oxy < SUFFOCATE_THRESHOLD) {
                 c.hp = Math.max(0f, c.hp - SUFFOCATE_DPS * delta);
+                c.damageFlash = 0.6f;
             } else if (room == ROOM_MEDBAY) {
                 c.hp = Math.min(CrewMember.MAX_HP, c.hp + MEDBAY_HEAL_PER_SEC * delta);
             }
@@ -689,7 +691,13 @@ public class ShipDeckView {
         shapes.line(neckX, neckY, hipX + (3 + armSwing) * sideX, hipY + (3 + armSwing) * sideY);
     }
 
+    /** Blink phase for damage indicators; shared with the roster's health bars. */
+    public boolean damageBlinkOn() {
+        return MathUtils.sin(time * 25f) > 0f;
+    }
+
     private Color figureColor(CrewMember c) {
+        if (c.damageFlash > 0 && damageBlinkOn()) return new Color(1f, 0.25f, 0.2f, 1f);
         if (c == selectedCrew) return new Color(1f, 0.9f, 0.3f, 1f);
         if (c.isDead()) return new Color(0.5f, 0.5f, 0.55f, 1f);
         if (c == hoveredCrew) return new Color(0.75f, 0.97f, 1f, 1f);
@@ -709,16 +717,6 @@ public class ShipDeckView {
             GlyphLayout gl = new GlyphLayout(font, label);
             font.draw(batch, label, px(r[0] + r[2] / 2f) - gl.width / 2f, py(r[1] + 10, 0));
         }
-        // nametag initials above heads
-        for (CrewMember c : state.crew) {
-            Sim sim = sims.get(c);
-            if (sim == null) continue;
-            if (c == selectedCrew) font.setColor(1f, 0.9f, 0.3f, 1f);
-            else if (c.isDead()) font.setColor(0.6f, 0.3f, 0.3f, 1f);
-            else if (c == hoveredCrew) font.setColor(0.8f, 0.97f, 1f, 1f);
-            else font.setColor(0.5f, 0.85f, 0.95f, 1f);
-            font.draw(batch, String.valueOf(c.initial()), bodyX(sim, FIGURE_H) - 4, bodyY(sim, FIGURE_H) + 14);
-        }
         // airlock labels (redden while the outer door is open or the chamber has vented)
         for (int a = 0; a < AIRLOCKS.length; a++) {
             float[] al = AIRLOCKS[a];
@@ -734,12 +732,6 @@ public class ShipDeckView {
         font.draw(batch, "CAM 01 - DECK A", px(-6), 297);
         font.setColor(0.9f, 0.2f, 0.15f, 1f);
         font.draw(batch, "LIVE", 890, 297);
-        // ship-wide oxygen
-        int o2 = Math.round(totalOxygen() * 100);
-        if (o2 < 40) font.setColor(0.95f, 0.25f, 0.2f, 1f);
-        else if (o2 < 75) font.setColor(0.95f, 0.75f, 0.25f, 1f);
-        else font.setColor(0.5f, 0.85f, 0.95f, 1f);
-        font.draw(batch, "O2 " + o2 + "%", 820, 297);
     }
 
     // --- deck-space drawing helpers (projection applied here) ---

@@ -17,6 +17,7 @@ public class CrewMember {
     public int station = -1;
     public long assignedAt;
     public float hp = MAX_HP;
+    public float damageFlash; // seconds of "taking damage" indicator left
     // position on the carrier deck (ShipDeckView deck coordinates); -1 = not placed yet
     public float deckX = -1;
     public float deckY = -1;

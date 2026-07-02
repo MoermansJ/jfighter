@@ -143,13 +143,16 @@ public class OverworldScreen implements Screen {
             font.draw(batch, label, n.x - gl.width / 2f, n.y - NODE_RADIUS - 6f);
         }
         font.getData().setScale(1.4f);
-        font.setColor(Color.YELLOW);
-        GlyphLayout creditsGl = new GlyphLayout(font, "Credits: " + state.credits);
-        font.draw(batch, creditsGl, 930 - creditsGl.width, 516);
         font.setColor(state.fuel < 1f ? Color.RED : Color.WHITE);
         String fuelText = "Fuel: " + (int) state.fuel + (state.fuel < 1f ? "  — OUT OF FUEL" : "");
         GlyphLayout fuelGl = new GlyphLayout(font, fuelText);
-        font.draw(batch, fuelGl, 930 - fuelGl.width, 491);
+        font.draw(batch, fuelGl, 930 - fuelGl.width, 516);
+        int o2 = Math.round(deckView.totalOxygen() * 100);
+        if (o2 < 40) font.setColor(0.95f, 0.25f, 0.2f, 1f);
+        else if (o2 < 75) font.setColor(0.95f, 0.75f, 0.25f, 1f);
+        else font.setColor(0.5f, 0.85f, 0.95f, 1f);
+        GlyphLayout o2Gl = new GlyphLayout(font, "O2: " + o2 + "%");
+        font.draw(batch, o2Gl, 930 - o2Gl.width, 491);
         font.setColor(Color.GRAY);
         font.draw(batch, state.map.sectorName.toUpperCase()
             + "  —  travel costs " + TRAVEL_FUEL_COST + " fuel", 10, MAP_TOP - 8);
@@ -269,10 +272,25 @@ public class OverworldScreen implements Screen {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (int i = 0; i < state.crew.size(); i++) {
             CrewMember c = state.crew.get(i);
-            if (c == selectedCrew) shapes.setColor(Color.YELLOW);
+            boolean flashing = c.damageFlash > 0 && deckView.damageBlinkOn();
+            if (flashing) shapes.setColor(1f, 0.25f, 0.2f, 1f);
+            else if (c == selectedCrew) shapes.setColor(Color.YELLOW);
             else if (c.isDead()) shapes.setColor(0.45f, 0.45f, 0.5f, 1f);
             else shapes.setColor(0.3f, 0.65f, 0.8f, 1f);
             shapes.circle(ROSTER_X + 12, ROSTER_TOP - i * ROSTER_ROW_H - 5, 7, 16);
+
+            // health bar under the name, flashing while taking damage
+            float barX = ROSTER_X + 26;
+            float barY = ROSTER_TOP - i * ROSTER_ROW_H - 14;
+            float barW = 120;
+            shapes.setColor(0.12f, 0.12f, 0.14f, 1f);
+            shapes.rect(barX, barY, barW, 3);
+            float frac = c.hp / CrewMember.MAX_HP;
+            if (frac > 0) {
+                if (flashing) shapes.setColor(1f, 0.3f, 0.25f, 1f);
+                else shapes.setColor(1f - frac, frac * 0.85f, 0.15f, 1f);
+                shapes.rect(barX, barY, barW * frac, 3);
+            }
         }
         shapes.end();
     }

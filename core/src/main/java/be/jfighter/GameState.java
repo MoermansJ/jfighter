@@ -25,7 +25,7 @@ public class GameState {
         this.map = new OverworldMap();
         this.credits = 500;
         this.maxFuel = 100f;
-        this.fuel = maxFuel;
+        this.fuel = 8f; // scarce: each node hop costs 1
         // roguelite: every run starts with a fresh random crew (the map is random too;
         // the ship layout stays fixed for now)
         List<String> names = new ArrayList<>(List.of(SURNAMES));
