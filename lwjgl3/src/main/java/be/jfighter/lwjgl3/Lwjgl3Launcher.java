@@ -28,9 +28,8 @@ public class Lwjgl3Launcher {
         //// useful for testing performance, but can also be very stressful to some hardware.
         //// You may also need to configure GPU drivers to fully disable Vsync; this can cause screen tearing.
 
-        // fullscreen at the monitor's native resolution; the FitViewport letterboxes
-        // if the aspect ratio isn't 16:9
-        configuration.setFullscreenMode(Lwjgl3ApplicationConfiguration.getDisplayMode());
+        // windowed 16:9 by default; F11 toggles fullscreen at runtime (see JFighter.render)
+        configuration.setWindowedMode(JFighter.WINDOW_WIDTH, JFighter.WINDOW_HEIGHT);
         //// You can change these files; they are in lwjgl3/src/main/resources/ .
         //// They can also be loaded from the root of assets/ .
         configuration.setWindowIcon("libgdx128.png", "libgdx64.png", "libgdx32.png", "libgdx16.png");

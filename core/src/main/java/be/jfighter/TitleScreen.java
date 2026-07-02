@@ -16,6 +16,8 @@ import com.badlogic.gdx.utils.viewport.FitViewport;
 public class TitleScreen implements Screen {
     private static final Rectangle BUTTON =
         new Rectangle((JFighter.WORLD_WIDTH - 200) / 2f, 90, 200, 40);
+    private static final Rectangle OPTIONS_BUTTON =
+        new Rectangle((JFighter.WORLD_WIDTH - 200) / 2f, 40, 200, 40);
 
     private final JFighter game;
     private SpriteBatch batch;
@@ -23,6 +25,7 @@ public class TitleScreen implements Screen {
     private Texture background;
     private BitmapFont font;
     private GlyphLayout buttonLayout;
+    private GlyphLayout optionsLayout;
 
     public TitleScreen(JFighter game) {
         this.game = game;
@@ -36,6 +39,7 @@ public class TitleScreen implements Screen {
         font = new BitmapFont();
         font.getData().setScale(2f);
         buttonLayout = new GlyphLayout(font, "START GAME");
+        optionsLayout = new GlyphLayout(font, "OPTIONS");
     }
 
     @Override
@@ -50,10 +54,17 @@ public class TitleScreen implements Screen {
             viewport.getScreenWidth(), viewport.getScreenHeight()
         );
         boolean hovered = BUTTON.contains(mouse.x, mouse.y);
+        boolean optionsHovered = OPTIONS_BUTTON.contains(mouse.x, mouse.y);
 
-        if (hovered && Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
-            game.setScreen(new OverworldScreen(game, new GameState()));
-            return;
+        if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
+            if (hovered) {
+                game.setScreen(new OverworldScreen(game, new GameState()));
+                return;
+            }
+            if (optionsHovered) {
+                game.setScreen(new OptionsScreen(game));
+                return;
+            }
         }
 
         batch.begin();
@@ -66,6 +77,10 @@ public class TitleScreen implements Screen {
         float textX = BUTTON.x + (BUTTON.width - buttonLayout.width) / 2f;
         float textY = BUTTON.y + (BUTTON.height + buttonLayout.height) / 2f;
         font.draw(batch, buttonLayout, textX, textY);
+        font.setColor(optionsHovered ? Color.YELLOW : Color.WHITE);
+        float optX = OPTIONS_BUTTON.x + (OPTIONS_BUTTON.width - optionsLayout.width) / 2f;
+        float optY = OPTIONS_BUTTON.y + (OPTIONS_BUTTON.height + optionsLayout.height) / 2f;
+        font.draw(batch, optionsLayout, optX, optY);
         batch.end();
     }
 
