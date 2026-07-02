@@ -60,6 +60,7 @@ public class GameScreen implements Screen {
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
     private final PauseMenu pause = new PauseMenu();
+    private final Radar radar = new Radar(ARENA_WIDTH, ARENA_HEIGHT);
     private final Array<Weapon> weapons = new Array<>();
     private int activeWeapon;
     private Enemy lockTarget; // auto-aim target for homing rockets
@@ -254,6 +255,26 @@ public class GameScreen implements Screen {
     private void drawHud() {
         shapeRenderer.setProjectionMatrix(hudMatrix);
         effects.renderThrottleHud(shapeRenderer, player);
+
+        // radar: arena at a glance
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        radar.frame(shapeRenderer);
+        if (defeatT < 0) {
+            shapeRenderer.setColor(Color.GREEN);
+            radar.dot(shapeRenderer, player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f, 2.5f);
+        }
+        shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
+        for (Enemy e : enemies) {
+            radar.dot(shapeRenderer, e.centerX(), e.centerY(), 2f);
+        }
+        shapeRenderer.setColor(1f, 0.6f, 0.15f, 1f);
+        for (Projectile p : projectiles) {
+            if (p.rocket) radar.dot(shapeRenderer, p.x, p.y, 1.3f);
+        }
+        shapeRenderer.end();
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        radar.border(shapeRenderer);
+        shapeRenderer.end();
 
         // hull + shield bars
         float barW = 120f;

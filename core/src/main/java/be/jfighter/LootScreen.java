@@ -147,6 +147,7 @@ public class LootScreen implements Screen {
     private float ejectCooldown; // capture disabled briefly after an eject
     private float prevShipVx, prevShipVy; // for hold slosh from ship acceleration
     private final PauseMenu pause = new PauseMenu();
+    private final Radar radar = new Radar(ARENA_WIDTH, ARENA_HEIGHT);
     private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
         {"SPACE", "cast / cut net"},
         {"E", "tractor hook"},
@@ -1834,6 +1835,29 @@ public class LootScreen implements Screen {
     private void drawHud() {
         shapes.setProjectionMatrix(hudMatrix);
         effects.renderThrottleHud(shapes, player);
+
+        // radar: crates, hazards and the exit at a glance
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        radar.frame(shapes);
+        shapes.setColor(Color.GREEN);
+        radar.dot(shapes, player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f, 2.5f);
+        for (Loot crate : lootItems) {
+            if (crate.tier == 2) shapes.setColor(1f, 0.7f, 0.2f, 1f);
+            else shapes.setColor(Color.YELLOW);
+            radar.dot(shapes, crate.x, crate.y, crate.tier == 2 ? 1.8f : 1.3f);
+        }
+        shapes.setColor(0.5f, 0.35f, 0.65f, 1f);
+        radar.dot(shapes, hulkX, hulkY, 2.6f);
+        shapes.setColor(0.45f, 0.42f, 0.38f, 1f);
+        for (float[] a : asteroids) {
+            radar.dot(shapes, a[0], a[1], 1.6f);
+        }
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        radar.border(shapes);
+        shapes.setColor(0.3f, 0.9f, 0.4f, 1f);
+        radar.ring(shapes, EXIT_X, exitY, 3.4f);
+        shapes.end();
 
         batch.setProjectionMatrix(hudMatrix);
         batch.begin();
