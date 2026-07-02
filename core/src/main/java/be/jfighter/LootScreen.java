@@ -44,7 +44,7 @@ public class LootScreen implements Screen {
     private static final float CARGO_TOW_IMPULSE = 2f;   // velocity a crate picks up from rope pull
 
     private static final int LOOT_COUNT_MIN = 4, LOOT_COUNT_MAX = 8;
-    private static final int CREDITS_PER_LOOT = 25;
+    private int lastDeliveredValue = 25; // shown by the catch flash
     private static final float CATCH_FLASH_TIME = 1.5f;
 
     private static final float SHIP_MASS = 1f;
@@ -207,6 +207,10 @@ public class LootScreen implements Screen {
         float glideT; // remaining low-drag time after an eject
         float holdX, holdY, holdVx, holdVy; // hold-local state while trapped in the pincer
         final float lightPhase = MathUtils.random(MathUtils.PI2);
+        final int tier;    // 0 small, 1 medium, 2 large — bigger pays more
+        final int shape;   // 0 crate, 1 elongated container, 2 hex barrel
+        final float radius;
+        final int value;
 
         Loot(float x, float y, float vx, float vy, float spin) {
             this.x = x;
@@ -214,6 +218,11 @@ public class LootScreen implements Screen {
             this.vx = vx;
             this.vy = vy;
             this.spin = spin;
+            float roll = MathUtils.random();
+            tier = roll < 0.4f ? 0 : roll < 0.8f ? 1 : 2;
+            radius = tier == 0 ? 8f : tier == 1 ? 11f : 15f;
+            value = tier == 0 ? 15 : tier == 1 ? 25 : 45;
+            shape = MathUtils.random(2);
         }
     }
 
@@ -283,6 +292,25 @@ public class LootScreen implements Screen {
         }
     }
 
+    /** Cargo pulled past the event horizon is lost: it burns up in a spark flash. */
+    private void consumeCargoAtHorizon() {
+        float eh = eventHorizonRadius();
+        for (int i = lootItems.size - 1; i >= 0; i--) {
+            Loot crate = lootItems.get(i);
+            if (isHeld(crate)) continue;
+            if (Vector2.dst(crate.x, crate.y, hulkX, hulkY) >= eh + crate.radius * 0.5f) continue;
+            for (Net net : allNets()) {
+                for (NetPoint p : net.pts) {
+                    if (p.attached == crate) p.attached = null;
+                }
+            }
+            removeFromCatches(crate);
+            lootItems.removeIndex(i);
+            burstSparks(crate.x, crate.y, 16);
+            game.sfx.playThud(0.35f);
+        }
+    }
+
     private boolean nearAsteroid(float x, float y, float margin) {
         for (float[] a : asteroids) {
             if (Vector2.dst(x, y, a[0], a[1]) < a[2] + margin) return true;
@@ -336,6 +364,7 @@ public class LootScreen implements Screen {
         }
         updateHook(delta);
         updateLoot(delta);
+        consumeCargoAtHorizon();
         collideCargoWithCargo();
         collideShipWithCargo();
         collideWithHulk();
@@ -480,7 +509,7 @@ public class LootScreen implements Screen {
         float dy = crate.y - hy;
         crate.holdX = dx * rx + dy * ry;
         crate.holdY = dx * fx + dy * fy;
-        float maxR = HOLD_RADIUS - CARGO_RADIUS * HELD_SCALE;
+        float maxR = HOLD_RADIUS - crate.radius * HELD_SCALE;
         float d = (float) Math.sqrt(crate.holdX * crate.holdX + crate.holdY * crate.holdY);
         if (d > maxR && d > 0.001f) {
             crate.holdX *= maxR / d;
@@ -591,7 +620,9 @@ public class LootScreen implements Screen {
 
     /** Wraps the ejected clump in a ready-made sealed ring that travels with it. */
     private void netEjectedCargo(float cx, float cy, float vx, float vy) {
-        float radius = CARGO_RADIUS + 16f + 10f * pincerHeld.size;
+        float biggest = CARGO_RADIUS;
+        for (Loot crate : pincerHeld) biggest = Math.max(biggest, crate.radius);
+        float radius = biggest + 16f + 10f * pincerHeld.size;
         int n = Math.max(LOOP_MIN_SEGMENTS + 2, Math.round(radius * MathUtils.PI2 / NET_REST_LEN * 1.15f));
         Net net = new Net();
         for (int i = 0; i < n; i++) {
@@ -630,8 +661,6 @@ public class LootScreen implements Screen {
         float sloshX = -(ax * rx + ay * ry) * HOLD_SLOSH;
         float sloshY = -(ax * fx + ay * fy) * HOLD_SLOSH;
 
-        float heldR = CARGO_RADIUS * HELD_SCALE;
-        float maxR = HOLD_RADIUS - heldR;
         float damping = (float) Math.exp(-HOLD_DAMPING * delta);
         for (Loot crate : pincerHeld) {
             crate.holdVx = crate.holdVx * damping + sloshX;
@@ -647,7 +676,7 @@ public class LootScreen implements Screen {
                 float dx = b.holdX - a.holdX;
                 float dy = b.holdY - a.holdY;
                 float d2 = dx * dx + dy * dy;
-                float minDist = 2 * heldR;
+                float minDist = (a.radius + b.radius) * HELD_SCALE;
                 if (d2 >= minDist * minDist || d2 == 0f) continue;
                 float d = (float) Math.sqrt(d2);
                 float nx = dx / d;
@@ -669,6 +698,7 @@ public class LootScreen implements Screen {
         }
         // hold wall: bounce back inside
         for (Loot crate : pincerHeld) {
+            float maxR = HOLD_RADIUS - crate.radius * HELD_SCALE;
             float d = (float) Math.sqrt(crate.holdX * crate.holdX + crate.holdY * crate.holdY);
             if (d > maxR && d > 0.001f) {
                 float nx = crate.holdX / d;
@@ -863,7 +893,6 @@ public class LootScreen implements Screen {
 
     /** Net points touching a crate stick to its surface; rope tension then tows the crate. */
     private void stickNetsToCargo() {
-        float reach = CARGO_RADIUS + NET_STICK_DIST;
         for (Net net : allNets()) {
             for (NetPoint p : net.pts) {
                 if (p.attached != null) continue;
@@ -871,6 +900,7 @@ public class LootScreen implements Screen {
                     if (isHeld(crate)) continue; // carried cargo can't be netted
                     // a sealed ring only grabs its own catch
                     if (net.closed && !net.contents.contains(crate, true)) continue;
+                    float reach = crate.radius + NET_STICK_DIST;
                     float dx = p.x - crate.x;
                     float dy = p.y - crate.y;
                     float d2 = dx * dx + dy * dy;
@@ -879,8 +909,8 @@ public class LootScreen implements Screen {
                     float nx = dist > 0.001f ? dx / dist : 1f;
                     float ny = dist > 0.001f ? dy / dist : 0f;
                     p.attached = crate;
-                    p.attachDx = nx * (CARGO_RADIUS + 2f);
-                    p.attachDy = ny * (CARGO_RADIUS + 2f);
+                    p.attachDx = nx * (crate.radius + 2f);
+                    p.attachDy = ny * (crate.radius + 2f);
                     p.x = crate.x + p.attachDx;
                     p.y = crate.y + p.attachDy;
                     break;
@@ -1276,7 +1306,8 @@ public class LootScreen implements Screen {
             lootItems.removeIndex(i);
             pincerHeld.removeValue(crate, true);
             removeFromCatches(crate); // a net delivered empty collapses too
-            state.credits += CREDITS_PER_LOOT;
+            state.credits += crate.value;
+            lastDeliveredValue = crate.value;
             catchFlash = CATCH_FLASH_TIME;
             game.sfx.playCatch();
             if (lootItems.isEmpty()) {
@@ -1436,12 +1467,12 @@ public class LootScreen implements Screen {
 
     /** Equal-mass crate bumps: separate the overlap and exchange momentum along the contact normal. */
     private void collideCargoWithCargo() {
-        float minDist = 2 * CARGO_RADIUS;
         for (int i = 0; i < lootItems.size; i++) {
             for (int j = i + 1; j < lootItems.size; j++) {
                 Loot a = lootItems.get(i);
                 Loot b = lootItems.get(j);
                 if (isHeld(a) || isHeld(b)) continue;
+                float minDist = a.radius + b.radius;
                 float dx = b.x - a.x;
                 float dy = b.y - a.y;
                 float d2 = dx * dx + dy * dy;
@@ -1469,10 +1500,10 @@ public class LootScreen implements Screen {
     private void collideShipWithCargo() {
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
-        float minDist = SHIP_RADIUS + CARGO_RADIUS;
 
         for (Loot loot : lootItems) {
             if (isHeld(loot)) continue;
+            float minDist = SHIP_RADIUS + loot.radius;
             float dx = loot.x - cx;
             float dy = loot.y - cy;
             float dist2 = dx * dx + dy * dy;
@@ -1506,14 +1537,15 @@ public class LootScreen implements Screen {
 
     /** The hulk is immovable: ship and cargo bounce off it. */
     private void collideWithHulk() {
-        collideCircle(hulkX, hulkY, hulkRadius);
+        // the well doesn't bounce cargo: crates spiral in and burn at the horizon (#8)
+        collideCircle(hulkX, hulkY, hulkRadius, false);
         for (float[] a : asteroids) {
-            collideCircle(a[0], a[1], a[2]);
+            collideCircle(a[0], a[1], a[2], true);
         }
     }
 
-    /** Immovable circle obstacle: shoves the ship and cargo out with restitution. */
-    private void collideCircle(float obX, float obY, float obR) {
+    /** Immovable circle obstacle: shoves the ship (and optionally cargo) out with restitution. */
+    private void collideCircle(float obX, float obY, float obR, boolean includeCargo) {
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
         float shipDist = obR + SHIP_RADIUS;
@@ -1534,8 +1566,9 @@ public class LootScreen implements Screen {
             }
         }
 
-        float cargoDist = obR + CARGO_RADIUS;
+        if (!includeCargo) return;
         for (Loot loot : lootItems) {
+            float cargoDist = obR + loot.radius;
             dx = loot.x - obX;
             dy = loot.y - obY;
             d2 = dx * dx + dy * dy;
@@ -1664,15 +1697,40 @@ public class LootScreen implements Screen {
 
     private void drawLoot() {
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(Color.YELLOW);
         for (Loot loot : lootItems) {
+            // tier tint: small pale, medium yellow, large hot
+            if (loot.tier == 0) shapes.setColor(0.85f, 0.85f, 0.55f, 1f);
+            else if (loot.tier == 1) shapes.setColor(Color.YELLOW);
+            else shapes.setColor(1f, 0.7f, 0.2f, 1f);
             transform.setToTranslation(loot.x, loot.y, 0).rotate(0, 0, 1, loot.rotation);
             if (isHeld(loot)) transform.scale(HELD_SCALE, HELD_SCALE, 1f); // shrunk to fit the hold
             shapes.setTransformMatrix(transform);
-            // crate: square with an X through it
-            shapes.rect(-8, -8, 16, 16);
-            shapes.line(-8, -8, 8, 8);
-            shapes.line(-8, 8, 8, -8);
+            float r = loot.radius;
+            switch (loot.shape) {
+                case 1: { // elongated container with rib lines
+                    shapes.rect(-r * 1.2f, -r * 0.6f, r * 2.4f, r * 1.2f);
+                    shapes.line(-r * 0.4f, -r * 0.6f, -r * 0.4f, r * 0.6f);
+                    shapes.line(r * 0.4f, -r * 0.6f, r * 0.4f, r * 0.6f);
+                    break;
+                }
+                case 2: { // hex barrel with a core ring
+                    float hr = r * 0.95f;
+                    for (int k = 0; k < 6; k++) {
+                        float a0 = k * 60f;
+                        float a1 = (k + 1) * 60f;
+                        shapes.line(MathUtils.cosDeg(a0) * hr, MathUtils.sinDeg(a0) * hr,
+                            MathUtils.cosDeg(a1) * hr, MathUtils.sinDeg(a1) * hr);
+                    }
+                    shapes.circle(0, 0, r * 0.45f, 10);
+                    break;
+                }
+                default: { // classic crate with an X through it
+                    float h = r * 0.75f;
+                    shapes.rect(-h, -h, 2 * h, 2 * h);
+                    shapes.line(-h, -h, h, h);
+                    shapes.line(-h, h, h, -h);
+                }
+            }
         }
         shapes.end();
 
@@ -1681,7 +1739,7 @@ public class LootScreen implements Screen {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (Loot loot : lootItems) {
             float pulse = 0.2f + 0.8f * (0.5f + 0.5f * MathUtils.sin(effects.time() * 2.5f + loot.lightPhase));
-            float s = isHeld(loot) ? 8 * HELD_SCALE : 8;
+            float s = loot.radius * 0.72f * (isHeld(loot) ? HELD_SCALE : 1f);
             float cos = MathUtils.cosDeg(loot.rotation);
             float sin = MathUtils.sinDeg(loot.rotation);
             float lx = loot.x + s * cos - s * sin;
@@ -1753,7 +1811,7 @@ public class LootScreen implements Screen {
 
         if (catchFlash > 0) {
             font.setColor(Color.GREEN);
-            String msg = "Delivered! +" + CREDITS_PER_LOOT;
+            String msg = "Delivered! +" + lastDeliveredValue;
             GlyphLayout gl = new GlyphLayout(font, msg);
             font.draw(batch, msg, (HUD_W - gl.width) / 2f, HUD_H - 60);
         }
