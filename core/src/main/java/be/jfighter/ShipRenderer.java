@@ -1,6 +1,7 @@
 package be.jfighter;
 
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.math.MathUtils;
 
 /**
  * Draws the B-2 wireframe around the local origin. Caller sets the
@@ -35,8 +36,11 @@ public final class ShipRenderer {
         shapes.line(10, -10, 14, -2);
     }
 
-    /** Salvage craft for the loot instance: stubby pod with two forward pincer jaws. Same engine layout as the B-2. */
-    public static void drawPincer(ShapeRenderer shapes) {
+    /**
+     * Salvage craft for the loot instance: stubby pod with two forward pincer jaws.
+     * Same engine layout as the B-2. {@code grab} 0..1 pinches the arms inward.
+     */
+    public static void drawPincer(ShapeRenderer shapes, float grab) {
         // hull pod
         shapes.line(-12, 12, 12, 12);
         shapes.line(12, 12, 16, 0);
@@ -45,25 +49,41 @@ public final class ShipRenderer {
         shapes.line(-12, -10, -16, 0);
         shapes.line(-16, 0, -12, 12);
         shapes.circle(0, 4, 4, 10); // cockpit
-        // pincer arms: outer edge curling in at the jaw tips
-        shapes.line(12, 12, 20, 20);
-        shapes.line(20, 20, 22, 30);
-        shapes.line(22, 30, 16, 38);
-        shapes.line(16, 38, 10, 40);
-        shapes.line(-12, 12, -20, 20);
-        shapes.line(-20, 20, -22, 30);
-        shapes.line(-22, 30, -16, 38);
-        shapes.line(-16, 38, -10, 40);
-        // inner jaw edges
-        shapes.line(12, 12, 14, 24);
-        shapes.line(14, 24, 8, 34);
-        shapes.line(-12, 12, -14, 24);
-        shapes.line(-14, 24, -8, 34);
+        drawPincerArm(shapes, 1f, grab);
+        drawPincerArm(shapes, -1f, grab);
         // engine exhaust slots (nozzles match drawExhaust)
         shapes.line(-14, -2, -10, -10);
         shapes.line(-10, -2, -6, -10);
         shapes.line(6, -10, 10, -2);
         shapes.line(10, -10, 14, -2);
+    }
+
+    // arm polylines in right-side coords; mirrored via side, rotated inward around the shoulder by grab
+    private static final float[][] ARM_OUTER = {{20, 20}, {22, 30}, {16, 38}, {10, 40}};
+    private static final float[][] ARM_INNER = {{14, 24}, {8, 34}};
+    private static final float ARM_CLOSE_DEG = 20f;
+
+    private static void drawPincerArm(ShapeRenderer shapes, float side, float grab) {
+        float deg = ARM_CLOSE_DEG * grab * side; // CCW closes the right arm, CW the left
+        float cos = MathUtils.cosDeg(deg);
+        float sin = MathUtils.sinDeg(deg);
+        float ox = 12 * side, oy = 12;
+        drawArmLine(shapes, ARM_OUTER, side, ox, oy, cos, sin);
+        drawArmLine(shapes, ARM_INNER, side, ox, oy, cos, sin);
+    }
+
+    private static void drawArmLine(ShapeRenderer shapes, float[][] pts, float side,
+                                    float ox, float oy, float cos, float sin) {
+        float px = ox, py = oy;
+        for (float[] p : pts) {
+            float lx = p[0] * side - ox;
+            float ly = p[1] - oy;
+            float rx = ox + lx * cos - ly * sin;
+            float ry = oy + lx * sin + ly * cos;
+            shapes.line(px, py, rx, ry);
+            px = rx;
+            py = ry;
+        }
     }
 
     public static void drawExhaust(ShapeRenderer shapes, float thrustLevel) {

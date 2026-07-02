@@ -75,7 +75,9 @@ public class SpaceEffects {
     private boolean autopilotActive;
     private float autopilotX;
     private float autopilotY;
+    public static final float PINCER_SCALE = 1.3f; // the salvage pod is drawn bigger than the B-2
     private boolean pincerHull; // draw the pincer salvage craft instead of the B-2
+    private float pincerGrab;   // 0..1 jaw pinch, set by the screen each frame
 
     private static class Fragment {
         float x, y, vx, vy, rotation, spin;
@@ -186,6 +188,10 @@ public class SpaceEffects {
 
     public void setPincerHull(boolean pincerHull) {
         this.pincerHull = pincerHull;
+    }
+
+    public void setPincerGrab(float grab) {
+        this.pincerGrab = Math.max(0f, Math.min(1f, grab));
     }
 
     public void setAutopilotTarget(float x, float y) {
@@ -405,8 +411,9 @@ public class SpaceEffects {
         for (int i = 0; i < nx; i++) {
             for (int j = 0; j < ny; j++) {
                 transform.setToTranslation(cx + dxs[i], cy + dys[j], 0).rotate(0, 0, 1, player.rotation);
+                if (pincerHull) transform.scale(PINCER_SCALE, PINCER_SCALE, 1f);
                 shapes.setTransformMatrix(transform);
-                if (pincerHull) ShipRenderer.drawPincer(shapes);
+                if (pincerHull) ShipRenderer.drawPincer(shapes, pincerGrab);
                 else ShipRenderer.drawB2(shapes);
                 if (player.thrustLevel > 0.02f) ShipRenderer.drawExhaust(shapes, player.thrustLevel);
             }
