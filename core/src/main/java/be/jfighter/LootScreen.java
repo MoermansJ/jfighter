@@ -261,7 +261,10 @@ public class LootScreen implements Screen {
         effects.handleFlightInput(player, delta);
         applyHulkGravity(delta);
         player.updatePosition(delta);
-        if (player.wrapAround(ARENA_WIDTH, ARENA_HEIGHT)) {
+        if (engagedWithCargo()) {
+            // pulling, pushing or carrying something: the border is a wall, no wrap
+            bounceOffArenaEdges();
+        } else if (player.wrapAround(ARENA_WIDTH, ARENA_HEIGHT)) {
             cutDeployedNet(); // the net snaps loose when the ship crosses the border
             releaseHook();    // and the tow line snaps too
         }
@@ -344,6 +347,28 @@ public class LootScreen implements Screen {
 
     private boolean isHeld(Loot crate) {
         return pincerHeld.contains(crate, true);
+    }
+
+    /** Engaged = paying out a net, towing with the hook, or carrying stowage. */
+    private boolean engagedWithCargo() {
+        return deployed != null || hookState == HookState.LATCHED || pincerHeld.size > 0;
+    }
+
+    private void bounceOffArenaEdges() {
+        if (player.x < 0) {
+            player.x = 0;
+            player.vx = Math.abs(player.vx) * 0.5f;
+        } else if (player.x > ARENA_WIDTH - Player.WIDTH) {
+            player.x = ARENA_WIDTH - Player.WIDTH;
+            player.vx = -Math.abs(player.vx) * 0.5f;
+        }
+        if (player.y < 0) {
+            player.y = 0;
+            player.vy = Math.abs(player.vy) * 0.5f;
+        } else if (player.y > ARENA_HEIGHT - Player.HEIGHT) {
+            player.y = ARENA_HEIGHT - Player.HEIGHT;
+            player.vy = -Math.abs(player.vy) * 0.5f;
+        }
     }
 
     /** Free cargo drifting near the open jaws is captured automatically (netted cargo is left alone). */
