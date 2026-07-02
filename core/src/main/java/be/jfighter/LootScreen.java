@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.math.Intersector;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector2;
@@ -36,9 +37,8 @@ public class LootScreen implements Screen {
     private static final float NET_REST_LEN = 8f;     // rope segment max length before it pulls
     private static final int NET_ITERATIONS = 2;      // constraint solver passes per frame
     private static final float NET_DRAG = 1.0f;       // damping on free-floating net points
-    private static final float NET_MERGE_DIST = 10f;  // nets closer than this tangle together
-    private static final float NET_LINK_REST = 3f;    // tangled strands cinch this close: nets clump into a blob
-    private static final int NET_LINKS_PER_FRAME = 8; // new tangle links allowed per net pair per frame
+    private static final float NET_MERGE_DIST = 10f;  // nets closer than this connect
+    private static final float NET_LINK_REST = 3f;    // tied strand ends cinch this close to the ring
     private static final float NET_STICK_DIST = 3f;   // extra reach beyond cargo radius for sticking
     private static final float CARGO_TOW_FACTOR = 0.3f;  // how much rope correction moves a crate
     private static final float CARGO_TOW_IMPULSE = 2f;   // velocity a crate picks up from rope pull
@@ -65,6 +65,10 @@ public class LootScreen implements Screen {
     // loop closing: a free net whose strand crosses itself seals into a clean ring
     private static final int LOOP_MIN_SEGMENTS = 16;  // rope distance between crossing points to count as a loop
     private static final float LOOP_ROUNDING = 1.5f;  // per-second pull of a closed ring toward a true circle
+
+    // disintegration sparks (empty catches burn away)
+    private static final float SPARK_MIN_LIFE = 0.4f;
+    private static final float SPARK_MAX_LIFE = 1.0f;
 
     // derelict hulk: gravity well in the middle of the arena
     private static final float HULK_X = ARENA_WIDTH / 2f;
@@ -103,6 +107,8 @@ public class LootScreen implements Screen {
     private final Array<Net> freeNets = new Array<>();
     private final Array<NetLink> links = new Array<>();
     private final Array<Net> netScratch = new Array<>();
+    private final Array<Spark> sparks = new Array<>();
+    private final int[] contact = new int[2];
     private final Array<Loot> lootItems = new Array<>();
     private float catchFlash;
     private float hulkRotation;
@@ -134,6 +140,10 @@ public class LootScreen implements Screen {
     private static class Net {
         final Array<NetPoint> pts = new Array<>();
         boolean closed; // strand crossed itself and sealed into a ring
+    }
+
+    private static class Spark {
+        float x, y, vx, vy, life, maxLife;
     }
 
     private static class NetLink {
@@ -229,9 +239,11 @@ public class LootScreen implements Screen {
         solveNetConstraints();
         pushNetPoints();
         stickNetsToCargo();
-        mergeNets();
+        interactNets();
         closeLoops();
+        dissolveEmptyCatches();
         roundClosedLoops(delta);
+        updateSparks(delta);
         collectAtExit();
         if (catchFlash > 0) catchFlash -= delta;
 
@@ -246,6 +258,7 @@ public class LootScreen implements Screen {
         drawNets();
         drawLoot();
         drawHook();
+        drawSparks();
         effects.renderAutopilot(shapes);
         effects.renderShip(shapes, player);
         drawWorldLabels();
@@ -464,7 +477,8 @@ public class LootScreen implements Screen {
 
     /** A free net whose strand crosses itself seals into a clean ring: tails outside the loop are trimmed. */
     private void closeLoops() {
-        for (Net net : freeNets) {
+        for (int n = freeNets.size - 1; n >= 0; n--) {
+            Net net = freeNets.get(n);
             if (net.closed || net.pts.size < LOOP_MIN_SEGMENTS + 2) continue;
             outer:
             for (int i = 0; i < net.pts.size - LOOP_MIN_SEGMENTS; i++) {
@@ -486,6 +500,7 @@ public class LootScreen implements Screen {
         for (int k = net.pts.size - 1; k > end; k--) dropPoint(net, k);
         for (int k = start - 1; k >= 0; k--) dropPoint(net, k);
         net.closed = true;
+        if (isEmptyCatch(net)) disintegrate(net); // an empty loop burns away
     }
 
     /** Removes a point cleanly: any tangle links through it dissolve, and the hook lets go of it. */
@@ -527,35 +542,220 @@ public class LootScreen implements Screen {
         }
     }
 
-    /** Different nets that touch click together at every contact, cinching into one blob. */
-    private void mergeNets() {
-        Array<Net> nets = allNets();
-        for (int a = 0; a < nets.size; a++) {
-            for (int b = a + 1; b < nets.size; b++) {
-                linkPair(nets.get(a), nets.get(b));
+    /**
+     * Net-to-net contact behaviour depends on what touches: two open strands splice
+     * end-to-end, an open strand ties its ends onto a sealed ring, and two sealed
+     * rings pop into one big ring. The deployed tether joins in once it is cut free.
+     */
+    private void interactNets() {
+        for (int a = 0; a < freeNets.size; a++) {
+            for (int b = a + 1; b < freeNets.size; b++) {
+                Net na = freeNets.get(a);
+                Net nb = freeNets.get(b);
+                if (!na.closed && !nb.closed) {
+                    if (findContact(na, nb)) {
+                        spliceNets(na, nb, contact[0], contact[1]);
+                        return; // the arrays changed; resume scanning next frame
+                    }
+                } else if (na.closed && nb.closed) {
+                    if (findContact(na, nb)) {
+                        popMerge(na, nb);
+                        return;
+                    }
+                } else if (na.closed) {
+                    tieStrandToRing(nb, na);
+                } else {
+                    tieStrandToRing(na, nb);
+                }
             }
         }
     }
 
-    private void linkPair(Net na, Net nb) {
-        int made = 0;
-        for (int i = 0; i < na.pts.size && made < NET_LINKS_PER_FRAME; i++) {
+    /** First pair of points from different nets within merge distance; indices land in {@code contact}. */
+    private boolean findContact(Net na, Net nb) {
+        for (int i = 0; i < na.pts.size; i++) {
             NetPoint p = na.pts.get(i);
-            if (p.linked) continue;
             for (int j = 0; j < nb.pts.size; j++) {
                 NetPoint q = nb.pts.get(j);
-                if (q.linked) continue;
                 float dx = p.x - q.x;
                 float dy = p.y - q.y;
                 if (dx * dx + dy * dy < NET_MERGE_DIST * NET_MERGE_DIST) {
-                    p.linked = true;
-                    q.linked = true;
-                    links.add(new NetLink(p, q));
-                    made++;
-                    break;
+                    contact[0] = i;
+                    contact[1] = j;
+                    return true;
                 }
             }
         }
+        return false;
+    }
+
+    /**
+     * Two open strands connect end-to-end: the joint slides to the nearest end of each
+     * (the rope constraints cinch the spliced ends together), leaving one longer strand
+     * whose free ends keep floating until they find something to connect to.
+     */
+    private void spliceNets(Net na, Net nb, int i, int j) {
+        if (i < na.pts.size - 1 - i) na.pts.reverse();  // joining end of A becomes its last point
+        if (j >= nb.pts.size - 1 - j) nb.pts.reverse(); // joining end of B becomes its first point
+        na.pts.addAll(nb.pts);
+        if (hookedNet == nb) hookedNet = na;
+        freeNets.removeValue(nb, true);
+        game.sfx.playThud(0.2f);
+    }
+
+    /** An open strand just ties on: each floating end within reach knots itself to the ring. */
+    private void tieStrandToRing(Net strand, Net ring) {
+        if (strand.pts.size == 0) return;
+        tieEndToRing(strand.pts.first(), ring);
+        tieEndToRing(strand.pts.peek(), ring);
+    }
+
+    private void tieEndToRing(NetPoint end, Net ring) {
+        if (end.linked) return;
+        for (NetPoint q : ring.pts) {
+            float dx = end.x - q.x;
+            float dy = end.y - q.y;
+            if (dx * dx + dy * dy < NET_MERGE_DIST * NET_MERGE_DIST) {
+                end.linked = true;
+                links.add(new NetLink(end, q));
+                return;
+            }
+        }
+    }
+
+    /** Two sealed rings pop into one massive ring: inner barriers dissolve, points reorder around the merged centre. */
+    private void popMerge(Net na, Net nb) {
+        for (int i = links.size - 1; i >= 0; i--) {
+            NetLink link = links.get(i);
+            boolean aInside = na.pts.contains(link.a, true) || nb.pts.contains(link.a, true);
+            boolean bInside = na.pts.contains(link.b, true) || nb.pts.contains(link.b, true);
+            if (aInside && bInside) {
+                link.a.linked = false;
+                link.b.linked = false;
+                links.removeIndex(i);
+            }
+        }
+        na.pts.addAll(nb.pts);
+        if (hookedNet == nb) hookedNet = na;
+        freeNets.removeValue(nb, true);
+
+        float cx = 0, cy = 0;
+        for (NetPoint p : na.pts) {
+            cx += p.x;
+            cy += p.y;
+        }
+        cx /= na.pts.size;
+        cy /= na.pts.size;
+        final float fcx = cx, fcy = cy;
+        na.pts.sort((p, q) -> Float.compare(
+            MathUtils.atan2(p.y - fcy, p.x - fcx),
+            MathUtils.atan2(q.y - fcy, q.x - fcx)));
+        na.closed = true;
+        burstSparks(cx, cy, 24);
+        game.sfx.playThud(0.4f);
+    }
+
+    /** A strand tied down at both ends that caught nothing is an empty catch: it burns away. */
+    private void dissolveEmptyCatches() {
+        for (int n = freeNets.size - 1; n >= 0; n--) {
+            Net net = freeNets.get(n);
+            if (net.closed || net.pts.size < 2) continue;
+            if (!net.pts.first().linked || !net.pts.peek().linked) continue;
+            boolean caught = false;
+            for (NetPoint p : net.pts) {
+                if (p.attached != null) {
+                    caught = true;
+                    break;
+                }
+            }
+            if (!caught) disintegrate(net);
+        }
+    }
+
+    /** A catch is empty when nothing is stuck to the net and no crate sits inside the ring. */
+    private boolean isEmptyCatch(Net net) {
+        for (NetPoint p : net.pts) {
+            if (p.attached != null) return false;
+        }
+        float[] poly = new float[net.pts.size * 2];
+        for (int i = 0; i < net.pts.size; i++) {
+            poly[i * 2] = net.pts.get(i).x;
+            poly[i * 2 + 1] = net.pts.get(i).y;
+        }
+        for (Loot crate : lootItems) {
+            if (Intersector.isPointInPolygon(poly, 0, poly.length, crate.x, crate.y)) return false;
+        }
+        return true;
+    }
+
+    /** The net burns away: every point flares into a drifting spark. */
+    private void disintegrate(Net net) {
+        for (NetPoint p : net.pts) {
+            spawnSpark(p.x, p.y, p.vx * 0.5f, p.vy * 0.5f);
+        }
+        removeLinksFor(net);
+        if (hookedNet == net) releaseHook();
+        freeNets.removeValue(net, true);
+        game.sfx.playThud(0.25f);
+    }
+
+    private void burstSparks(float x, float y, int count) {
+        for (int i = 0; i < count; i++) {
+            spawnSpark(x, y, 0, 0);
+        }
+    }
+
+    private void spawnSpark(float x, float y, float vx, float vy) {
+        Spark s = new Spark();
+        s.x = x;
+        s.y = y;
+        float angle = MathUtils.random(360f);
+        float speed = MathUtils.random(25f, 75f);
+        s.vx = vx + MathUtils.cosDeg(angle) * speed;
+        s.vy = vy + MathUtils.sinDeg(angle) * speed;
+        s.maxLife = s.life = MathUtils.random(SPARK_MIN_LIFE, SPARK_MAX_LIFE);
+        sparks.add(s);
+    }
+
+    private void updateSparks(float delta) {
+        for (int i = sparks.size - 1; i >= 0; i--) {
+            Spark s = sparks.get(i);
+            s.life -= delta;
+            if (s.life <= 0) {
+                sparks.removeIndex(i);
+                continue;
+            }
+            s.x += s.vx * delta;
+            s.y += s.vy * delta;
+        }
+    }
+
+    /** Faint criss-cross chords over a sealed ring's interior: the mesh that makes it read as a catch. */
+    private void drawFishnetMesh(Net net) {
+        int n = net.pts.size;
+        int step = Math.max(2, n / 14);
+        int span = n / 4;
+        if (span < 2) return;
+        shapes.setColor(0.45f, 0.28f, 0.1f, 1f);
+        for (int i = 0; i < n; i += step) {
+            NetPoint p = net.pts.get(i);
+            NetPoint q = net.pts.get((i + span) % n);
+            NetPoint r = net.pts.get((i - span + n) % n);
+            shapes.line(p.x, p.y, q.x, q.y);
+            shapes.line(p.x, p.y, r.x, r.y);
+        }
+    }
+
+    private void drawSparks() {
+        if (sparks.size == 0) return;
+        shapes.setTransformMatrix(identity);
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (Spark s : sparks) {
+            float f = s.life / s.maxLife;
+            shapes.setColor(0.95f * f + 0.05f, 0.6f * f, 0.15f * f, 1f);
+            shapes.line(s.x, s.y, s.x - s.vx * 0.06f, s.y - s.vy * 0.06f);
+        }
+        shapes.end();
     }
 
     /** Cargo dragged into the exit zone is delivered. */
@@ -902,6 +1102,7 @@ public class LootScreen implements Screen {
             }
             if (net.closed && net.pts.size > 2) {
                 shapes.line(net.pts.peek().x, net.pts.peek().y, net.pts.first().x, net.pts.first().y);
+                drawFishnetMesh(net);
             }
         }
         // deployed net: yellow, fading toward the loose end, plus the line to the ship's tail
