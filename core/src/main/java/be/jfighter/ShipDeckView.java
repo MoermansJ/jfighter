@@ -490,6 +490,79 @@ public class ShipDeckView {
             rad * 2 * SCALE, rad * 2 * SQUASH * SCALE);
     }
 
+    /** Deck-space rectangle outline on the floor. */
+    private static void deckRectOutline(ShapeRenderer shapes, float x, float y, float w, float h) {
+        dl(shapes, x, y, x + w, y);
+        dl(shapes, x + w, y, x + w, y + h);
+        dl(shapes, x + w, y + h, x, y + h);
+        dl(shapes, x, y + h, x, y);
+    }
+
+    /** Room furniture, pipework and corridor markings — kept faint so figures stay readable. */
+    private void drawDeckDetail(ShapeRenderer shapes) {
+        // corridor: dashed centreline
+        shapes.setColor(0.1f, 0.2f, 0.26f, 0.8f);
+        float midY = (CORRIDOR_Y1 + CORRIDOR_Y2) / 2f;
+        for (float x = CORRIDOR_X1 + 6; x < CORRIDOR_X2 - 10; x += 18) {
+            dl(shapes, x, midY, x + 9, midY);
+        }
+        // corridor: pipe run along the north edge
+        shapes.setColor(0.14f, 0.24f, 0.3f, 0.7f);
+        dl(shapes, CORRIDOR_X1 + 4, CORRIDOR_Y2 - 3, CORRIDOR_X2 - 4, CORRIDOR_Y2 - 3);
+        for (float x = CORRIDOR_X1 + 30; x < CORRIDOR_X2 - 10; x += 60) {
+            dl(shapes, x, CORRIDOR_Y2 - 3, x, CORRIDOR_Y2 - 1); // pipe clamps
+        }
+
+        // engine room: reactor ring + feed pipes
+        float b0 = roomBrightness[0];
+        shapes.setColor(0.45f * b0 + 0.2f, 0.3f * b0 + 0.14f, 0.1f, 0.85f);
+        deckCircle(shapes, 60, 95, 9);
+        deckCircle(shapes, 60, 95, 5);
+        dl(shapes, 16, 90, 51, 93);
+        dl(shapes, 16, 100, 51, 97);
+
+        // cargo hold: pallet squares
+        shapes.setColor(0.16f, 0.3f, 0.36f, 0.85f);
+        deckRectOutline(shapes, 52, 8, 13, 13);
+        deckRectOutline(shapes, 52, 26, 13, 13);
+        deckRectOutline(shapes, 70, 16, 13, 13);
+        deckRectOutline(shapes, 116, 8, 13, 13);
+
+        // quarters: bunks along the south wall
+        shapes.setColor(0.18f, 0.3f, 0.36f, 0.85f);
+        for (int k = 0; k < 3; k++) {
+            float bx = 172 + k * 28;
+            deckRectOutline(shapes, bx, 5, 18, 9);
+            dl(shapes, bx + 4, 5, bx + 4, 14); // pillow line
+        }
+
+        // medical bay: two beds
+        shapes.setColor(0.2f, 0.34f, 0.38f, 0.85f);
+        deckRectOutline(shapes, 292, 6, 18, 8);
+        deckRectOutline(shapes, 320, 6, 18, 8);
+
+        // weapons room: ammo racks
+        shapes.setColor(0.24f, 0.28f, 0.3f, 0.85f);
+        for (int k = 0; k < 2; k++) {
+            float ry = 74 + k * 14;
+            dl(shapes, 258, ry, 290, ry);
+            dl(shapes, 258, ry + 4, 290, ry + 4);
+        }
+
+        // bridge: console arc facing the nose
+        float b5 = roomBrightness[5];
+        shapes.setColor(0.2f * b5 + 0.1f, 0.5f * b5 + 0.15f, 0.65f * b5 + 0.2f, 0.9f);
+        dl(shapes, 398, 78, 408, 84);
+        dl(shapes, 408, 84, 408, 92);
+        dl(shapes, 408, 92, 398, 98);
+
+        // life support: O2 tanks
+        shapes.setColor(0.18f, 0.34f, 0.38f, 0.85f);
+        deckCircle(shapes, 422, 12, 4);
+        deckCircle(shapes, 432, 12, 4);
+        deckCircle(shapes, 442, 12, 4);
+    }
+
     /** Faint function glyph per room: gear, crate, chevron, bunk, crosshair, helm, cross, O2. */
     private void drawRoomIcons(ShapeRenderer shapes) {
         for (int i = 0; i < ROOMS.length; i++) {
@@ -684,6 +757,8 @@ public class ShipDeckView {
         }
         // floor icons: a faint function glyph on each room's deck plating
         drawRoomIcons(shapes);
+        // furniture, pipes and floor markings
+        drawDeckDetail(shapes);
         // hangar bay: the carrier's two craft parked side by side (B-2 fighter + pincer pod)
         float hb = 0.25f + 0.35f * roomBrightness[2];
         shapes.setColor(hb * 0.8f, hb * 1.3f, hb * 1.6f, 1f);
