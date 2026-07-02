@@ -283,6 +283,7 @@ public class LootScreen implements Screen {
         solveNetConstraints();
         pushNetPoints();
         stickNetsToCargo();
+        sealCastLoop();
         connectCastNet();
         interactNets();
         closeLoops();
@@ -924,6 +925,60 @@ public class LootScreen implements Screen {
      * end-to-end, an open strand ties its ends onto a sealed ring, and two sealed
      * rings pop into one big ring. The deployed tether joins in once it is cut free.
      */
+    /**
+     * Casting over your own payline: the loop portion seals into a ring on the spot,
+     * while the remainder stays attached to the ship as the ongoing cast.
+     */
+    private void sealCastLoop() {
+        if (deployed == null || deployed.pts.size < LOOP_MIN_SEGMENTS + 8) return;
+        int n = deployed.pts.size;
+        // skip the freshest points near the tail so the payout doesn't self-trigger
+        for (int i = 0; i < n - LOOP_MIN_SEGMENTS - 6; i++) {
+            NetPoint p = deployed.pts.get(i);
+            for (int j = i + LOOP_MIN_SEGMENTS; j < n - 6; j++) {
+                NetPoint q = deployed.pts.get(j);
+                float dx = p.x - q.x;
+                float dy = p.y - q.y;
+                if (dx * dx + dy * dy < NET_MERGE_DIST * NET_MERGE_DIST) {
+                    spliceCastLoop(i, j);
+                    return;
+                }
+            }
+        }
+    }
+
+    private void spliceCastLoop(int start, int end) {
+        Net ring = new Net();
+        for (int k = start; k <= end; k++) {
+            ring.pts.add(deployed.pts.get(k));
+        }
+        Array<NetPoint> rest = new Array<>();
+        for (int k = end + 1; k < deployed.pts.size; k++) {
+            rest.add(deployed.pts.get(k));
+        }
+        // the short tail paid out before the loop is trimmed away
+        for (int k = 0; k < start; k++) {
+            releasePointLinks(deployed.pts.get(k));
+        }
+        deployed.pts.clear();
+        deployed.pts.addAll(rest);
+        ring.closed = true;
+        freeNets.add(ring);
+        sealRing(ring); // empty catches burn away immediately, as usual
+        game.sfx.playThud(0.3f);
+    }
+
+    private void releasePointLinks(NetPoint p) {
+        for (int i = links.size - 1; i >= 0; i--) {
+            NetLink link = links.get(i);
+            if (link.a == p || link.b == p) {
+                link.a.linked = false;
+                link.b.linked = false;
+                links.removeIndex(i);
+            }
+        }
+    }
+
     /** Casting over a loose strand auto-cuts the payline and splices it on. */
     private void connectCastNet() {
         if (deployed == null || deployed.pts.size < 3) return;
