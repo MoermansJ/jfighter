@@ -131,11 +131,6 @@ public class OverworldScreen implements Screen {
         }
         shapes.end();
 
-        // dialog
-        if (selectedNode != null) {
-            drawDialog(selectedNode);
-        }
-
         // labels + credits
         batch.setProjectionMatrix(viewport.getCamera().combined);
         batch.begin();
@@ -193,6 +188,11 @@ public class OverworldScreen implements Screen {
         Dev.drawIndicator(batch, font, WORLD_WIDTH, WORLD_HEIGHT);
         font.getData().setScale(1.4f);
         batch.end();
+
+        // modal dialog renders last: always on top of map, labels, and readouts
+        if (selectedNode != null) {
+            drawDialog(selectedNode);
+        }
 
         if (victory) drawVictory();
     }
