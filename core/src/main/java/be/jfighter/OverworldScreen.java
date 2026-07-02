@@ -22,6 +22,16 @@ public class OverworldScreen implements Screen {
     private static final float MAP_TOP = 270f; // divider: sector map below, ship blueprint above
     private static final float NODE_RADIUS = 11f;     // visual size
     private static final float NODE_HIT_RADIUS = 18f; // clicks stay comfortable
+
+    // map console bezel, matching the deck monitor's style: the two stacked screens read as one console
+    private static final float MBEZ_X1 = 2f;
+    private static final float MBEZ_X2 = JFighter.WORLD_WIDTH - 2f;
+    private static final float MBEZ_Y1 = 2f;
+    private static final float MBEZ_Y2 = MAP_TOP - 2f;
+    private static final float MSCR_X1 = 14f;
+    private static final float MSCR_X2 = JFighter.WORLD_WIDTH - 14f;
+    private static final float MSCR_Y1 = 14f;
+    private static final float MSCR_Y2 = MAP_TOP - 14f;
     private static final int TRAVEL_FUEL_COST = 1;
 
     // crew roster panel, top-left of the deck-view section (inside the monitor bezel)
@@ -89,10 +99,30 @@ public class OverworldScreen implements Screen {
         deckView.renderShapes(shapes);
         drawRoster();
 
-        // section divider
+        // map console: bezel strips + dark screen behind everything map-related
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.14f, 0.15f, 0.17f, 1f);
+        shapes.rect(MBEZ_X1, MBEZ_Y1, MBEZ_X2 - MBEZ_X1, MSCR_Y1 - MBEZ_Y1);
+        shapes.rect(MBEZ_X1, MSCR_Y2, MBEZ_X2 - MBEZ_X1, MBEZ_Y2 - MSCR_Y2);
+        shapes.rect(MBEZ_X1, MSCR_Y1, MSCR_X1 - MBEZ_X1, MSCR_Y2 - MSCR_Y1);
+        shapes.rect(MSCR_X2, MSCR_Y1, MBEZ_X2 - MSCR_X2, MSCR_Y2 - MSCR_Y1);
+        shapes.setColor(0.004f, 0.01f, 0.02f, 1f);
+        shapes.rect(MSCR_X1, MSCR_Y1, MSCR_X2 - MSCR_X1, MSCR_Y2 - MSCR_Y1);
+        shapes.end();
+
+        // section divider + bezel edges
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0.25f, 0.25f, 0.25f, 1f);
         shapes.line(0, MAP_TOP, WORLD_WIDTH, MAP_TOP);
+        shapes.setColor(0.32f, 0.34f, 0.38f, 1f);
+        shapes.rect(MBEZ_X1, MBEZ_Y1, MBEZ_X2 - MBEZ_X1, MBEZ_Y2 - MBEZ_Y1);
+        shapes.setColor(0.06f, 0.07f, 0.09f, 1f);
+        shapes.rect(MSCR_X1, MSCR_Y1, MSCR_X2 - MSCR_X1, MSCR_Y2 - MSCR_Y1);
+        shapes.setColor(0.45f, 0.48f, 0.52f, 1f);
+        for (float[] c : new float[][]{{MBEZ_X1 + 6, MBEZ_Y1 + 6}, {MBEZ_X2 - 6, MBEZ_Y1 + 6},
+                                       {MBEZ_X1 + 6, MBEZ_Y2 - 6}, {MBEZ_X2 - 6, MBEZ_Y2 - 6}}) {
+            shapes.circle(c[0], c[1], 2.5f, 8); // corner screws
+        }
 
         drawMapDecals();
 
@@ -155,7 +185,7 @@ public class OverworldScreen implements Screen {
         GlyphLayout o2Gl = new GlyphLayout(font, "O2: " + o2 + "%");
         font.draw(batch, o2Gl, 930 - o2Gl.width, 491);
         font.setColor(Color.GRAY);
-        font.draw(batch, state.map.sectorName.toUpperCase(), 10, MAP_TOP - 8);
+        font.draw(batch, state.map.sectorName.toUpperCase(), 26, MSCR_Y2 - 8);
 
         // deck view labels + feed overlay
         font.getData().setScale(1f);
@@ -234,13 +264,13 @@ public class OverworldScreen implements Screen {
 
     /** Sci-fi dressing for the map section: faint grid plus scan rings, markers, and hazard triangles. */
     private void drawMapDecals() {
-        // grid
+        // grid, clipped to the console screen
         shapes.setColor(0.07f, 0.09f, 0.11f, 1f);
-        for (float x = 96; x < WORLD_WIDTH; x += 96) {
-            shapes.line(x, 0, x, MAP_TOP);
+        for (float x = 96; x < MSCR_X2; x += 96) {
+            if (x > MSCR_X1) shapes.line(x, MSCR_Y1, x, MSCR_Y2);
         }
-        for (float y = 68; y < MAP_TOP; y += 68) {
-            shapes.line(0, y, WORLD_WIDTH, y);
+        for (float y = 68; y < MSCR_Y2; y += 68) {
+            if (y > MSCR_Y1) shapes.line(MSCR_X1, y, MSCR_X2, y);
         }
         // nebulas: layered violet swirls marking severed routes
         for (OverworldMap.Nebula n : state.map.getNebulas()) {
