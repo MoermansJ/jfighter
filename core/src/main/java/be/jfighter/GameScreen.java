@@ -127,7 +127,7 @@ public class GameScreen implements Screen {
         Fonts.scale(font, 1.4f);
         viewport = new FitViewport(ARENA_WIDTH, ARENA_HEIGHT);
         player = new Player(120f, (ARENA_HEIGHT - Player.HEIGHT) / 2f);
-        player.thrustMult = state.thrustMult();
+        player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0]); // engine crew
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
@@ -491,6 +491,8 @@ public class GameScreen implements Screen {
             default:
                 if (held && w.ready()) {
                     w.fire();
+                    // gunnery crew shortens the cycle
+                    w.cooldown = w.type.reload / (1f + 0.08f * state.roomStats[4]);
                     Projectile p = new Projectile(nx, ny, body.rotation, body,
                         w.type.speed, w.type.damage,
                         w.type.isRocket() ? 260f : 0f,

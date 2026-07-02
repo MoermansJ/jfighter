@@ -484,7 +484,16 @@ public class OverworldScreen implements Screen {
     private static final float COMBAT_ESCAPE_CHANCE = 0.6f; // placeholder tuning
 
     private float escapeChance() {
-        return Dev.MODE ? 1f : COMBAT_ESCAPE_CHANCE;
+        if (Dev.MODE) return 1f;
+        // a manned helm makes slipping past more likely (bridge = room 5)
+        return Math.min(0.95f, COMBAT_ESCAPE_CHANCE + 0.05f * deckView.roomStat(5));
+    }
+
+    /** Manned-station bonuses ride along into the instance. */
+    private void snapshotRoomStats() {
+        for (int i = 0; i < state.roomStats.length; i++) {
+            state.roomStats[i] = deckView.roomStat(i);
+        }
     }
 
     private void drawDialog(Node node) {
@@ -607,6 +616,7 @@ public class OverworldScreen implements Screen {
                 if (node.type == Node.Type.COMBAT && !node.completed
                         && MathUtils.random() >= escapeChance()) {
                     // failed to slip past: hostiles force the fight (completes when they die)
+                    snapshotRoomStats();
                     game.setScreen(new GameScreen(game, state));
                     return true;
                 }
@@ -690,6 +700,7 @@ public class OverworldScreen implements Screen {
     private boolean enterNode(Node node) {
         selectedNode = null;
         if (!travelTo(node)) return false; // out of fuel: stay put
+        snapshotRoomStats();
         switch (node.type) {
             case COMBAT: game.setScreen(new GameScreen(game, state)); return true; // completes when hostiles die
             case TRADER: game.setScreen(new TraderScreen(game, state)); return true; // traders never complete

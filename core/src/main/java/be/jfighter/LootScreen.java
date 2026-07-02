@@ -241,7 +241,7 @@ public class LootScreen implements Screen {
         font = game.fonts.font;
         Fonts.scale(font, 1.4f);
         player = new Player(EXIT_X - Player.WIDTH / 2f, exitY - Player.HEIGHT / 2f);
-        player.thrustMult = state.thrustMult();
+        player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0]); // engine crew
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         effects.setPincerHull(true);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);

@@ -362,7 +362,8 @@ public class ShipDeckView {
                 c.hp = Math.max(0f, c.hp - SUFFOCATE_DPS * delta);
                 c.damageFlash = 0.6f;
             } else if (room == ROOM_MEDBAY) {
-                c.hp = Math.min(CrewMember.MAX_HP, c.hp + MEDBAY_HEAL_PER_SEC * delta);
+                c.hp = Math.min(CrewMember.MAX_HP,
+                    c.hp + MEDBAY_HEAL_PER_SEC * (1f + 0.3f * roomStat(ROOM_MEDBAY)) * delta);
             }
         }
 
@@ -418,7 +419,7 @@ public class ShipDeckView {
             }
         }
         for (int i = 0; i < o.length; i++) {
-            o[i] = Math.min(1f, o[i] + OXY_REGEN * delta);
+            o[i] = Math.min(1f, o[i] + OXY_REGEN * (1f + roomStat(7)) * delta); // life support crew boost regen
         }
     }
 

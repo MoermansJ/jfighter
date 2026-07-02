@@ -45,6 +45,8 @@ public class GameState {
         new java.util.EnumMap<>(ShipUpgrade.class);
     // per-compartment tier (#34): 1 = stock; scales the room's station effect
     public final int[] roomTier = {1, 1, 1, 1, 1, 1, 1, 1};
+    // manned-station snapshot taken when entering an instance (#7: crew stats matter)
+    public final int[] roomStats = new int[8];
 
     public int upgradeLevel(ShipUpgrade u) {
         return upgrades.getOrDefault(u, 0);
@@ -112,7 +114,7 @@ public class GameState {
         // the ship layout stays fixed for now)
         List<String> names = new ArrayList<>(List.of(SURNAMES));
         Skill[] skills = Skill.values();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             String surname = names.remove(MathUtils.random(names.size() - 1));
             String name = (char) ('A' + MathUtils.random(25)) + ". " + surname;
             Skill primary = skills[MathUtils.random(skills.length - 1)];
