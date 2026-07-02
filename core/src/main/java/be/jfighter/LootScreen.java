@@ -55,6 +55,13 @@ public class LootScreen implements Screen {
     private static final float SHIP_RADIUS = 18f;
     private static final float CARGO_RADIUS = 11f;
 
+    // pincer claw: F traps up to three crates in the forward jaws / releases them
+    private static final int PINCER_CAPACITY = 3;
+    private static final float PINCER_RANGE = 30f; // grab reach around the claw centre
+    private static final float PINCER_CLAW_FORWARD = 30f; // claw centre this far ahead of the ship centre
+    // held slots in ship-local coords (x right, y forward): a tight clump inside the jaws
+    private static final float[][] PINCER_SLOTS = {{0, 26}, {-13, 44}, {13, 44}};
+
     // tractor hook: fires backward from the tail, latches onto free nets, becomes a tow line
     private static final float HOOK_SPEED = 420f;
     private static final float HOOK_RETRACT_SPEED = 560f;
@@ -111,6 +118,7 @@ public class LootScreen implements Screen {
     private final Array<Net> netScratch = new Array<>();
     private final Array<Spark> sparks = new Array<>();
     private final int[] contact = new int[2];
+    private final Array<Loot> pincerHeld = new Array<>();
     private final Array<Loot> lootItems = new Array<>();
     private float catchFlash;
     private float hulkRotation;
@@ -187,6 +195,7 @@ public class LootScreen implements Screen {
         font.getData().setScale(1.4f);
         player = new Player(EXIT_X - Player.WIDTH / 2f, EXIT_Y - Player.HEIGHT / 2f);
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
+        effects.setPincerHull(true);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         buildHulkShape();
         spawnLoot();
@@ -237,6 +246,7 @@ public class LootScreen implements Screen {
         collideCargoWithCargo();
         collideShipWithCargo();
         collideWithHulk();
+        updatePincer();
         effects.update(player, delta);
 
         payOutDeployedNet();
@@ -291,6 +301,9 @@ public class LootScreen implements Screen {
         if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT)) {
             effects.clearAutopilot();
         }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.F)) {
+            if (!grabWithPincer() && pincerHeld.size > 0) releasePincer();
+        }
         if (Gdx.input.isKeyJustPressed(Input.Keys.E)) {
             if (hookState == HookState.STOWED) {
                 hookState = HookState.EXTENDING;
@@ -300,6 +313,59 @@ public class LootScreen implements Screen {
             }
         }
         return false;
+    }
+
+    private boolean isHeld(Loot crate) {
+        return pincerHeld.contains(crate, true);
+    }
+
+    /** Traps the nearest free crate within reach of the claw. Returns false when nothing was grabbed. */
+    private boolean grabWithPincer() {
+        if (pincerHeld.size >= PINCER_CAPACITY) return false;
+        float cx = player.x + Player.WIDTH / 2f;
+        float cy = player.y + Player.HEIGHT / 2f;
+        float clawX = cx - MathUtils.sinDeg(player.rotation) * PINCER_CLAW_FORWARD;
+        float clawY = cy + MathUtils.cosDeg(player.rotation) * PINCER_CLAW_FORWARD;
+        Loot best = null;
+        float bestD2 = PINCER_RANGE * PINCER_RANGE;
+        for (Loot crate : lootItems) {
+            if (isHeld(crate)) continue;
+            float dx = crate.x - clawX;
+            float dy = crate.y - clawY;
+            float d2 = dx * dx + dy * dy;
+            if (d2 < bestD2) {
+                best = crate;
+                bestD2 = d2;
+            }
+        }
+        if (best == null) return false;
+        pincerHeld.add(best);
+        game.sfx.playThud(0.3f);
+        return true;
+    }
+
+    /** Opens the jaws: the clump drifts off with the ship's velocity. */
+    private void releasePincer() {
+        pincerHeld.clear();
+    }
+
+    /** Held crates ride in the jaws: pinned to their slots, matching the ship's velocity. */
+    private void updatePincer() {
+        float cx = player.x + Player.WIDTH / 2f;
+        float cy = player.y + Player.HEIGHT / 2f;
+        float fx = -MathUtils.sinDeg(player.rotation); // forward
+        float fy = MathUtils.cosDeg(player.rotation);
+        float rx = fy; // right = forward rotated -90°
+        float ry = -fx;
+        for (int i = 0; i < pincerHeld.size; i++) {
+            Loot crate = pincerHeld.get(i);
+            float sx = PINCER_SLOTS[i][0];
+            float sy = PINCER_SLOTS[i][1];
+            crate.x = cx + rx * sx + fx * sy;
+            crate.y = cy + ry * sx + fy * sy;
+            crate.vx = player.vx;
+            crate.vy = player.vy;
+        }
     }
 
     private void releaseHook() {
@@ -464,6 +530,7 @@ public class LootScreen implements Screen {
             for (NetPoint p : net.pts) {
                 if (p.attached != null) continue;
                 for (Loot crate : lootItems) {
+                    if (isHeld(crate)) continue; // carried cargo can't be netted
                     // a sealed ring only grabs its own catch
                     if (net.closed && !net.contents.contains(crate, true)) continue;
                     float dx = p.x - crate.x;
@@ -815,6 +882,7 @@ public class LootScreen implements Screen {
                 }
             }
             lootItems.removeIndex(i);
+            pincerHeld.removeValue(crate, true);
             state.credits += CREDITS_PER_LOOT;
             catchFlash = CATCH_FLASH_TIME;
             game.sfx.playCatch();
@@ -908,6 +976,7 @@ public class LootScreen implements Screen {
         player.vx += hulkPullX(cx, cy) * delta;
         player.vy += hulkPullY(cx, cy) * delta;
         for (Loot loot : lootItems) {
+            if (isHeld(loot)) continue;
             loot.vx += hulkPullX(loot.x, loot.y) * delta;
             loot.vy += hulkPullY(loot.x, loot.y) * delta;
         }
@@ -932,6 +1001,7 @@ public class LootScreen implements Screen {
     private void updateLoot(float delta) {
         float damping = (float) Math.exp(-CARGO_DRAG * delta);
         for (Loot loot : lootItems) {
+            if (isHeld(loot)) continue; // pinned in the pincer jaws
             loot.vx *= damping;
             loot.vy *= damping;
             loot.spin *= damping;
@@ -969,6 +1039,7 @@ public class LootScreen implements Screen {
             for (int j = i + 1; j < lootItems.size; j++) {
                 Loot a = lootItems.get(i);
                 Loot b = lootItems.get(j);
+                if (isHeld(a) || isHeld(b)) continue;
                 float dx = b.x - a.x;
                 float dy = b.y - a.y;
                 float d2 = dx * dx + dy * dy;
@@ -999,6 +1070,7 @@ public class LootScreen implements Screen {
         float minDist = SHIP_RADIUS + CARGO_RADIUS;
 
         for (Loot loot : lootItems) {
+            if (isHeld(loot)) continue;
             float dx = loot.x - cx;
             float dy = loot.y - cy;
             float dist2 = dx * dx + dy * dy;
@@ -1253,6 +1325,8 @@ public class LootScreen implements Screen {
         font.draw(batch, "Cargo left: " + lootItems.size, 10, HUD_H - 35);
         font.setColor(deployed != null ? Color.YELLOW : Color.GRAY);
         font.draw(batch, deployed != null ? "Net: DEPLOYED" : "Net: stowed", 10, HUD_H - 60);
+        font.setColor(pincerHeld.size > 0 ? Color.YELLOW : Color.GRAY);
+        font.draw(batch, "Pincer: " + pincerHeld.size + "/" + PINCER_CAPACITY, 10, HUD_H - 85);
 
         if (catchFlash > 0) {
             font.setColor(Color.GREEN);

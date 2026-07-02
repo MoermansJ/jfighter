@@ -75,6 +75,7 @@ public class SpaceEffects {
     private boolean autopilotActive;
     private float autopilotX;
     private float autopilotY;
+    private boolean pincerHull; // draw the pincer salvage craft instead of the B-2
 
     private static class Fragment {
         float x, y, vx, vy, rotation, spin;
@@ -181,6 +182,10 @@ public class SpaceEffects {
             spawnRcsPuff(player, -1);
         }
         if (autopilotActive) steerAutopilot(player, delta);
+    }
+
+    public void setPincerHull(boolean pincerHull) {
+        this.pincerHull = pincerHull;
     }
 
     public void setAutopilotTarget(float x, float y) {
@@ -401,7 +406,8 @@ public class SpaceEffects {
             for (int j = 0; j < ny; j++) {
                 transform.setToTranslation(cx + dxs[i], cy + dys[j], 0).rotate(0, 0, 1, player.rotation);
                 shapes.setTransformMatrix(transform);
-                ShipRenderer.drawB2(shapes);
+                if (pincerHull) ShipRenderer.drawPincer(shapes);
+                else ShipRenderer.drawB2(shapes);
                 if (player.thrustLevel > 0.02f) ShipRenderer.drawExhaust(shapes, player.thrustLevel);
             }
         }
