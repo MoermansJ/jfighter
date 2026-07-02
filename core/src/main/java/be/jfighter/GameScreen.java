@@ -91,13 +91,24 @@ public class GameScreen implements Screen {
         float x, y, age, delay, speed, maxR;
     }
 
+    private static class CritToast {
+        Enemy e;
+        String text;
+        float t = 2.5f;
+    }
+
     private final Array<Spark> sparks = new Array<>();
+    private final Array<CritToast> critToasts = new Array<>();
     private final Array<Shard> shards = new Array<>();
     private final Array<Blast> blasts = new Array<>();
 
     private static class Enemy {
         final Player body; // reuses ship physics: drag keeps them slowly adrift
         float hp = ENEMY_HP;
+        final long seed = MathUtils.random.nextLong(); // deterministic damage-mark placement
+        boolean onFire;      // crit: damage over time + flames
+        boolean engineOut;   // crit: no thrust
+        boolean helmDamaged; // crit: crippled turning
 
         Enemy(float x, float y) {
             body = new Player(x, y);
@@ -179,9 +190,23 @@ public class GameScreen implements Screen {
             if (shieldFlash > 0) shieldFlash -= delta;
             player.updatePosition(delta);
             bounceOffWalls(player);
-            for (Enemy e : enemies) {
+            for (int i = enemies.size - 1; i >= 0; i--) {
+                Enemy e = enemies.get(i);
                 e.body.updatePosition(delta);
                 bounceOffWalls(e.body);
+                if (e.onFire) {
+                    e.hp -= 2.5f * delta; // burning until it gives out
+                    if (MathUtils.random() < 14f * delta) {
+                        addSparks(e.centerX() + MathUtils.random(-8f, 8f),
+                            e.centerY() + MathUtils.random(-8f, 8f), e.body.vx, e.body.vy, 1);
+                    }
+                    if (e.hp <= 0) killEnemy(i);
+                }
+            }
+            for (int i = critToasts.size - 1; i >= 0; i--) {
+                CritToast ct = critToasts.get(i);
+                ct.t -= delta;
+                if (ct.t <= 0) critToasts.removeIndex(i);
             }
             effects.update(player, delta);
             effects.spawnExhaust(player, delta);
@@ -211,8 +236,30 @@ public class GameScreen implements Screen {
         effects.renderAutopilot(shapeRenderer);
         drawEnemies();
         drawEffects();
+        drawThreatMarkers();
+        drawCritToasts();
         if (defeatT < 0) {
             effects.renderShip(shapeRenderer, player);
+            float hullFrac = state.hull / state.maxHull;
+            if (hullFrac < 0.95f) {
+                shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+                transform.setToTranslation(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f, 0)
+                    .rotate(0, 0, 1, player.rotation);
+                shapeRenderer.setTransformMatrix(transform);
+                java.util.Random r = new java.util.Random(1337);
+                int marks = Math.min(6, 1 + (int) ((1f - hullFrac) * 6f));
+                shapeRenderer.setColor(0.45f, 0.1f, 0.08f, 1f);
+                for (int m = 0; m < marks; m++) {
+                    float mx = -18f + r.nextFloat() * 36f;
+                    float my = -10f + r.nextFloat() * 24f;
+                    float ang = r.nextFloat() * 360f;
+                    float len = 3f + r.nextFloat() * 4f;
+                    shapeRenderer.line(mx, my, mx + MathUtils.cosDeg(ang) * len,
+                        my + MathUtils.sinDeg(ang) * len);
+                }
+                shapeRenderer.setTransformMatrix(transform.idt());
+                shapeRenderer.end();
+            }
             if (shieldFlash > 0) {
                 shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
                 float a = shieldFlash / 0.4f;
@@ -484,8 +531,34 @@ public class GameScreen implements Screen {
 
     private void damageEnemy(Enemy e, float dmg) {
         e.hp -= dmg;
-        if (e.hp <= 0) killEnemy(enemies.indexOf(e, true));
-        else game.sfx.playThud(0.2f);
+        if (e.hp <= 0) {
+            killEnemy(enemies.indexOf(e, true));
+            return;
+        }
+        game.sfx.playThud(0.2f);
+        // critical hits: fires and knocked-out subsystems, announced by a tooltip
+        if (MathUtils.random() < 0.14f) {
+            int roll = MathUtils.random(2);
+            if (roll == 0 && !e.onFire) {
+                e.onFire = true;
+                toast(e, "FIRE");
+            } else if (roll == 1 && !e.engineOut) {
+                e.engineOut = true;
+                e.body.thrustMult = 0f;
+                toast(e, "ENGINE OUT");
+            } else if (!e.helmDamaged) {
+                e.helmDamaged = true;
+                e.body.turnMult = 0.3f;
+                toast(e, "HELM DAMAGED");
+            }
+        }
+    }
+
+    private void toast(Enemy e, String text) {
+        CritToast ct = new CritToast();
+        ct.e = e;
+        ct.text = text;
+        critToasts.add(ct);
     }
 
     /** Impact feedback; rockets blast and splash everything nearby. */
@@ -605,6 +678,9 @@ public class GameScreen implements Screen {
     }
 
     private void killEnemy(int index) {
+        for (int i = critToasts.size - 1; i >= 0; i--) {
+            if (critToasts.get(i).e == enemies.get(index)) critToasts.removeIndex(i);
+        }
         for (Projectile p : projectiles) {
             if (p.target == enemies.get(index).body) p.target = null; // lock dies with the ship
         }
@@ -765,6 +841,94 @@ public class GameScreen implements Screen {
         shapeRenderer.end();
     }
 
+    /** Seeded scorch nicks accumulate as hp drops, so damage is visible and stable. */
+    private void drawDamageMarks(Enemy e) {
+        float frac = e.hp / ENEMY_HP;
+        if (frac >= 0.98f) return;
+        java.util.Random r = new java.util.Random(e.seed);
+        int marks = Math.min(6, 1 + (int) ((1f - frac) * 6f));
+        shapeRenderer.setColor(0.45f, 0.1f, 0.08f, 1f);
+        for (int m = 0; m < marks; m++) {
+            float mx = -18f + r.nextFloat() * 36f;
+            float my = -10f + r.nextFloat() * 24f;
+            float ang = r.nextFloat() * 360f;
+            float len = 3f + r.nextFloat() * 4f;
+            shapeRenderer.line(mx, my, mx + MathUtils.cosDeg(ang) * len, my + MathUtils.sinDeg(ang) * len);
+        }
+        // status glyphs beside the craft (drawn in local space just off the wing)
+        float gx = 26f;
+        if (e.onFire) {
+            shapeRenderer.setColor(1f, 0.55f, 0.15f, 1f);
+            shapeRenderer.line(gx, 0, gx + 2, 6);
+            shapeRenderer.line(gx + 2, 6, gx + 4, 1);
+            shapeRenderer.line(gx + 4, 1, gx + 6, 5);
+            gx += 10f;
+        }
+        if (e.engineOut) {
+            shapeRenderer.setColor(0.9f, 0.3f, 0.25f, 1f);
+            shapeRenderer.line(gx, 0, gx + 5, 5);
+            shapeRenderer.line(gx, 5, gx + 5, 0);
+            gx += 10f;
+        }
+        if (e.helmDamaged) {
+            shapeRenderer.setColor(0.9f, 0.7f, 0.2f, 1f);
+            shapeRenderer.line(gx, 2, gx + 2, 4);
+            shapeRenderer.line(gx + 2, 4, gx + 4, 2);
+            shapeRenderer.line(gx + 4, 2, gx + 6, 4);
+        }
+    }
+
+    /** Crit tooltips floating beside the affected craft. */
+    private void drawCritToasts() {
+        if (critToasts.size == 0) return;
+        batch.setProjectionMatrix(viewport.getCamera().combined);
+        batch.begin();
+        Fonts.scale(font, 1f);
+        for (CritToast ct : critToasts) {
+            float a = Math.min(1f, ct.t / 0.6f);
+            font.setColor(0f, 0f, 0f, a);
+            font.draw(batch, ct.text, ct.e.centerX() + 25f, ct.e.centerY() + 25f - 1);
+            font.setColor(1f, 0.6f, 0.2f, a);
+            font.draw(batch, ct.text, ct.e.centerX() + 24f, ct.e.centerY() + 25f);
+        }
+        Fonts.scale(font, 1.4f);
+        batch.end();
+    }
+
+    /** Warning diamonds over incoming rounds on a collision course with the fighter. */
+    private void drawThreatMarkers() {
+        if (defeatT >= 0) return;
+        float cx = player.x + Player.WIDTH / 2f;
+        float cy = player.y + Player.HEIGHT / 2f;
+        boolean began = false;
+        for (Projectile p : projectiles) {
+            if (p.shooter == player) continue;
+            float rx = p.x - cx;
+            float ry = p.y - cy;
+            float vx = p.velX() - player.vx;
+            float vy = p.velY() - player.vy;
+            float v2 = vx * vx + vy * vy;
+            if (v2 < 1f) continue;
+            float tca = -(rx * vx + ry * vy) / v2;
+            if (tca < 0 || tca > 1.2f) continue;
+            float qx = rx + vx * tca;
+            float qy = ry + vy * tca;
+            if (qx * qx + qy * qy > 36f * 36f) continue;
+            if (!began) {
+                shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+                began = true;
+            }
+            float pulse = 0.6f + 0.4f * MathUtils.sin(shieldSince * 20f + p.x);
+            shapeRenderer.setColor(1f * pulse, 0.15f, 0.1f, 1f);
+            float r = 7f + p.damage * 0.15f;
+            shapeRenderer.line(p.x - r, p.y, p.x, p.y + r);
+            shapeRenderer.line(p.x, p.y + r, p.x + r, p.y);
+            shapeRenderer.line(p.x + r, p.y, p.x, p.y - r);
+            shapeRenderer.line(p.x, p.y - r, p.x - r, p.y);
+        }
+        if (began) shapeRenderer.end();
+    }
+
     /** Lock-on brackets around the homing target, so auto-aim shows its hand. */
     private void drawLockMarker() {
         if (lockTarget == null) return;
@@ -791,6 +955,7 @@ public class GameScreen implements Screen {
             transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
             shapeRenderer.setTransformMatrix(transform);
             ShipRenderer.drawB2(shapeRenderer);
+            drawDamageMarks(e);
             if (e.body.thrustLevel > 0.02f) {
                 float flick = 0.8f + 0.35f * MathUtils.random();
                 shapeRenderer.setColor(1f, 0.5f, 0.12f, 1f);

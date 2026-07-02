@@ -26,6 +26,7 @@ public class Player {
     public float vy;
     public float rotation;
     public float thrustMult = 1f; // engine tuning upgrades scale the burn
+    public float turnMult = 1f;   // helm damage cripples turning
     public float angularVel;
     public int throttle;      // 0..THROTTLE_STEPS, set in 10% steps
     public float thrustLevel; // 0 to 1, ramps toward throttle setting
@@ -98,11 +99,11 @@ public class Player {
     }
 
     public void rotateLeft(float delta) {
-        angularVel = Math.min(MAX_ANGULAR_SPEED, angularVel + ANGULAR_ACCEL * delta);
+        angularVel = Math.min(MAX_ANGULAR_SPEED, angularVel + ANGULAR_ACCEL * turnMult * delta);
     }
 
     public void rotateRight(float delta) {
-        angularVel = Math.max(-MAX_ANGULAR_SPEED, angularVel - ANGULAR_ACCEL * delta);
+        angularVel = Math.max(-MAX_ANGULAR_SPEED, angularVel - ANGULAR_ACCEL * turnMult * delta);
     }
 
     private void clampSpeed() {

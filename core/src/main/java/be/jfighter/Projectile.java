@@ -53,6 +53,14 @@ public class Projectile {
         life -= delta;
     }
 
+    public float velX() {
+        return -MathUtils.sinDeg(rotation) * speed;
+    }
+
+    public float velY() {
+        return MathUtils.cosDeg(rotation) * speed;
+    }
+
     public boolean isOutOfBounds(float worldWidth, float worldHeight) {
         return life <= 0 || x < 0 || x > worldWidth || y < 0 || y > worldHeight;
     }
