@@ -29,6 +29,7 @@ public class JFighter extends Game {
         sfx = new SoundFx();
         applySavedDisplayMode();
         fonts = new Fonts(); // after the display mode: sized to the real backbuffer
+        currentRun = SaveGame.load(); // resume across restarts (#18)
         setScreen(new TitleScreen(this));
     }
 

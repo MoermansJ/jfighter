@@ -91,6 +91,19 @@ public class OverworldMap {
         generateDecals();
     }
 
+    /** Restores a saved map exactly (used by SaveGame). */
+    OverworldMap(String sectorName, int lastNodeId, int currentNodeId,
+                 java.util.List<Node> nodeList, java.util.List<Nebula> nebs,
+                 java.util.List<Obstacle> obs) {
+        this.sectorName = sectorName;
+        this.lastNodeId = lastNodeId;
+        this.currentNodeId = currentNodeId;
+        for (Node n : nodeList) nodes.put(n.id, n);
+        nebulas.addAll(nebs);
+        obstacles.addAll(obs);
+        generateDecals(); // cosmetic only: fresh dressing is fine
+    }
+
     private int generate() {
         List<List<Integer>> columns = new ArrayList<>();
         List<Float> xs = new ArrayList<>();

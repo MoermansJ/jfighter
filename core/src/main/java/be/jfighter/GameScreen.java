@@ -185,6 +185,7 @@ public class GameScreen implements Screen {
             defeatT += delta;
             if (defeatT >= DEFEAT_DELAY) {
                 game.currentRun = null; // run lost
+                SaveGame.clear();
                 game.setScreen(new SummaryScreen(game, state, false));
                 return;
             }

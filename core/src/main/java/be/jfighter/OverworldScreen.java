@@ -89,6 +89,7 @@ public class OverworldScreen implements Screen {
         font = game.fonts.font;
         Fonts.scale(font, 1.4f);
         deckView = new ShipDeckView(state);
+        SaveGame.save(state); // checkpoint every return to the map
         for (int i = 0; i < MAP_STAR_COUNT; i++) {
             mapStarX[i] = MathUtils.random(MSCR_X1 + 4, MSCR_X2 - 4);
             mapStarY[i] = MathUtils.random(MSCR_Y1 + 4, MSCR_Y2 - 4);
@@ -692,6 +693,7 @@ public class OverworldScreen implements Screen {
             }
             if (END_RUN_BTN.contains(mouse.x, mouse.y)) {
                 game.currentRun = null; // run over: retire with the spoils
+                SaveGame.clear();
                 game.setScreen(new SummaryScreen(game, state, true));
                 return true;
             }
