@@ -10,6 +10,7 @@ public class Node {
     public final float y;
     public final Type type;
     public final List<Integer> connections;
+    public boolean visited; // the player has been here: its type is known for the rest of the run
 
     public Node(int id, float x, float y, Type type, List<Integer> connections) {
         this.id = id;

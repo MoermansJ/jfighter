@@ -71,6 +71,7 @@ public class OverworldMap {
     public OverworldMap() {
         sectorName = SECTOR_NAMES[MathUtils.random(SECTOR_NAMES.length - 1)] + " Sector";
         lastNodeId = generate();
+        nodes.get(0).visited = true; // HOME is known from the start
         generateDecals();
     }
 
@@ -347,6 +348,7 @@ public class OverworldMap {
 
     public void setCurrentNode(int id) {
         currentNodeId = id;
+        nodes.get(id).visited = true;
     }
 
     public boolean isReachable(int id) {

@@ -142,7 +142,7 @@ public class OverworldScreen implements Screen {
         font.getData().setScale(1f);
         font.setColor(Color.WHITE);
         for (Node n : state.map.allNodes()) {
-            String label = n.id == state.map.lastNodeId ? "END" : n.type.name();
+            String label = n.id == state.map.lastNodeId ? "END" : typeKnown(n) ? n.type.name() : "???";
             GlyphLayout gl = new GlyphLayout(font, label);
             font.draw(batch, label, n.x - gl.width / 2f, n.y - NODE_RADIUS - 6f);
         }
@@ -321,8 +321,22 @@ public class OverworldScreen implements Screen {
         return MathUtils.clamp(dy, 8f, MAP_TOP - 14 - DIALOG_H);
     }
 
+    /**
+     * Map fog: a node's type only shows once the player has been there. Traders
+     * broadcast openly, HOME and the objective are always obvious.
+     */
+    private boolean typeKnown(Node n) {
+        return n.visited || n.type == Node.Type.TRADER || n.type == Node.Type.HOME
+            || n.id == state.map.lastNodeId;
+    }
+
     /** The ship's AI briefs the captain on the encounter at this node. */
-    private String encounterPrompt(Node.Type type) {
+    private String encounterPrompt(Node node) {
+        if (!typeKnown(node)) {
+            return "Captain, an unresolved signature is registering out there. "
+                + "We will not know what it is until we commit.";
+        }
+        Node.Type type = node.type;
         switch (type) {
             case LOOT:
                 return "Captain, I have detected a cluster of derelict cargo in our vicinity. How shall we proceed?";
@@ -335,8 +349,9 @@ public class OverworldScreen implements Screen {
         }
     }
 
-    private String encounterOption1(Node.Type type) {
-        switch (type) {
+    private String encounterOption1(Node node) {
+        if (!typeKnown(node)) return "1. Move in and engage whatever is waiting.";
+        switch (node.type) {
             case LOOT:   return "1. Dispatch a swarm of tractor drones to collect the cluster.";
             case TRADER: return "1. Dock and browse their wares.";
             case COMBAT: return "1. Scramble to the guns.";
@@ -344,8 +359,9 @@ public class OverworldScreen implements Screen {
         }
     }
 
-    private String encounterOption2(Node.Type type) {
-        switch (type) {
+    private String encounterOption2(Node node) {
+        if (!typeKnown(node)) return "2. Move in quietly and ignore the signature.";
+        switch (node.type) {
             case LOOT:   return "2. Ignore the cluster.";
             case TRADER: return "2. Ignore the hail.";
             case COMBAT: return "2. Burn hard and slip past them.";
@@ -378,13 +394,13 @@ public class OverworldScreen implements Screen {
         batch.begin();
         font.getData().setScale(1f);
         font.setColor(0.55f, 0.85f, 0.95f, 1f); // the ship AI speaks in console cyan
-        font.draw(batch, encounterPrompt(node.type),
+        font.draw(batch, encounterPrompt(node),
             dx + 12, dy + DIALOG_H - 10, DIALOG_W - 24, Align.left, true);
         font.setColor(0.5f, 1f, 0.6f, 1f);
-        font.draw(batch, encounterOption1(node.type),
+        font.draw(batch, encounterOption1(node),
             o1.x + 8, o1.y + o1.height - 8, o1.width - 16, Align.left, true);
         font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, encounterOption2(node.type),
+        font.draw(batch, encounterOption2(node),
             o2.x + 8, o2.y + o2.height - 8, o2.width - 16, Align.left, true);
         font.getData().setScale(1.4f);
         batch.end();
@@ -534,6 +550,7 @@ public class OverworldScreen implements Screen {
     }
 
     private Color nodeColor(Node n) {
+        if (!typeKnown(n)) return UNKNOWN_NODE; // don't leak the type through the colour
         switch (n.type) {
             case HOME:   return Color.GRAY;
             case COMBAT: return Color.RED;
@@ -542,6 +559,8 @@ public class OverworldScreen implements Screen {
             default:     return Color.WHITE;
         }
     }
+
+    private static final Color UNKNOWN_NODE = new Color(0.55f, 0.6f, 0.62f, 1f);
 
     @Override
     public void resize(int width, int height) {
