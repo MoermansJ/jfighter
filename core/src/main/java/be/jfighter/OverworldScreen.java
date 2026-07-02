@@ -185,9 +185,6 @@ public class OverworldScreen implements Screen {
             String station = selectedCrew.station < 0 ? "unassigned" : ShipDeckView.ROOM_NAMES[selectedCrew.station];
             font.draw(batch, "Station: " + station, ROSTER_X, detailY - 22);
             font.draw(batch, "Click a compartment to station", ROSTER_X, detailY - 44);
-        } else {
-            font.setColor(Color.GRAY);
-            font.draw(batch, "Click a crewmember to select", ROSTER_X, detailY);
         }
         font.getData().setScale(1.4f);
         batch.end();
