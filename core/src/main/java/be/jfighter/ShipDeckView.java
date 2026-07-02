@@ -62,7 +62,7 @@ public class ShipDeckView {
     // oxygen compartments: rooms, corridor(+spurs), one chamber per airlock
     private static final int COMP_CORRIDOR = ROOMS.length;
     private static final float OXY_FLOW = 0.8f;   // equalisation rate through an open door, per second
-    private static final float VENT_FLOW = 1.6f;  // venting to space is faster
+    private static final float VENT_FLOW = 3.2f;  // venting to space is faster
     private static final float OXY_REGEN = 0.02f; // life-support regeneration per second (room 7; will scale with crew stats later)
 
     // crew health: vacuum suffocates, the medbay heals
