@@ -193,6 +193,10 @@ public class OverworldMap {
             }
             nodes.put(i, node);
         }
+        // one meteor-cloud node per sector (a middle node): its instances get showers
+        if (id > 3) {
+            nodes.get(1 + MathUtils.random(id - 3)).meteoric = true;
+        }
         return id - 1;
     }
 

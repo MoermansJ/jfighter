@@ -142,6 +142,9 @@ public class LootScreen implements Screen {
     private final int[] contact = new int[2];
     private final Array<Loot> pincerHeld = new Array<>();
     private float stormTimer = MathUtils.random(6f, 11f); // stormy nodes: next radiation wave
+    private float meteorTimer = MathUtils.random(5f, 9f);  // meteoric nodes: next shower
+    private final Array<float[]> meteors = new Array<>();  // {x, y, vx, vy, radius}
+    private final Array<float[]> mines = new Array<>();    // {x, y, vx, vy}
     private float stormFlash;
     private float grabPulse;     // jaw-snap animation, spikes on capture
     private float ejectCooldown; // capture disabled briefly after an eject
@@ -264,6 +267,19 @@ public class LootScreen implements Screen {
             hulkY = MathUtils.random(150f, ARENA_HEIGHT - 150f);
         } while (Vector2.dst(hulkX, hulkY, EXIT_X, exitY) < EXIT_RADIUS + hulkRadius + 240f);
 
+        mines.clear();
+        int mineCount = MathUtils.random(0, 3);
+        for (int i = 0; i < mineCount; i++) {
+            float x, y;
+            do {
+                x = MathUtils.random(350f, ARENA_WIDTH - 60f);
+                y = MathUtils.random(60f, ARENA_HEIGHT - 60f);
+            } while (Vector2.dst(x, y, EXIT_X, exitY) < EXIT_RADIUS + 120f
+                    || Vector2.dst(x, y, hulkX, hulkY) < hulkRadius + 80f);
+            float a = MathUtils.random(360f);
+            mines.add(new float[]{x, y, MathUtils.cosDeg(a) * 12f, MathUtils.sinDeg(a) * 12f});
+        }
+
         asteroids.clear();
         asteroidShapes.clear();
         int rocks = MathUtils.random(0, 4);
@@ -324,6 +340,150 @@ public class LootScreen implements Screen {
     /** Hold extensions raise how many crates the pincer can stow. */
     private int pincerCapacity() {
         return PINCER_CAPACITY + state.pincerCapacityBonus();
+    }
+
+    /** Drifting proximity mines: they snap net strands and sting the ship. */
+    private void updateMines(float delta) {
+        for (int i = mines.size - 1; i >= 0; i--) {
+            float[] mn = mines.get(i);
+            mn[0] += mn[2] * delta;
+            mn[1] += mn[3] * delta;
+            if (mn[0] < 20 || mn[0] > ARENA_WIDTH - 20) mn[2] = -mn[2];
+            if (mn[1] < 20 || mn[1] > ARENA_HEIGHT - 20) mn[3] = -mn[3];
+            // ship proximity
+            float pd = Vector2.dst(mn[0], mn[1], player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f);
+            if (pd < 26f) {
+                detonateMine(i, mn);
+                if (state.shield > 0) state.shield = Math.max(0, state.shield - 12f);
+                else state.hull = Math.max(1f, state.hull - 8f);
+                float kx = (player.x + Player.WIDTH / 2f - mn[0]) / Math.max(1f, pd);
+                float ky = (player.y + Player.HEIGHT / 2f - mn[1]) / Math.max(1f, pd);
+                player.vx += kx * 90f;
+                player.vy += ky * 90f;
+                continue;
+            }
+            // net strands trip it
+            boolean boom = false;
+            for (Net net : allNets()) {
+                for (int k = 0; k < net.pts.size; k++) {
+                    NetPoint p = net.pts.get(k);
+                    float dx = p.x - mn[0];
+                    float dy = p.y - mn[1];
+                    if (dx * dx + dy * dy < 16f * 16f) {
+                        detonateMine(i, mn);
+                        cutNetAt(net, k);
+                        boom = true;
+                        break;
+                    }
+                }
+                if (boom) break;
+            }
+        }
+    }
+
+    private void detonateMine(int index, float[] mn) {
+        mines.removeIndex(index);
+        burstSparks(mn[0], mn[1], 18);
+        game.sfx.playThud(0.45f);
+    }
+
+    /** Snaps a net at the given point: open strands split in two, sealed rings tear open. */
+    private void cutNetAt(Net net, int index) {
+        releasePointLinks(net.pts.get(index));
+        if (net.closed) {
+            // tear the ring open at the hit: reorder so the break sits at the ends
+            Array<NetPoint> reordered = new Array<>();
+            for (int k = index + 1; k < net.pts.size; k++) reordered.add(net.pts.get(k));
+            for (int k = 0; k < index; k++) reordered.add(net.pts.get(k));
+            net.pts.clear();
+            net.pts.addAll(reordered);
+            net.closed = false;
+            net.contents.clear();
+            return;
+        }
+        Net second = new Net();
+        for (int k = index + 1; k < net.pts.size; k++) second.pts.add(net.pts.get(k));
+        net.pts.truncate(Math.max(0, index));
+        if (second.pts.size >= 3 && net != deployed) {
+            freeNets.add(second);
+        }
+        if (net != deployed && net.pts.size < 3) {
+            removeLinksFor(net);
+            if (hookedNet == net) releaseHook();
+            freeNets.removeValue(net, true);
+        }
+    }
+
+    /** Meteor showers at meteoric nodes: 1 big or 3 small rocks cross the arena, bending near the well. */
+    private void updateMeteors(float delta) {
+        if (state.map.getCurrentNode().meteoric) {
+            meteorTimer -= delta;
+            if (meteorTimer <= 0) {
+                meteorTimer = MathUtils.random(6f, 12f);
+                boolean big = MathUtils.randomBoolean(0.4f);
+                int count = big ? 1 : 3;
+                for (int i = 0; i < count; i++) {
+                    spawnMeteor(big ? MathUtils.random(18f, 26f) : MathUtils.random(7f, 11f));
+                }
+            }
+        }
+        for (int i = meteors.size - 1; i >= 0; i--) {
+            float[] mt = meteors.get(i);
+            // gravity bends the path but never captures (clips through the well)
+            mt[2] += hulkPullX(mt[0], mt[1]) * 0.4f * delta;
+            mt[3] += hulkPullY(mt[0], mt[1]) * 0.4f * delta;
+            mt[0] += mt[2] * delta;
+            mt[1] += mt[3] * delta;
+            if (mt[0] < -140 || mt[0] > ARENA_WIDTH + 140 || mt[1] < -140 || mt[1] > ARENA_HEIGHT + 140) {
+                meteors.removeIndex(i);
+                continue;
+            }
+            // knocks the ship off course
+            float pd = Vector2.dst(mt[0], mt[1], player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f);
+            if (pd < mt[4] + SHIP_RADIUS) {
+                player.vx += mt[2] * 0.5f;
+                player.vy += mt[3] * 0.5f;
+                if (state.shield > 0) state.shield = Math.max(0, state.shield - mt[4] * 0.5f);
+                else state.hull = Math.max(1f, state.hull - mt[4] * 0.3f);
+                burstSparks(mt[0], mt[1], 10);
+                meteors.removeIndex(i);
+                game.sfx.playThud(0.4f);
+                continue;
+            }
+            // shoves cargo
+            for (Loot crate : lootItems) {
+                if (isHeld(crate)) continue;
+                if (Vector2.dst(mt[0], mt[1], crate.x, crate.y) < mt[4] + crate.radius) {
+                    crate.vx += mt[2] * 0.6f;
+                    crate.vy += mt[3] * 0.6f;
+                }
+            }
+            // snaps net strands it crosses
+            for (Net net : allNets()) {
+                for (int k = 0; k < net.pts.size; k++) {
+                    NetPoint p = net.pts.get(k);
+                    float dx = p.x - mt[0];
+                    float dy = p.y - mt[1];
+                    if (dx * dx + dy * dy < mt[4] * mt[4]) {
+                        cutNetAt(net, k);
+                        burstSparks(p.x, p.y, 4);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private void spawnMeteor(float radius) {
+        // enter from a random edge, aimed across the arena with jitter
+        int edge = MathUtils.random(3);
+        float x = edge == 0 ? -80f : edge == 1 ? ARENA_WIDTH + 80f : MathUtils.random(ARENA_WIDTH);
+        float y = edge == 2 ? -80f : edge == 3 ? ARENA_HEIGHT + 80f : MathUtils.random(ARENA_HEIGHT);
+        float tx = ARENA_WIDTH / 2f + MathUtils.random(-300f, 300f);
+        float ty = ARENA_HEIGHT / 2f + MathUtils.random(-200f, 200f);
+        float d = Math.max(1f, Vector2.dst(x, y, tx, ty));
+        float speed = MathUtils.random(220f, 320f);
+        meteors.add(new float[]{x, y, (tx - x) / d * speed, (ty - y) / d * speed, radius});
     }
 
     private boolean nearAsteroid(float x, float y, float margin) {
@@ -426,6 +586,8 @@ public class LootScreen implements Screen {
             }
         }
         if (stormFlash > 0) stormFlash -= delta;
+        updateMines(delta);
+        updateMeteors(delta);
         }
 
         ScreenUtils.clear(0, 0, 0.05f, 1f);
@@ -438,6 +600,7 @@ public class LootScreen implements Screen {
         drawHulk(delta);
         drawNets();
         drawLoot();
+        drawMinesAndMeteors();
         drawHook();
         drawSparks();
         effects.renderAutopilot(shapes);
@@ -1316,6 +1479,36 @@ public class LootScreen implements Screen {
             shapes.line(p.x, p.y, q.x, q.y);
             shapes.line(p.x, p.y, r.x, r.y);
         }
+    }
+
+    private void drawMinesAndMeteors() {
+        if (mines.size == 0 && meteors.size == 0) return;
+        shapes.setTransformMatrix(identity);
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (float[] mn : mines) {
+            shapes.setColor(0.55f, 0.55f, 0.6f, 1f);
+            shapes.circle(mn[0], mn[1], 7f, 10);
+            for (int k = 0; k < 4; k++) { // contact spikes
+                float a = k * 90f + 45f;
+                shapes.line(mn[0] + MathUtils.cosDeg(a) * 7f, mn[1] + MathUtils.sinDeg(a) * 7f,
+                    mn[0] + MathUtils.cosDeg(a) * 11f, mn[1] + MathUtils.sinDeg(a) * 11f);
+            }
+        }
+        for (float[] mt : meteors) {
+            shapes.setColor(0.75f, 0.6f, 0.45f, 1f);
+            shapes.circle(mt[0], mt[1], mt[4], 9);
+            shapes.setColor(1f, 0.55f, 0.2f, 0.6f);
+            shapes.line(mt[0], mt[1], mt[0] - mt[2] * 0.12f, mt[1] - mt[3] * 0.12f); // hot trail
+        }
+        shapes.end();
+        // blinking mine hearts
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        float blink = 0.5f + 0.5f * MathUtils.sin(effects.time() * 6f);
+        shapes.setColor(0.9f * blink, 0.15f, 0.1f, 1f);
+        for (float[] mn : mines) {
+            shapes.circle(mn[0], mn[1], 2.2f, 8);
+        }
+        shapes.end();
     }
 
     private void drawSparks() {
