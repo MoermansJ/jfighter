@@ -246,6 +246,7 @@ public class LootScreen implements Screen {
         drawNets();
         drawLoot();
         drawHook();
+        effects.renderAutopilot(shapes);
         effects.renderShip(shapes, player);
         drawWorldLabels();
         drawHud();
@@ -263,6 +264,13 @@ public class LootScreen implements Screen {
             } else {
                 cutDeployedNet();     // cut: the net floats free
             }
+        }
+        if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
+            Vector2 target = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+            effects.setAutopilotTarget(target.x, target.y);
+        }
+        if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT)) {
+            effects.clearAutopilot();
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.E)) {
             if (hookState == HookState.STOWED) {

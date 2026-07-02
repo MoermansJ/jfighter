@@ -48,6 +48,9 @@ public class SpaceEffects {
     // RCS puffs
     private static final float PUFF_LIFE = 0.35f;
     private static final float PUFF_JET_SPEED = 55f;
+    // autopilot: click-placed waypoint; steers the heading, the player flies the throttle
+    public static final float AUTOPILOT_TURN_GAIN = 4f;      // deg/s of turn per degree of heading error
+    public static final float AUTOPILOT_ARRIVE_RADIUS = 30f; // waypoint clears when the ship gets this close
 
     private final float worldW;
     private final float worldH;
@@ -69,6 +72,9 @@ public class SpaceEffects {
     private final Matrix4 identity = new Matrix4();
     private float time;
     private float zoom = 1f;
+    private boolean autopilotActive;
+    private float autopilotX;
+    private float autopilotY;
 
     private static class Fragment {
         float x, y, vx, vy, rotation, spin;
@@ -163,14 +169,79 @@ public class SpaceEffects {
             player.throttleDown();
         }
         player.updateThrust(delta, true);
-        if (Gdx.input.isKeyPressed(Input.Keys.LEFT)) {
+        boolean manualLeft = Gdx.input.isKeyPressed(Input.Keys.LEFT);
+        boolean manualRight = Gdx.input.isKeyPressed(Input.Keys.RIGHT);
+        if (manualLeft || manualRight) clearAutopilot(); // taking the stick disengages
+        if (manualLeft) {
             player.rotateLeft(delta);
             spawnRcsPuff(player, 1);
         }
-        if (Gdx.input.isKeyPressed(Input.Keys.RIGHT)) {
+        if (manualRight) {
             player.rotateRight(delta);
             spawnRcsPuff(player, -1);
         }
+        if (autopilotActive) steerAutopilot(player, delta);
+    }
+
+    public void setAutopilotTarget(float x, float y) {
+        autopilotActive = true;
+        autopilotX = x;
+        autopilotY = y;
+    }
+
+    public void clearAutopilot() {
+        autopilotActive = false;
+    }
+
+    public boolean autopilotActive() {
+        return autopilotActive;
+    }
+
+    /** Turns the ship toward the waypoint with RCS torque; the throttle stays under manual control. */
+    private void steerAutopilot(Player player, float delta) {
+        float cx = player.x + Player.WIDTH / 2f;
+        float cy = player.y + Player.HEIGHT / 2f;
+        float dx = wrapDelta(autopilotX - cx, worldW);
+        float dy = wrapDelta(autopilotY - cy, worldH);
+        if (dx * dx + dy * dy < AUTOPILOT_ARRIVE_RADIUS * AUTOPILOT_ARRIVE_RADIUS) {
+            clearAutopilot();
+            return;
+        }
+        // ship forward is (-sin r, cos r), so the heading that points at (dx,dy) is atan2(-dx, dy)
+        float desired = MathUtils.atan2(-dx, dy) * MathUtils.radiansToDegrees;
+        float error = ((desired - player.rotation) % 360f + 540f) % 360f - 180f;
+        float targetVel = MathUtils.clamp(error * AUTOPILOT_TURN_GAIN, -200f, 200f);
+        if (player.angularVel < targetVel - 2f) {
+            player.rotateLeft(delta);
+            spawnRcsPuff(player, 1);
+        } else if (player.angularVel > targetVel + 2f) {
+            player.rotateRight(delta);
+            spawnRcsPuff(player, -1);
+        }
+    }
+
+    /** Shortest offset to a target in a wrapping world. */
+    private static float wrapDelta(float d, float span) {
+        d %= span;
+        if (d > span / 2f) d -= span;
+        if (d < -span / 2f) d += span;
+        return d;
+    }
+
+    /** Waypoint marker: pulsing cyan ring + crosshair. World coords; call inside the world shape pass. */
+    public void renderAutopilot(ShapeRenderer shapes) {
+        if (!autopilotActive) return;
+        shapes.setTransformMatrix(identity);
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        float pulse = 0.6f + 0.4f * MathUtils.sin(time * 4f);
+        shapes.setColor(0.3f * pulse, 0.85f * pulse, 0.95f * pulse, 1f);
+        float r = 10f + 3f * MathUtils.sin(time * 4f);
+        shapes.circle(autopilotX, autopilotY, r, 24);
+        shapes.line(autopilotX - r - 5, autopilotY, autopilotX - r + 3, autopilotY);
+        shapes.line(autopilotX + r - 3, autopilotY, autopilotX + r + 5, autopilotY);
+        shapes.line(autopilotX, autopilotY - r - 5, autopilotX, autopilotY - r + 3);
+        shapes.line(autopilotX, autopilotY + r - 3, autopilotX, autopilotY + r + 5);
+        shapes.end();
     }
 
     /** Throttle stack, bottom right: filled blocks up to the current setting. Uses HUD projection (screen coords). */

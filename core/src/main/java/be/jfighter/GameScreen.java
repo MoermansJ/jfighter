@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Matrix4;
+import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
@@ -62,6 +63,7 @@ public class GameScreen implements Screen {
         shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
 
         effects.renderBackground(shapeRenderer);
+        effects.renderAutopilot(shapeRenderer);
         effects.renderShip(shapeRenderer, player);
 
         // projectile capsules (filled mode, per-projectile transform)
@@ -106,6 +108,13 @@ public class GameScreen implements Screen {
                 player.x + Player.WIDTH / 2f,
                 player.y + Player.HEIGHT / 2f,
                 player.rotation));
+        }
+        if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
+            Vector2 target = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+            effects.setAutopilotTarget(target.x, target.y);
+        }
+        if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT)) {
+            effects.clearAutopilot();
         }
         return false;
     }
