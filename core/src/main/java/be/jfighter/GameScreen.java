@@ -513,6 +513,9 @@ public class GameScreen implements Screen {
         }
         if (dmg > 0) {
             state.hull -= dmg;
+            // the hit carries through to the deck: a random room starts leaking (#12)
+            int room = MathUtils.random(7);
+            state.roomIntegrity[room] = Math.max(0f, state.roomIntegrity[room] - 0.25f);
             game.sfx.playThud(0.4f);
             if (state.hull <= 0) {
                 state.hull = 0;

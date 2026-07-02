@@ -47,6 +47,8 @@ public class GameState {
     public final int[] roomTier = {1, 1, 1, 1, 1, 1, 1, 1};
     // manned-station snapshot taken when entering an instance (#7: crew stats matter)
     public final int[] roomStats = new int[8];
+    // combat damage leaks into the deck (#12): rooms below 1.0 bleed oxygen until repaired
+    public final float[] roomIntegrity = {1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f};
 
     public int upgradeLevel(ShipUpgrade u) {
         return upgrades.getOrDefault(u, 0);

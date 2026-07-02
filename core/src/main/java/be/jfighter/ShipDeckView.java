@@ -421,6 +421,20 @@ public class ShipDeckView {
         for (int i = 0; i < o.length; i++) {
             o[i] = Math.min(1f, o[i] + OXY_REGEN * (1f + roomStat(7)) * delta); // life support crew boost regen
         }
+        // battle-damaged rooms leak air until a crew member (engineer, ideally) patches them
+        for (int i = 0; i < ROOMS.length; i++) {
+            float integ = state.roomIntegrity[i];
+            if (integ >= 1f) continue;
+            o[i] = Math.max(0f, o[i] - 0.02f * (1f - integ) * delta);
+            for (CrewMember c : state.crew) {
+                if (c.isDead()) continue;
+                Sim sim = sims.get(c);
+                if (sim != null && roomAtDeck(sim.x, sim.y) == i) {
+                    state.roomIntegrity[i] = Math.min(1f,
+                        state.roomIntegrity[i] + (0.03f + 0.015f * c.bonusFor(Skill.ENGINEERING)) * delta);
+                }
+            }
+        }
     }
 
     /** Mixes two compartments toward their volume-weighted average. */
@@ -890,6 +904,7 @@ public class ShipDeckView {
             float b = roomBrightness[i];
             String label = ROOM_NAMES[i];
             if (state.roomTier[i] > 1) label += " T" + state.roomTier[i];
+            if (state.roomIntegrity[i] < 1f) label += " [DMG]";
             int stat = roomStat(i);
             if (stat > 0) label += " +" + stat;
             if (stat > 0) Palette.set(font, 0.35f, 0.85f, 0.5f, 1f);
