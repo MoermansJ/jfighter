@@ -20,10 +20,10 @@ public final class Dev {
         if (!MODE) return;
         float oldScaleX = font.getData().scaleX;
         float oldScaleY = font.getData().scaleY;
-        font.getData().setScale(1f);
+        Fonts.scale(font, 1f);
         font.setColor(1f, 0.3f, 0.25f, 1f);
         GlyphLayout gl = new GlyphLayout(font, "DEV");
         font.draw(batch, gl, (screenW - gl.width) / 2f, screenH - 8);
-        font.getData().setScale(oldScaleX, oldScaleY);
+        font.getData().setScale(oldScaleX, oldScaleY); // raw restore: values already include the unit
     }
 }

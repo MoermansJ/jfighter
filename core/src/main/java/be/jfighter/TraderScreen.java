@@ -29,8 +29,8 @@ public class TraderScreen implements Screen {
     public void show() {
         viewport = new FitViewport(JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         batch = new SpriteBatch();
-        font = new BitmapFont();
-        font.getData().setScale(2f);
+        font = game.fonts.font;
+        Fonts.scale(font, 2f);
     }
 
     @Override
@@ -51,7 +51,7 @@ public class TraderScreen implements Screen {
         batch.begin();
         font.setColor(Color.CYAN);
         font.draw(batch, "TRADER", 380, 360);
-        font.getData().setScale(1.4f);
+        Fonts.scale(font, 1.4f);
         font.setColor(Color.WHITE);
         font.draw(batch, "Credits: " + state.credits, 380, 300);
         font.draw(batch, "Fuel: " + (int) state.fuel + " / " + (int) state.maxFuel, 380, 270);
@@ -60,7 +60,7 @@ public class TraderScreen implements Screen {
         font.setColor(Color.GRAY);
         font.draw(batch, "Press ESC to return to map", 320, 170);
         Dev.drawIndicator(batch, font, JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
-        font.getData().setScale(2f); // restore title scale for next frame
+        Fonts.scale(font, 2f); // restore title scale for next frame
         batch.end();
     }
 
@@ -73,6 +73,5 @@ public class TraderScreen implements Screen {
     @Override
     public void dispose() {
         batch.dispose();
-        font.dispose();
     }
 }

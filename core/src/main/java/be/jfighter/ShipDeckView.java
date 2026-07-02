@@ -883,7 +883,7 @@ public class ShipDeckView {
 
     /** Room labels, crew nametags, and the camera-feed overlay. Caller has font at scale 1. */
     public void renderText(SpriteBatch batch, BitmapFont font) {
-        font.getData().setScale(0.8f); // room/airlock labels stay unobtrusive
+        Fonts.scale(font, 0.8f); // room/airlock labels stay unobtrusive
         for (int i = 0; i < ROOMS.length; i++) {
             float[] r = ROOMS[i];
             float b = roomBrightness[i];
@@ -905,7 +905,7 @@ public class ShipDeckView {
             font.draw(batch, label, px((al[4] + al[5]) / 2f) - airGl.width / 2f, py((al[6] + al[7]) / 2f + 3, 0));
         }
 
-        font.getData().setScale(1f);
+        Fonts.scale(font, 1f);
 
         // feed overlay, right-aligned in the bottom-right corner inside the bezel
         float overlayRight = SCR_X2 - 10;

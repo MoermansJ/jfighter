@@ -215,8 +215,8 @@ public class LootScreen implements Screen {
         viewport = new FitViewport(ARENA_WIDTH, ARENA_HEIGHT);
         shapes = new ShapeRenderer();
         batch = new SpriteBatch();
-        font = new BitmapFont();
-        font.getData().setScale(1.4f);
+        font = game.fonts.font;
+        Fonts.scale(font, 1.4f);
         player = new Player(EXIT_X - Player.WIDTH / 2f, EXIT_Y - Player.HEIGHT / 2f);
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         effects.setPincerHull(true);
@@ -1617,6 +1617,5 @@ public class LootScreen implements Screen {
     public void dispose() {
         shapes.dispose();
         batch.dispose();
-        font.dispose();
     }
 }

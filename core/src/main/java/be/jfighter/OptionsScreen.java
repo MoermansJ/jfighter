@@ -21,7 +21,6 @@ public class OptionsScreen implements Screen {
     private SpriteBatch batch;
     private FitViewport viewport;
     private BitmapFont font;
-    private BitmapFont titleFont;
 
     private String[] labels;
     private Rectangle[] rows;
@@ -34,10 +33,8 @@ public class OptionsScreen implements Screen {
     public void show() {
         batch = new SpriteBatch();
         viewport = new FitViewport(JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
-        font = new BitmapFont();
-        font.getData().setScale(1.5f);
-        titleFont = new BitmapFont();
-        titleFont.getData().setScale(2f);
+        font = game.fonts.font;
+        Fonts.scale(font, 1.5f);
 
         int n = JFighter.WINDOW_SIZES.length;
         labels = new String[n + 2]; // presets + fullscreen + back
@@ -92,9 +89,11 @@ public class OptionsScreen implements Screen {
         int curH = Gdx.graphics.getHeight();
 
         batch.begin();
-        titleFont.setColor(Color.WHITE);
-        GlyphLayout title = new GlyphLayout(titleFont, "DISPLAY OPTIONS");
-        titleFont.draw(batch, title, (JFighter.WORLD_WIDTH - title.width) / 2f, 480);
+        Fonts.scale(font, 2f);
+        font.setColor(Color.WHITE);
+        GlyphLayout title = new GlyphLayout(font, "DISPLAY OPTIONS");
+        font.draw(batch, title, (JFighter.WORLD_WIDTH - title.width) / 2f, 480);
+        Fonts.scale(font, 1.5f);
 
         int n = JFighter.WINDOW_SIZES.length;
         for (int i = 0; i < labels.length; i++) {
@@ -132,7 +131,5 @@ public class OptionsScreen implements Screen {
     @Override
     public void dispose() {
         batch.dispose();
-        font.dispose();
-        titleFont.dispose();
     }
 }

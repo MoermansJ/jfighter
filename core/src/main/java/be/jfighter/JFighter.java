@@ -21,11 +21,13 @@ public class JFighter extends Game {
     };
 
     public SoundFx sfx;
+    public Fonts fonts;
 
     @Override
     public void create() {
         sfx = new SoundFx();
         applySavedDisplayMode();
+        fonts = new Fonts(); // after the display mode: sized to the real backbuffer
         setScreen(new TitleScreen(this));
     }
 
@@ -80,5 +82,6 @@ public class JFighter extends Game {
     public void dispose() {
         super.dispose();
         sfx.dispose();
+        fonts.dispose();
     }
 }

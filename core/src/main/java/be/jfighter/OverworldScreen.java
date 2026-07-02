@@ -81,8 +81,8 @@ public class OverworldScreen implements Screen {
         viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT);
         shapes = new ShapeRenderer();
         batch = new SpriteBatch();
-        font = new BitmapFont();
-        font.getData().setScale(1.4f);
+        font = game.fonts.font;
+        Fonts.scale(font, 1.4f);
         deckView = new ShipDeckView(state);
         for (int i = 0; i < MAP_STAR_COUNT; i++) {
             mapStarX[i] = MathUtils.random(MSCR_X1 + 4, MSCR_X2 - 4);
@@ -198,14 +198,14 @@ public class OverworldScreen implements Screen {
         // labels + credits
         batch.setProjectionMatrix(viewport.getCamera().combined);
         batch.begin();
-        font.getData().setScale(1f);
+        Fonts.scale(font, 1f);
         for (Node n : state.map.allNodes()) {
             font.setColor(n.completed ? SPENT_NODE : Color.WHITE);
             String label = n.id == state.map.lastNodeId ? "END" : typeKnown(n) ? n.type.name() : "???";
             GlyphLayout gl = new GlyphLayout(font, label);
             font.draw(batch, label, n.x - gl.width / 2f, n.y - NODE_RADIUS - 6f);
         }
-        font.getData().setScale(1.4f);
+        Fonts.scale(font, 1.4f);
         font.setColor(state.fuel < 1f ? Color.RED : Color.WHITE);
         String fuelText = "Fuel: " + (int) state.fuel + (state.fuel < 1f ? "  — OUT OF FUEL" : "");
         GlyphLayout fuelGl = new GlyphLayout(font, fuelText);
@@ -220,7 +220,7 @@ public class OverworldScreen implements Screen {
         font.draw(batch, state.map.sectorName.toUpperCase(), 26, MSCR_Y2 - 8);
 
         // deck view labels + feed overlay
-        font.getData().setScale(1f);
+        Fonts.scale(font, 1f);
         deckView.renderText(batch, font);
 
         // crew roster
@@ -249,7 +249,7 @@ public class OverworldScreen implements Screen {
             font.draw(batch, "Click a compartment to station", ROSTER_X, detailY - 44);
         }
         Dev.drawIndicator(batch, font, WORLD_WIDTH, WORLD_HEIGHT);
-        font.getData().setScale(1.4f);
+        Fonts.scale(font, 1.4f);
         batch.end();
 
         drawFuelTooltip();
@@ -279,11 +279,11 @@ public class OverworldScreen implements Screen {
         shapes.end();
 
         batch.begin();
-        font.getData().setScale(2f);
+        Fonts.scale(font, 2f);
         font.setColor(Color.GREEN);
         GlyphLayout title = new GlyphLayout(font, "VICTORY");
         font.draw(batch, title, (WORLD_WIDTH - title.width) / 2f, y + h - 24);
-        font.getData().setScale(1.4f);
+        Fonts.scale(font, 1.4f);
         font.setColor(Color.WHITE);
         GlyphLayout sub = new GlyphLayout(font, "You reached the end of the sector");
         font.draw(batch, sub, (WORLD_WIDTH - sub.width) / 2f, y + h - 70);
@@ -383,7 +383,7 @@ public class OverworldScreen implements Screen {
         if (hoveredNode.id == state.map.getCurrentNode().id) return;
         boolean canAfford = state.fuel >= TRAVEL_FUEL_COST;
         String text = "FUEL -" + TRAVEL_FUEL_COST;
-        font.getData().setScale(1f);
+        Fonts.scale(font, 1f);
         GlyphLayout gl = new GlyphLayout(font, text);
         float w = gl.width + 14;
         float h = 24;
@@ -403,7 +403,7 @@ public class OverworldScreen implements Screen {
         batch.begin();
         font.setColor(canAfford ? Color.WHITE : Color.RED);
         font.draw(batch, text, x + 7, y + h - 7);
-        font.getData().setScale(1.4f);
+        Fonts.scale(font, 1.4f);
         batch.end();
     }
 
@@ -497,7 +497,7 @@ public class OverworldScreen implements Screen {
 
         batch.setProjectionMatrix(viewport.getCamera().combined);
         batch.begin();
-        font.getData().setScale(1f);
+        Fonts.scale(font, 1f);
         font.setColor(0.55f, 0.85f, 0.95f, 1f); // the ship AI speaks in console cyan
         font.draw(batch, encounterPrompt(node),
             dx + 12, dy + DIALOG_H - 10, DIALOG_W - 24, Align.left, true);
@@ -507,7 +507,7 @@ public class OverworldScreen implements Screen {
         font.setColor(Color.LIGHT_GRAY);
         font.draw(batch, encounterOption2(node),
             o2.x + 8, o2.y + o2.height - 8, o2.width - 16, Align.left, true);
-        font.getData().setScale(1.4f);
+        Fonts.scale(font, 1.4f);
         batch.end();
     }
 
@@ -703,6 +703,5 @@ public class OverworldScreen implements Screen {
     public void dispose() {
         shapes.dispose();
         batch.dispose();
-        font.dispose();
     }
 }

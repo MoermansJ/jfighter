@@ -108,8 +108,8 @@ public class GameScreen implements Screen {
     public void show() {
         shapeRenderer = new ShapeRenderer();
         batch = new SpriteBatch();
-        font = new BitmapFont();
-        font.getData().setScale(1.4f);
+        font = game.fonts.font;
+        Fonts.scale(font, 1.4f);
         viewport = new FitViewport(ARENA_WIDTH, ARENA_HEIGHT);
         player = new Player(120f, (ARENA_HEIGHT - Player.HEIGHT) / 2f);
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
@@ -468,6 +468,5 @@ public class GameScreen implements Screen {
     public void dispose() {
         shapeRenderer.dispose();
         batch.dispose();
-        font.dispose();
     }
 }

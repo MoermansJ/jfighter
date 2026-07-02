@@ -36,8 +36,8 @@ public class TitleScreen implements Screen {
         batch = new SpriteBatch();
         viewport = new FitViewport(JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         background = new Texture(Gdx.files.internal("jfightertitle640.png"));
-        font = new BitmapFont();
-        font.getData().setScale(2f);
+        font = game.fonts.font;
+        Fonts.scale(font, 2f);
         buttonLayout = new GlyphLayout(font, "START GAME");
         optionsLayout = new GlyphLayout(font, "OPTIONS");
     }
@@ -104,6 +104,5 @@ public class TitleScreen implements Screen {
     public void dispose() {
         batch.dispose();
         background.dispose();
-        font.dispose();
     }
 }
