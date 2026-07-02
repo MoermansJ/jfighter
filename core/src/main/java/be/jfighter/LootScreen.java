@@ -55,12 +55,16 @@ public class LootScreen implements Screen {
     private static final float SHIP_RADIUS = 18f;
     private static final float CARGO_RADIUS = 11f;
 
-    // towing hook: fires forward, latches onto cargo, becomes a tow line
+    // tractor hook: fires backward from the tail, latches onto free nets, becomes a tow line
     private static final float HOOK_SPEED = 420f;
     private static final float HOOK_RETRACT_SPEED = 560f;
     private static final float HOOK_MAX_LEN = 160f;
     private static final float HOOK_MIN_TOW = 34f;
-    private static final float NOSE_OFFSET = 20f; // hook mounts at the ship's nose
+    private static final float HOOK_CATCH_DIST = 9f; // how close the tip must pass to a net point
+
+    // loop closing: a free net whose strand crosses itself seals into a clean ring
+    private static final int LOOP_MIN_SEGMENTS = 16;  // rope distance between crossing points to count as a loop
+    private static final float LOOP_ROUNDING = 1.5f;  // per-second pull of a closed ring toward a true circle
 
     // derelict hulk: gravity well in the middle of the arena
     private static final float HULK_X = ARENA_WIDTH / 2f;
@@ -107,7 +111,8 @@ public class LootScreen implements Screen {
 
     private HookState hookState = HookState.STOWED;
     private float hookLen;
-    private Loot hooked;
+    private NetPoint hookedPoint;
+    private Net hookedNet;
     private float towLen;
     private float[] hulkShape;
     private float lastThudTime = -1f;
@@ -128,6 +133,7 @@ public class LootScreen implements Screen {
 
     private static class Net {
         final Array<NetPoint> pts = new Array<>();
+        boolean closed; // strand crossed itself and sealed into a ring
     }
 
     private static class NetLink {
@@ -224,6 +230,8 @@ public class LootScreen implements Screen {
         pushNetPoints();
         stickNetsToCargo();
         mergeNets();
+        closeLoops();
+        roundClosedLoops(delta);
         collectAtExit();
         if (catchFlash > 0) catchFlash -= delta;
 
@@ -268,7 +276,8 @@ public class LootScreen implements Screen {
     }
 
     private void releaseHook() {
-        hooked = null;
+        hookedPoint = null;
+        hookedNet = null;
         if (hookState != HookState.STOWED) hookState = HookState.RETRACTING;
     }
 
@@ -350,6 +359,9 @@ public class LootScreen implements Screen {
             for (Net net : allNets()) {
                 for (int i = 1; i < net.pts.size; i++) {
                     constrain(net.pts.get(i - 1), net.pts.get(i), NET_REST_LEN);
+                }
+                if (net.closed && net.pts.size > 2) {
+                    constrain(net.pts.peek(), net.pts.first(), NET_REST_LEN);
                 }
             }
             for (NetLink link : links) {
@@ -442,6 +454,71 @@ public class LootScreen implements Screen {
         }
     }
 
+    /** A free net whose strand crosses itself seals into a clean ring: tails outside the loop are trimmed. */
+    private void closeLoops() {
+        for (Net net : freeNets) {
+            if (net.closed || net.pts.size < LOOP_MIN_SEGMENTS + 2) continue;
+            outer:
+            for (int i = 0; i < net.pts.size - LOOP_MIN_SEGMENTS; i++) {
+                NetPoint p = net.pts.get(i);
+                for (int j = i + LOOP_MIN_SEGMENTS; j < net.pts.size; j++) {
+                    NetPoint q = net.pts.get(j);
+                    float dx = p.x - q.x;
+                    float dy = p.y - q.y;
+                    if (dx * dx + dy * dy < NET_MERGE_DIST * NET_MERGE_DIST) {
+                        closeLoop(net, i, j);
+                        break outer;
+                    }
+                }
+            }
+        }
+    }
+
+    private void closeLoop(Net net, int start, int end) {
+        for (int k = net.pts.size - 1; k > end; k--) dropPoint(net, k);
+        for (int k = start - 1; k >= 0; k--) dropPoint(net, k);
+        net.closed = true;
+    }
+
+    /** Removes a point cleanly: any tangle links through it dissolve, and the hook lets go of it. */
+    private void dropPoint(Net net, int index) {
+        NetPoint p = net.pts.removeIndex(index);
+        if (p == hookedPoint) releaseHook();
+        for (int i = links.size - 1; i >= 0; i--) {
+            NetLink link = links.get(i);
+            if (link.a == p || link.b == p) {
+                link.a.linked = false;
+                link.b.linked = false;
+                links.removeIndex(i);
+            }
+        }
+    }
+
+    /** Closed rings relax toward a true circle (skipping points snagged on cargo). */
+    private void roundClosedLoops(float delta) {
+        float t = Math.min(1f, LOOP_ROUNDING * delta);
+        for (Net net : freeNets) {
+            if (!net.closed || net.pts.size < 3) continue;
+            float cx = 0, cy = 0;
+            for (NetPoint p : net.pts) {
+                cx += p.x;
+                cy += p.y;
+            }
+            cx /= net.pts.size;
+            cy /= net.pts.size;
+            float radius = net.pts.size * NET_REST_LEN / MathUtils.PI2;
+            for (NetPoint p : net.pts) {
+                if (p.attached != null) continue;
+                float dx = p.x - cx;
+                float dy = p.y - cy;
+                float d = (float) Math.sqrt(dx * dx + dy * dy);
+                if (d < 0.001f) continue;
+                p.x += (cx + dx / d * radius - p.x) * t;
+                p.y += (cy + dy / d * radius - p.y) * t;
+            }
+        }
+    }
+
     /** Different nets that touch click together at every contact, cinching into one blob. */
     private void mergeNets() {
         Array<Net> nets = allNets();
@@ -494,12 +571,13 @@ public class LootScreen implements Screen {
         }
     }
 
-    private float noseX() {
-        return player.x + Player.WIDTH / 2f - MathUtils.sinDeg(player.rotation) * NOSE_OFFSET;
+    /** Tip of the hook while extending/retracting: straight out the back from the tail. */
+    private float hookTipX() {
+        return tailX() + MathUtils.sinDeg(player.rotation) * hookLen;
     }
 
-    private float noseY() {
-        return player.y + Player.HEIGHT / 2f + MathUtils.cosDeg(player.rotation) * NOSE_OFFSET;
+    private float hookTipY() {
+        return tailY() - MathUtils.cosDeg(player.rotation) * hookLen;
     }
 
     private void updateHook(float delta) {
@@ -511,23 +589,7 @@ public class LootScreen implements Screen {
                     hookState = HookState.RETRACTING;
                     break;
                 }
-                // latch onto the first crate the tip touches
-                float tipX = noseX() - MathUtils.sinDeg(player.rotation) * hookLen;
-                float tipY = noseY() + MathUtils.cosDeg(player.rotation) * hookLen;
-                float reach = CARGO_RADIUS + 4f;
-                for (Loot crate : lootItems) {
-                    float dx = crate.x - tipX;
-                    float dy = crate.y - tipY;
-                    if (dx * dx + dy * dy < reach * reach) {
-                        hooked = crate;
-                        hookState = HookState.LATCHED;
-                        float cx = player.x + Player.WIDTH / 2f;
-                        float cy = player.y + Player.HEIGHT / 2f;
-                        towLen = Math.max(HOOK_MIN_TOW, Vector2.dst(cx, cy, crate.x, crate.y));
-                        game.sfx.playThud(0.3f);
-                        break;
-                    }
-                }
+                latchNearestNetPoint(hookTipX(), hookTipY());
                 break;
             }
             case RETRACTING:
@@ -538,45 +600,55 @@ public class LootScreen implements Screen {
                 }
                 break;
             case LATCHED:
-                if (hooked == null || !lootItems.contains(hooked, true)) {
-                    releaseHook(); // the crate was delivered or caught out from under us
+                if (hookedNet == null || !freeNets.contains(hookedNet, true)
+                        || hookedPoint == null || !hookedNet.pts.contains(hookedPoint, true)) {
+                    releaseHook(); // the strand was trimmed or the net vanished
                     break;
                 }
-                towCrate();
+                towNet();
                 break;
             default:
                 break;
         }
     }
 
-    /** Tow line: pure rope, resists stretching only. The heavy crate yanks the light ship. */
-    private void towCrate() {
-        float cx = player.x + Player.WIDTH / 2f;
-        float cy = player.y + Player.HEIGHT / 2f;
-        float dx = hooked.x - cx;
-        float dy = hooked.y - cy;
+    /** Latch onto the first free-net point the extending tip passes (the deployed tether is excluded). */
+    private void latchNearestNetPoint(float tipX, float tipY) {
+        for (Net net : freeNets) {
+            for (NetPoint p : net.pts) {
+                float dx = p.x - tipX;
+                float dy = p.y - tipY;
+                if (dx * dx + dy * dy < HOOK_CATCH_DIST * HOOK_CATCH_DIST) {
+                    hookedPoint = p;
+                    hookedNet = net;
+                    hookState = HookState.LATCHED;
+                    towLen = Math.max(HOOK_MIN_TOW, Vector2.dst(tailX(), tailY(), p.x, p.y));
+                    game.sfx.playThud(0.3f);
+                    return;
+                }
+            }
+        }
+    }
+
+    /** Tow line: pure rope, resists stretching only. Pull propagates through the net's constraints. */
+    private void towNet() {
+        float tx = tailX();
+        float ty = tailY();
+        float dx = hookedPoint.x - tx;
+        float dy = hookedPoint.y - ty;
         float dist = (float) Math.sqrt(dx * dx + dy * dy);
         if (dist <= towLen || dist == 0f) return;
 
         float nx = dx / dist;
         float ny = dy / dist;
         float excess = dist - towLen;
-        float invShip = 1f / SHIP_MASS;
-        float invCargo = 1f / CARGO_MASS;
-        float shipShare = invShip / (invShip + invCargo);
-        player.x += nx * excess * shipShare;
-        player.y += ny * excess * shipShare;
-        hooked.x -= nx * excess * (1f - shipShare);
-        hooked.y -= ny * excess * (1f - shipShare);
+        moveEndpoint(hookedPoint, -nx * excess, -ny * excess);
 
-        // kill the separating radial velocity, mass-weighted (an inelastic tug)
-        float relVn = (hooked.vx - player.vx) * nx + (hooked.vy - player.vy) * ny;
+        // kill the strand's separating radial velocity (an inelastic tug on a light rope)
+        float relVn = (hookedPoint.vx - player.vx) * nx + (hookedPoint.vy - player.vy) * ny;
         if (relVn > 0f) {
-            float impulse = relVn / (invShip + invCargo);
-            player.vx += impulse * invShip * nx;
-            player.vy += impulse * invShip * ny;
-            hooked.vx -= impulse * invCargo * nx;
-            hooked.vy -= impulse * invCargo * ny;
+            hookedPoint.vx -= relVn * nx;
+            hookedPoint.vy -= relVn * ny;
         }
     }
 
@@ -812,11 +884,16 @@ public class LootScreen implements Screen {
         shapes.begin(ShapeRenderer.ShapeType.Line);
         // free nets: dim orange
         for (Net net : freeNets) {
-            shapes.setColor(0.75f, 0.45f, 0.15f, 1f);
+            // sealed rings glow a little brighter than loose strands
+            if (net.closed) shapes.setColor(0.95f, 0.6f, 0.2f, 1f);
+            else shapes.setColor(0.75f, 0.45f, 0.15f, 1f);
             for (int i = 1; i < net.pts.size; i++) {
                 NetPoint p = net.pts.get(i - 1);
                 NetPoint q = net.pts.get(i);
                 shapes.line(p.x, p.y, q.x, q.y);
+            }
+            if (net.closed && net.pts.size > 2) {
+                shapes.line(net.pts.peek().x, net.pts.peek().y, net.pts.first().x, net.pts.first().y);
             }
         }
         // deployed net: yellow, fading toward the loose end, plus the line to the ship's tail
@@ -873,16 +950,16 @@ public class LootScreen implements Screen {
         if (hookState == HookState.STOWED) return;
         shapes.setTransformMatrix(identity);
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        float nx = noseX();
-        float ny = noseY();
+        float nx = tailX();
+        float ny = tailY();
         float tipX, tipY;
-        if (hookState == HookState.LATCHED && hooked != null) {
-            tipX = hooked.x;
-            tipY = hooked.y;
+        if (hookState == HookState.LATCHED && hookedPoint != null) {
+            tipX = hookedPoint.x;
+            tipY = hookedPoint.y;
             shapes.setColor(1f, 0.75f, 0.25f, 1f); // taut tow line
         } else {
-            tipX = nx - MathUtils.sinDeg(player.rotation) * hookLen;
-            tipY = ny + MathUtils.cosDeg(player.rotation) * hookLen;
+            tipX = hookTipX();
+            tipY = hookTipY();
             shapes.setColor(0.4f, 0.85f, 0.95f, 1f);
         }
         shapes.line(nx, ny, tipX, tipY);
