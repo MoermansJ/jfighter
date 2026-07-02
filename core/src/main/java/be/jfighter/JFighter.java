@@ -16,7 +16,8 @@ public class JFighter extends Game {
 
     // windowed presets offered in the options menu (16:9)
     public static final int[][] WINDOW_SIZES = {
-        {1280, 720}, {1440, 810}, {1600, 900}, {1920, 1080}
+        {1280, 720}, {1440, 810}, {1600, 900}, {1920, 1080},
+        {2560, 1440}, {3200, 1800}, {3840, 2160}
     };
 
     public SoundFx sfx;
