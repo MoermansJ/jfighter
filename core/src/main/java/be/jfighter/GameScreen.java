@@ -301,10 +301,12 @@ public class GameScreen implements Screen {
         spawnDeathEffect(e.centerX(), e.centerY(), e.body.vx, e.body.vy);
         enemies.removeIndex(index);
         state.credits += CREDITS_PER_KILL;
+        state.hostilesDestroyed++;
         game.sfx.playCatch();
         if (enemies.isEmpty()) {
             // combat resolved: all hostiles destroyed
             state.map.getCurrentNode().completed = true;
+            state.instancesCompleted++;
         }
     }
 

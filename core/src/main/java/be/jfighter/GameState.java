@@ -10,11 +10,33 @@ public class GameState {
         "Jones", "Riggs", "Rockefeller", "Vance", "Okafor", "Petrov", "Tanaka", "Silva",
         "Moreau", "Lindgren", "Castillo", "Adeyemi", "Novak", "Byrne", "Haddad", "Kowalski"
     };
-    public final OverworldMap map;
+    public OverworldMap map; // replaced when the run jumps to a new sector
     public final List<CrewMember> crew = new ArrayList<>();
     public int credits;
     public float fuel;
     public float maxFuel;
+    public int sector = 1;
+    // run stats for the end-of-run summary
+    public int nodesVisited;
+    public int instancesCompleted;
+    public int cargoDelivered;
+    public int hostilesDestroyed;
+    public int sectorsCleared;
+
+    /** Jump gate at END: a fresh sector map, everything else carries over. */
+    public void advanceSector() {
+        sector++;
+        sectorsCleared++;
+        map = new OverworldMap();
+    }
+
+    public int crewLost() {
+        int lost = 0;
+        for (CrewMember c : crew) {
+            if (c.isDead()) lost++;
+        }
+        return lost;
+    }
     // oxygen simulation — compartments: rooms 0..7, corridor (8), airlock chambers (9, 10)
     public final float[] oxygen = {1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f};
     // doors 0..7 = each room's corridor door, then inner/outer per airlock (8,9 and 10,11).

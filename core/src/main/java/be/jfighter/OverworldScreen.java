@@ -69,7 +69,9 @@ public class OverworldScreen implements Screen {
     private final Matrix4 identity = new Matrix4();
 
     private static final Rectangle VICTORY_BTN =
-        new Rectangle(WORLD_WIDTH / 2f - 110, WORLD_HEIGHT / 2f - 60, 220, 36);
+        new Rectangle(WORLD_WIDTH / 2f - 130, WORLD_HEIGHT / 2f - 52, 260, 36);
+    private static final Rectangle END_RUN_BTN =
+        new Rectangle(WORLD_WIDTH / 2f - 130, WORLD_HEIGHT / 2f - 96, 260, 36);
 
     public OverworldScreen(JFighter game, GameState state) {
         this.game = game;
@@ -222,7 +224,7 @@ public class OverworldScreen implements Screen {
         GlyphLayout o2Gl = new GlyphLayout(font, "O2: " + o2 + "%");
         font.draw(batch, o2Gl, 930 - o2Gl.width, 491);
         font.setColor(Color.GRAY);
-        font.draw(batch, state.map.sectorName.toUpperCase(), 26, MSCR_Y2 - 8);
+        font.draw(batch, state.map.sectorName.toUpperCase() + "  ::  SECTOR " + state.sector, 26, MSCR_Y2 - 8);
 
         // deck view labels + feed overlay
         Fonts.scale(font, 1f);
@@ -281,21 +283,27 @@ public class OverworldScreen implements Screen {
         shapes.setColor(Color.GREEN);
         shapes.rect(x, y, w, h);
         shapes.rect(VICTORY_BTN.x, VICTORY_BTN.y, VICTORY_BTN.width, VICTORY_BTN.height);
+        shapes.setColor(Color.GRAY);
+        shapes.rect(END_RUN_BTN.x, END_RUN_BTN.y, END_RUN_BTN.width, END_RUN_BTN.height);
         shapes.end();
 
         batch.begin();
         Fonts.scale(font, 2f);
         font.setColor(Color.GREEN);
-        GlyphLayout title = new GlyphLayout(font, "VICTORY");
+        GlyphLayout title = new GlyphLayout(font, "SECTOR CLEAR");
         font.draw(batch, title, (WORLD_WIDTH - title.width) / 2f, y + h - 24);
         Fonts.scale(font, 1.4f);
         font.setColor(Color.WHITE);
-        GlyphLayout sub = new GlyphLayout(font, "You reached the end of the sector");
+        GlyphLayout sub = new GlyphLayout(font, "A jump gate opens at the edge of " + state.map.sectorName);
         font.draw(batch, sub, (WORLD_WIDTH - sub.width) / 2f, y + h - 70);
         font.setColor(Color.GREEN);
-        GlyphLayout btn = new GlyphLayout(font, "RETURN TO TITLE");
+        GlyphLayout btn = new GlyphLayout(font, "JUMP TO THE NEXT SECTOR");
         font.draw(batch, btn, VICTORY_BTN.x + (VICTORY_BTN.width - btn.width) / 2f,
             VICTORY_BTN.y + (VICTORY_BTN.height + btn.height) / 2f);
+        font.setColor(Color.LIGHT_GRAY);
+        GlyphLayout end = new GlyphLayout(font, "END THE RUN");
+        font.draw(batch, end, END_RUN_BTN.x + (END_RUN_BTN.width - end.width) / 2f,
+            END_RUN_BTN.y + (END_RUN_BTN.height + end.height) / 2f);
         batch.end();
     }
 
@@ -570,8 +578,15 @@ public class OverworldScreen implements Screen {
         // victory modal swallows all input until the run is closed out
         if (victory) {
             if (VICTORY_BTN.contains(mouse.x, mouse.y)) {
-                game.currentRun = null; // run over
-                game.setScreen(new TitleScreen(game));
+                // jump gate: fresh sector, run continues with everything carried over
+                state.advanceSector();
+                victory = false;
+                selectedNode = null;
+                return false;
+            }
+            if (END_RUN_BTN.contains(mouse.x, mouse.y)) {
+                game.currentRun = null; // run over: retire with the spoils
+                game.setScreen(new SummaryScreen(game, state, true));
                 return true;
             }
             return false;
@@ -661,6 +676,7 @@ public class OverworldScreen implements Screen {
         if (node.id == state.map.getCurrentNode().id) return true; // already here, no cost
         if (state.fuel < TRAVEL_FUEL_COST) return false;
         state.fuel -= TRAVEL_FUEL_COST;
+        if (!node.visited) state.nodesVisited++;
         state.map.setCurrentNode(node.id);
         return true;
     }

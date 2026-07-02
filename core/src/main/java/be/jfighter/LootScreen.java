@@ -1307,11 +1307,13 @@ public class LootScreen implements Screen {
             pincerHeld.removeValue(crate, true);
             removeFromCatches(crate); // a net delivered empty collapses too
             state.credits += crate.value;
+            state.cargoDelivered++;
             lastDeliveredValue = crate.value;
             catchFlash = CATCH_FLASH_TIME;
             game.sfx.playCatch();
             if (lootItems.isEmpty()) {
                 state.map.getCurrentNode().completed = true; // all cargo delivered: this site is stripped
+                state.instancesCompleted++;
             }
         }
     }
