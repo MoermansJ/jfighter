@@ -29,7 +29,7 @@ public class GameScreen implements Screen {
 
     // enemy ships: idle drifters for now — targets to fly against and shoot at
     private static final float ENEMY_RADIUS = 18f;
-    private static final int ENEMY_HP = 3;
+    private static final float ENEMY_HP = 30f;
     private static final int CREDITS_PER_KILL = 40;
 
     // ship integrity: shields absorb first and recharge after a quiet spell
@@ -58,6 +58,10 @@ public class GameScreen implements Screen {
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
     private final PauseMenu pause = new PauseMenu();
+    private final Array<Weapon> weapons = new Array<>();
+    private int activeWeapon;
+    private Enemy lockTarget; // auto-aim target for homing rockets
+    private final Array<float[]> beams = new Array<>(); // {x1,y1,x2,y2,life,maxLife} laser flashes
     private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
         {"SPACE", "fire"},
         {"UP/DOWN", "throttle"},
@@ -90,7 +94,7 @@ public class GameScreen implements Screen {
 
     private static class Enemy {
         final Player body; // reuses ship physics: drag keeps them slowly adrift
-        int hp = ENEMY_HP;
+        float hp = ENEMY_HP;
 
         Enemy(float x, float y) {
             body = new Player(x, y);
@@ -125,6 +129,7 @@ public class GameScreen implements Screen {
         player = new Player(120f, (ARENA_HEIGHT - Player.HEIGHT) / 2f);
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
+        for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
         spawnEnemies();
     }
 
@@ -176,6 +181,7 @@ public class GameScreen implements Screen {
             effects.update(player, delta);
             effects.spawnExhaust(player, delta);
             for (Enemy e : enemies) effects.spawnExhaust(e.body, delta);
+            fireWeapons(delta);
             updateProjectiles(delta);
             updateEffects(delta);
         }
@@ -202,16 +208,25 @@ public class GameScreen implements Screen {
             }
         }
 
-        // projectile capsules (filled mode, per-projectile transform)
+        // projectiles (filled mode, per-projectile transform); size scales with caliber
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(Color.GREEN);
         for (Projectile p : projectiles) {
             transform.setToTranslation(p.x, p.y, 0).rotate(0, 0, 1, p.rotation);
             shapeRenderer.setTransformMatrix(transform);
-            shapeRenderer.rect(-2, -7, 4, 14);
-            shapeRenderer.circle(0,  7, 2, 8);
-            shapeRenderer.circle(0, -7, 2, 8);
+            if (p.rocket) {
+                shapeRenderer.setColor(0.85f, 0.85f, 0.9f, 1f);
+                shapeRenderer.rect(-2, -8, 4, 16);
+                shapeRenderer.setColor(1f, 0.55f, 0.15f, 1f);
+                shapeRenderer.rect(-1.5f, -13, 3, 5); // flame
+            } else {
+                float s = 0.6f + p.damage * 0.05f;
+                shapeRenderer.setColor(Color.GREEN);
+                shapeRenderer.rect(-2 * s, -7 * s, 4 * s, 14 * s);
+                shapeRenderer.circle(0, 7 * s, 2 * s, 8);
+                shapeRenderer.circle(0, -7 * s, 2 * s, 8);
+            }
         }
+        shapeRenderer.setTransformMatrix(transform.idt());
         shapeRenderer.end();
 
         drawHud();
@@ -239,9 +254,42 @@ public class GameScreen implements Screen {
         shapeRenderer.rect(10, HUD_H - 98, barW * state.shield / state.maxShield, 7);
         shapeRenderer.end();
 
+        // weapon cards along the bottom centre
+        float cardW = 78f;
+        float cardH = 34f;
+        float cardsX = (HUD_W - weapons.size * (cardW + 6f)) / 2f;
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < weapons.size; i++) {
+            Weapon w = weapons.get(i);
+            float x = cardsX + i * (cardW + 6f);
+            shapeRenderer.setColor(0.03f, 0.05f, 0.06f, 1f);
+            shapeRenderer.rect(x, 8, cardW, cardH);
+            // reload sweep along the card bottom
+            float frac = w.type.reload <= 0 ? 1f : MathUtils.clamp(1f - w.cooldown / w.type.reload, 0f, 1f);
+            shapeRenderer.setColor(frac >= 1f ? 0.25f : 0.6f, frac >= 1f ? 0.7f : 0.5f, 0.2f, 1f);
+            shapeRenderer.rect(x + 2, 10, (cardW - 4) * frac, 3);
+        }
+        shapeRenderer.end();
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < weapons.size; i++) {
+            float x = cardsX + i * (cardW + 6f);
+            if (i == activeWeapon) shapeRenderer.setColor(Color.WHITE);
+            else shapeRenderer.setColor(0.3f, 0.32f, 0.35f, 1f);
+            shapeRenderer.rect(x, 8, cardW, cardH);
+        }
+        shapeRenderer.end();
+
         batch.setProjectionMatrix(hudMatrix);
         batch.begin();
         Fonts.scale(font, 0.9f);
+        for (int i = 0; i < weapons.size; i++) {
+            Weapon w = weapons.get(i);
+            float x = cardsX + i * (cardW + 6f);
+            font.setColor(i == activeWeapon ? Color.WHITE : Color.GRAY);
+            font.draw(batch, (i + 1) + " " + w.type.label, x + 4, 38);
+            font.setColor(w.ammo == 0 ? Color.RED : Color.GRAY);
+            font.draw(batch, w.ammo < 0 ? "\u221E" : String.valueOf(w.ammo), x + 4, 26);
+        }
         font.setColor(Color.GRAY);
         font.draw(batch, "HULL", 136, HUD_H - 78);
         font.draw(batch, "SHLD", 136, HUD_H - 90);
@@ -277,12 +325,8 @@ public class GameScreen implements Screen {
 
     /** Returns true when the screen was switched and rendering must stop. */
     private boolean handleInput(float delta) {
-        if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
-            Player shooter = controlledBody();
-            projectiles.add(new Projectile(
-                shooter.x + Player.WIDTH / 2f,
-                shooter.y + Player.HEIGHT / 2f,
-                shooter.rotation, shooter));
+        for (int k = 0; k < weapons.size && k < 9; k++) {
+            if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1 + k)) activeWeapon = k;
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.TAB)) {
             // cycle control: fighter -> enemy 0 -> enemy 1 -> ... -> fighter
@@ -329,6 +373,10 @@ public class GameScreen implements Screen {
         for (int i = projectiles.size - 1; i >= 0; i--) {
             Projectile p = projectiles.get(i);
             p.update(delta);
+            if (p.rocket && MathUtils.random() < 40f * delta) {
+                addSparks(p.x + MathUtils.sinDeg(p.rotation) * 8f,
+                    p.y - MathUtils.cosDeg(p.rotation) * 8f, 0, 0, 1);
+            }
             if (p.isOutOfBounds(ARENA_WIDTH, ARENA_HEIGHT)) {
                 projectiles.removeIndex(i);
                 continue;
@@ -350,11 +398,8 @@ public class GameScreen implements Screen {
                 float dy = p.y - e.centerY();
                 if (dx * dx + dy * dy < ENEMY_RADIUS * ENEMY_RADIUS) {
                     projectiles.removeIndex(i);
-                    if (--e.hp <= 0) {
-                        killEnemy(j);
-                    } else {
-                        game.sfx.playThud(0.25f);
-                    }
+                    impact(p);
+                    if (!p.rocket) damageEnemy(e, p.damage); // rockets damage via their splash
                     break;
                 }
             }
@@ -388,7 +433,130 @@ public class GameScreen implements Screen {
         return controlled < 0 || controlled >= enemies.size ? player : enemies.get(controlled).body;
     }
 
+    private void damageEnemy(Enemy e, float dmg) {
+        e.hp -= dmg;
+        if (e.hp <= 0) killEnemy(enemies.indexOf(e, true));
+        else game.sfx.playThud(0.2f);
+    }
+
+    /** Impact feedback; rockets blast and splash everything nearby. */
+    private void impact(Projectile p) {
+        if (p.rocket) {
+            addBlast(p.x, p.y, 0f, 220f, 42f);
+            addSparks(p.x, p.y, 0, 0, 14);
+            game.sfx.playThud(0.45f);
+            for (int j = enemies.size - 1; j >= 0; j--) {
+                if (j >= enemies.size) continue;
+                Enemy e = enemies.get(j);
+                float d = Vector2.dst(p.x, p.y, e.centerX(), e.centerY());
+                if (d < 70f) damageEnemy(e, p.damage * (1f - d / 90f));
+            }
+            float pd = Vector2.dst(p.x, p.y, player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f);
+            if (defeatT < 0 && pd < 70f && p.shooter != player) damagePlayer(p.damage * (1f - pd / 90f));
+        } else {
+            addSparks(p.x, p.y, 0, 0, 2 + (int) (p.damage * 0.3f));
+        }
+    }
+
+    /** Per-frame weapon step: cooldowns, lock-on, and firing the active weapon while SPACE is held. */
+    private void fireWeapons(float delta) {
+        for (Weapon w : weapons) w.update(delta);
+        updateLockTarget();
+        if (defeatT >= 0 || weapons.isEmpty()) return;
+        Weapon w = weapons.get(activeWeapon);
+        Player body = controlledBody();
+        boolean held = Gdx.input.isKeyPressed(Input.Keys.SPACE);
+        float fx = -MathUtils.sinDeg(body.rotation);
+        float fy = MathUtils.cosDeg(body.rotation);
+        float nx = body.x + Player.WIDTH / 2f + fx * 20f;
+        float ny = body.y + Player.HEIGHT / 2f + fy * 20f;
+        switch (w.type) {
+            case BEAM_LASER:
+                if (held) fireBeam(body, nx, ny, body.rotation, w.type.damage * delta, true);
+                break;
+            case BURST_LASER:
+                if (held && w.ready()) {
+                    w.fire();
+                    w.burstLeft = 3;
+                }
+                if (w.burstLeft > 0 && w.burstTimer <= 0) {
+                    w.burstLeft--;
+                    w.burstTimer = 0.07f;
+                    fireBeam(body, nx, ny, body.rotation + MathUtils.random(-2f, 2f), w.type.damage, false);
+                    game.sfx.playThud(0.12f);
+                }
+                break;
+            default:
+                if (held && w.ready()) {
+                    w.fire();
+                    Projectile p = new Projectile(nx, ny, body.rotation, body,
+                        w.type.speed, w.type.damage,
+                        w.type.isRocket() ? 260f : 0f,
+                        w.type == Weapon.Type.HOMING_ROCKET ? 160f : 0f,
+                        w.type.isRocket());
+                    if (w.type == Weapon.Type.HOMING_ROCKET && lockTarget != null) p.target = lockTarget.body;
+                    projectiles.add(p);
+                    // muzzle flash scaled by caliber
+                    addBlast(nx, ny, 0f, 150f, 5f + w.type.damage * 0.35f);
+                    game.sfx.playThud(0.12f + w.type.damage * 0.008f);
+                }
+        }
+    }
+
+    /** Hitscan laser: damages the first enemy along the ray and leaves a beam flash. */
+    private void fireBeam(Player body, float ox, float oy, float rotation, float damage, boolean continuous) {
+        float fx = -MathUtils.sinDeg(rotation);
+        float fy = MathUtils.cosDeg(rotation);
+        float maxLen = 520f;
+        Enemy hit = null;
+        float hitT = maxLen;
+        for (Enemy e : enemies) {
+            if (e.body == body) continue;
+            float rx = e.centerX() - ox;
+            float ry = e.centerY() - oy;
+            float t = rx * fx + ry * fy;
+            if (t < 0 || t > hitT) continue;
+            float px = ox + fx * t - e.centerX();
+            float py = oy + fy * t - e.centerY();
+            if (px * px + py * py < ENEMY_RADIUS * ENEMY_RADIUS) {
+                hit = e;
+                hitT = t;
+            }
+        }
+        float ex = ox + fx * hitT;
+        float ey = oy + fy * hitT;
+        beams.add(new float[]{ox, oy, ex, ey, continuous ? 0.05f : 0.14f, continuous ? 0.05f : 0.14f});
+        if (hit != null) {
+            addSparks(ex, ey, 0, 0, continuous ? 1 : 4);
+            damageEnemy(hit, damage);
+        }
+    }
+
+    /** Homing rockets acquire the nearest enemy in a forward cone. */
+    private void updateLockTarget() {
+        lockTarget = null;
+        if (weapons.isEmpty() || weapons.get(activeWeapon).type != Weapon.Type.HOMING_ROCKET) return;
+        Player body = controlledBody();
+        float fx = -MathUtils.sinDeg(body.rotation);
+        float fy = MathUtils.cosDeg(body.rotation);
+        float best = 700f;
+        for (Enemy e : enemies) {
+            if (e.body == body) continue;
+            float dx = e.centerX() - (body.x + Player.WIDTH / 2f);
+            float dy = e.centerY() - (body.y + Player.HEIGHT / 2f);
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            if (d > best || d < 1f) continue;
+            float dot = (dx * fx + dy * fy) / d;
+            if (dot < 0.64f) continue; // ~50 degree cone
+            best = d;
+            lockTarget = e;
+        }
+    }
+
     private void killEnemy(int index) {
+        for (Projectile p : projectiles) {
+            if (p.target == enemies.get(index).body) p.target = null; // lock dies with the ship
+        }
         if (controlled == index) controlled = -1;
         else if (controlled > index) controlled--;
         Enemy e = enemies.get(index);
@@ -504,11 +672,26 @@ public class GameScreen implements Screen {
             b.age += delta;
             if (b.age > 0 && b.age * b.speed > b.maxR) blasts.removeIndex(i);
         }
+        for (int i = beams.size - 1; i >= 0; i--) {
+            float[] beam = beams.get(i);
+            beam[4] -= delta;
+            if (beam[4] <= 0) beams.removeIndex(i);
+        }
     }
 
     private void drawEffects() {
-        if (sparks.size == 0 && shards.size == 0 && blasts.size == 0) return;
+        drawLockMarker();
+        if (sparks.size == 0 && shards.size == 0 && blasts.size == 0 && beams.size == 0) return;
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        // laser flashes: dim glow + bright core
+        for (float[] beam : beams) {
+            float a = beam[4] / beam[5];
+            shapeRenderer.setColor(0.5f * a, 0.1f * a, 0.6f * a, 1f);
+            shapeRenderer.line(beam[0], beam[1] + 1.5f, beam[2], beam[3] + 1.5f);
+            shapeRenderer.line(beam[0], beam[1] - 1.5f, beam[2], beam[3] - 1.5f);
+            shapeRenderer.setColor(a, 0.5f + 0.5f * a, a, 1f);
+            shapeRenderer.line(beam[0], beam[1], beam[2], beam[3]);
+        }
         for (Spark s : sparks) {
             float f = s.life / s.maxLife;
             shapeRenderer.setColor(1f, 0.65f * f + 0.1f, 0.15f * f, 1f);
@@ -527,6 +710,23 @@ public class GameScreen implements Screen {
             float a = 1f - r / b.maxR;
             shapeRenderer.setColor(1f, 0.75f * a + 0.15f, 0.2f * a, 1f);
             shapeRenderer.circle(b.x, b.y, r, 32);
+        }
+        shapeRenderer.end();
+    }
+
+    /** Lock-on brackets around the homing target, so auto-aim shows its hand. */
+    private void drawLockMarker() {
+        if (lockTarget == null) return;
+        float cx = lockTarget.centerX();
+        float cy = lockTarget.centerY();
+        float r = ENEMY_RADIUS + 8f;
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        shapeRenderer.setColor(1f, 0.65f, 0.15f, 1f);
+        for (int q = 0; q < 4; q++) {
+            float sx = (q % 2 == 0) ? -1 : 1;
+            float sy = (q < 2) ? -1 : 1;
+            shapeRenderer.line(cx + sx * r, cy + sy * r, cx + sx * (r - 7), cy + sy * r);
+            shapeRenderer.line(cx + sx * r, cy + sy * r, cx + sx * r, cy + sy * (r - 7));
         }
         shapeRenderer.end();
     }

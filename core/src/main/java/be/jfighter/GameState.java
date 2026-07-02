@@ -16,6 +16,11 @@ public class GameState {
     public float fuel;
     public float maxFuel;
     public int sector = 1;
+    // fighter weapon loadout: fired in combat, selectable 1..n (all types for now — trader swaps later)
+    public final List<Weapon.Type> loadout = new ArrayList<>(List.of(
+        Weapon.Type.LIGHT_CANNON, Weapon.Type.MEDIUM_CANNON, Weapon.Type.HEAVY_CANNON,
+        Weapon.Type.ROCKET, Weapon.Type.HOMING_ROCKET,
+        Weapon.Type.BEAM_LASER, Weapon.Type.BURST_LASER));
     // ship integrity: shields absorb before hull; 0 hull = run lost
     public float hull = 100f;
     public float maxHull = 100f;
