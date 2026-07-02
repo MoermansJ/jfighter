@@ -643,7 +643,7 @@ public class ShipDeckView {
             shapes.circle(bodyX(sim, FIGURE_H - 3), bodyY(sim, FIGURE_H - 3), 2.6f, 10);
         }
         shapes.setColor(0.9f, 0.15f, 0.1f, 1f);
-        shapes.circle(880, 292, 3.5f, 10);
+        shapes.circle(896, SCR_Y1 + 8, 3.5f, 10); // record dot, left of the LIVE label
         // airlock door status lights: green = open, red = sealed
         for (int a = 0; a < AIRLOCKS.length; a++) {
             float[] al = AIRLOCKS[a];
@@ -729,11 +729,14 @@ public class ShipDeckView {
             font.draw(batch, label, px((al[4] + al[5]) / 2f) - airGl.width / 2f, py((al[6] + al[7]) / 2f + 3, 0));
         }
 
-        // feed overlay
+        // feed overlay, right-aligned in the bottom-right corner inside the bezel
+        float overlayRight = SCR_X2 - 10;
+        GlyphLayout camGl = new GlyphLayout(font, "CAM 01 - DECK A");
         font.setColor(0.35f, 0.5f, 0.55f, 1f);
-        font.draw(batch, "CAM 01 - DECK A", px(-6), 297);
+        font.draw(batch, camGl, overlayRight - camGl.width, SCR_Y1 + 30);
+        GlyphLayout liveGl = new GlyphLayout(font, "LIVE");
         font.setColor(0.9f, 0.2f, 0.15f, 1f);
-        font.draw(batch, "LIVE", 890, 297);
+        font.draw(batch, liveGl, overlayRight - liveGl.width, SCR_Y1 + 12);
     }
 
     // --- deck-space drawing helpers (projection applied here) ---
