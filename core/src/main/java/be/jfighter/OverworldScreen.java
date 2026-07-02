@@ -267,6 +267,11 @@ public class OverworldScreen implements Screen {
             shapes.setColor(Color.YELLOW);
             shapes.rect(row.x, row.y, row.width, row.height);
         }
+        if (hoveredCrew != null) { // subtler than the selection outline
+            Rectangle row = rosterRow(state.crew.indexOf(hoveredCrew));
+            shapes.setColor(0.45f, 0.6f, 0.68f, 1f);
+            shapes.rect(row.x, row.y, row.width, row.height);
+        }
         shapes.end();
 
         shapes.begin(ShapeRenderer.ShapeType.Filled);
@@ -393,6 +398,16 @@ public class OverworldScreen implements Screen {
             viewport.getScreenWidth(), viewport.getScreenHeight());
         hoveredRoom = deckView.roomAt(mouse.x, mouse.y);
         hoveredCrew = deckView.crewAt(mouse.x, mouse.y);
+        // hovering a roster row highlights that crew member too
+        if (hoveredCrew == null) {
+            for (int i = 0; i < state.crew.size(); i++) {
+                if (rosterRow(i).contains(mouse.x, mouse.y)) {
+                    hoveredCrew = state.crew.get(i);
+                    break;
+                }
+            }
+        }
+        if (hoveredCrew == selectedCrew) hoveredCrew = null; // selection styling already applies
         hoveredNode = null;
         for (Node n : state.map.allNodes()) {
             float dx = mouse.x - n.x;
