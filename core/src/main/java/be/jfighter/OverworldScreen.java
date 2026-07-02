@@ -42,6 +42,7 @@ public class OverworldScreen implements Screen {
 
     private Node hoveredNode;
     private Node selectedNode;      // node whose dialog is open
+    private float mouseX, mouseY;   // world coords, updated each frame for the cursor tooltip
     private CrewMember selectedCrew; // crew member being (re)stationed
     private CrewMember hoveredCrew;
     private int hoveredRoom = -1;
@@ -189,6 +190,8 @@ public class OverworldScreen implements Screen {
         font.getData().setScale(1.4f);
         batch.end();
 
+        drawFuelTooltip();
+
         // modal dialog renders last: always on top of map, labels, and readouts
         if (selectedNode != null) {
             drawDialog(selectedNode);
@@ -309,6 +312,37 @@ public class OverworldScreen implements Screen {
             }
         }
         shapes.end();
+    }
+
+    /** Small cursor-following tooltip with the jump's fuel cost, on hovering a reachable node. */
+    private void drawFuelTooltip() {
+        if (hoveredNode == null || selectedNode != null || victory) return;
+        if (!state.map.isReachable(hoveredNode.id)) return;
+        if (hoveredNode.id == state.map.getCurrentNode().id) return;
+        boolean canAfford = state.fuel >= TRAVEL_FUEL_COST;
+        String text = "FUEL -" + TRAVEL_FUEL_COST;
+        font.getData().setScale(1f);
+        GlyphLayout gl = new GlyphLayout(font, text);
+        float w = gl.width + 14;
+        float h = 24;
+        float x = MathUtils.clamp(mouseX + 16, 0, WORLD_WIDTH - w - 4);
+        float y = MathUtils.clamp(mouseY + 14, 4, MAP_TOP - h - 4);
+
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.05f, 0.07f, 0.08f, 1f);
+        shapes.rect(x, y, w, h);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        if (canAfford) shapes.setColor(0.4f, 0.5f, 0.55f, 1f);
+        else shapes.setColor(0.85f, 0.25f, 0.2f, 1f);
+        shapes.rect(x, y, w, h);
+        shapes.end();
+
+        batch.begin();
+        font.setColor(canAfford ? Color.WHITE : Color.RED);
+        font.draw(batch, text, x + 7, y + h - 7);
+        font.getData().setScale(1.4f);
+        batch.end();
     }
 
     private float dialogX(Node node) {
@@ -444,6 +478,8 @@ public class OverworldScreen implements Screen {
             }
         }
         if (hoveredCrew == selectedCrew) hoveredCrew = null; // selection styling already applies
+        mouseX = mouse.x;
+        mouseY = mouse.y;
         hoveredNode = null;
         for (Node n : state.map.allNodes()) {
             float dx = mouse.x - n.x;
