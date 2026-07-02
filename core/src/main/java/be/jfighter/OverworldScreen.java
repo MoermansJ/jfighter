@@ -326,6 +326,7 @@ public class OverworldScreen implements Screen {
      * broadcast openly, HOME and the objective are always obvious.
      */
     private boolean typeKnown(Node n) {
+        if (Dev.MODE) return true; // dev builds see through the fog
         return n.visited || n.type == Node.Type.TRADER || n.type == Node.Type.HOME
             || n.id == state.map.lastNodeId;
     }
