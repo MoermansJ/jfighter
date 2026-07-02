@@ -731,9 +731,6 @@ public class ShipDeckView {
 
         // feed overlay, right-aligned in the bottom-right corner inside the bezel
         float overlayRight = SCR_X2 - 10;
-        GlyphLayout camGl = new GlyphLayout(font, "CAM 01 - DECK A");
-        font.setColor(0.35f, 0.5f, 0.55f, 1f);
-        font.draw(batch, camGl, overlayRight - camGl.width, SCR_Y1 + 30);
         GlyphLayout liveGl = new GlyphLayout(font, "LIVE");
         font.setColor(0.9f, 0.2f, 0.15f, 1f);
         font.draw(batch, liveGl, overlayRight - liveGl.width, SCR_Y1 + 12);
