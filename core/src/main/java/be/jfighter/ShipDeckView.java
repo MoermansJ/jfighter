@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
 
@@ -683,10 +684,11 @@ public class ShipDeckView {
         }
         // floor icons: a faint function glyph on each room's deck plating
         drawRoomIcons(shapes);
-        // parked fighters in the hangar
-        shapes.setColor(0.2f + 0.3f * roomBrightness[2], 0.4f + 0.3f * roomBrightness[2], 0.5f + 0.3f * roomBrightness[2], 1f);
-        drawChevron(shapes, 140, 92);
-        drawChevron(shapes, 175, 78);
+        // hangar bay: the carrier's two craft parked side by side (B-2 fighter + pincer pod)
+        float hb = 0.25f + 0.35f * roomBrightness[2];
+        shapes.setColor(hb * 0.8f, hb * 1.3f, hb * 1.6f, 1f);
+        drawParkedCraft(shapes, 150, 87, 0.38f, false);
+        drawParkedCraft(shapes, 205, 86, 0.32f, true);
         // crew figures (+ selection/hover rings at their feet)
         for (CrewMember c : state.crew) {
             Sim sim = sims.get(c);
@@ -931,10 +933,19 @@ public class ShipDeckView {
         }
     }
 
-    private void drawChevron(ShapeRenderer shapes, float x, float y) {
-        shapes.line(px(x - 7), py(y - 5, 0), px(x + 7), py(y, 0));
-        shapes.line(px(x - 7), py(y + 5, 0), px(x + 7), py(y, 0));
+    /** A craft parked on the hangar floor: nose toward the carrier's bow, squashed by the deck projection. */
+    private void drawParkedCraft(ShapeRenderer shapes, float cx, float cy, float scale, boolean pincer) {
+        craftTransform.setToTranslation(px(cx), py(cy, 0), 0)
+            .scale(scale * SCALE, scale * SCALE * SQUASH, 1f)
+            .rotate(0, 0, 1, -90f);
+        shapes.setTransformMatrix(craftTransform);
+        if (pincer) ShipRenderer.drawPincer(shapes, 0f);
+        else ShipRenderer.drawB2(shapes);
+        shapes.setTransformMatrix(craftIdentity);
     }
+
+    private final Matrix4 craftTransform = new Matrix4();
+    private final Matrix4 craftIdentity = new Matrix4();
 
     private void fillDeckPoly(ShapeRenderer shapes) {
         // hull as two triangles + nose triangle (filled polys must be convex pieces)
