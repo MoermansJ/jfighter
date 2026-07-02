@@ -65,6 +65,8 @@ public class LootScreen implements Screen {
     // loop closing: a free net whose strand crosses itself seals into a clean ring
     private static final int LOOP_MIN_SEGMENTS = 16;  // rope distance between crossing points to count as a loop
     private static final float LOOP_ROUNDING = 1.5f;  // per-second pull of a closed ring toward a true circle
+    private static final float RING_SHRINK_RATE = 0.15f;   // drawstring cinch: fraction of radius lost per second
+    private static final float RING_MIN_FRACTION = 0.45f;  // shrink floor as a fraction of the radius at sealing
 
     // disintegration sparks (empty catches burn away)
     private static final float SPARK_MIN_LIFE = 0.4f;
@@ -139,7 +141,10 @@ public class LootScreen implements Screen {
 
     private static class Net {
         final Array<NetPoint> pts = new Array<>();
-        boolean closed; // strand crossed itself and sealed into a ring
+        boolean closed;      // strand crossed itself and sealed into a ring
+        float ringRadius;    // current drawstring target radius while closed
+        float minRadius;     // shrink floor, proportional to the size at sealing
+        final Array<Loot> contents = new Array<>(); // crates caught when the ring sealed
     }
 
     private static class Spark {
@@ -239,6 +244,7 @@ public class LootScreen implements Screen {
         solveNetConstraints();
         pushNetPoints();
         stickNetsToCargo();
+        connectCastNet();
         interactNets();
         closeLoops();
         dissolveEmptyCatches();
@@ -430,9 +436,10 @@ public class LootScreen implements Screen {
         p.y = crate.y + p.attachDy;
     }
 
-    /** The hulk shoves loose strands aside; the ship flies through nets freely. */
+    /** The hulk shoves loose strands aside; sealed rings clip on nothing but their catch. */
     private void pushNetPoints() {
         for (Net net : allNets()) {
+            if (net.closed) continue;
             for (NetPoint p : net.pts) {
                 if (p.attached != null) continue;
                 pushPoint(p, HULK_X, HULK_Y, HULK_RADIUS + 4f);
@@ -457,6 +464,8 @@ public class LootScreen implements Screen {
             for (NetPoint p : net.pts) {
                 if (p.attached != null) continue;
                 for (Loot crate : lootItems) {
+                    // a sealed ring only grabs its own catch
+                    if (net.closed && !net.contents.contains(crate, true)) continue;
                     float dx = p.x - crate.x;
                     float dy = p.y - crate.y;
                     float d2 = dx * dx + dy * dy;
@@ -500,7 +509,38 @@ public class LootScreen implements Screen {
         for (int k = net.pts.size - 1; k > end; k--) dropPoint(net, k);
         for (int k = start - 1; k >= 0; k--) dropPoint(net, k);
         net.closed = true;
-        if (isEmptyCatch(net)) disintegrate(net); // an empty loop burns away
+        sealRing(net);
+    }
+
+    /** On sealing: record the catch, set the drawstring shrink floor, burn away if the catch is empty. */
+    private void sealRing(Net net) {
+        captureContents(net);
+        float radius = net.pts.size * NET_REST_LEN / MathUtils.PI2;
+        net.ringRadius = radius;
+        net.minRadius = radius * RING_MIN_FRACTION;
+        boolean anyAttached = false;
+        for (NetPoint p : net.pts) {
+            if (p.attached != null) {
+                anyAttached = true;
+                break;
+            }
+        }
+        if (net.contents.isEmpty() && !anyAttached) disintegrate(net); // an empty loop burns away
+    }
+
+    /** The crates sitting inside the ring polygon at sealing time are its catch. */
+    private void captureContents(Net net) {
+        net.contents.clear();
+        float[] poly = new float[net.pts.size * 2];
+        for (int i = 0; i < net.pts.size; i++) {
+            poly[i * 2] = net.pts.get(i).x;
+            poly[i * 2 + 1] = net.pts.get(i).y;
+        }
+        for (Loot crate : lootItems) {
+            if (Intersector.isPointInPolygon(poly, 0, poly.length, crate.x, crate.y)) {
+                net.contents.add(crate);
+            }
+        }
     }
 
     /** Removes a point cleanly: any tangle links through it dissolve, and the hook lets go of it. */
@@ -517,11 +557,13 @@ public class LootScreen implements Screen {
         }
     }
 
-    /** Closed rings relax toward a true circle (skipping points snagged on cargo). */
+    /** Closed rings relax toward a true circle (skipping points snagged on cargo) and cinch like a drawstring. */
     private void roundClosedLoops(float delta) {
         float t = Math.min(1f, LOOP_ROUNDING * delta);
         for (Net net : freeNets) {
             if (!net.closed || net.pts.size < 3) continue;
+            net.ringRadius = Math.max(net.minRadius,
+                net.ringRadius - net.ringRadius * RING_SHRINK_RATE * delta);
             float cx = 0, cy = 0;
             for (NetPoint p : net.pts) {
                 cx += p.x;
@@ -529,7 +571,7 @@ public class LootScreen implements Screen {
             }
             cx /= net.pts.size;
             cy /= net.pts.size;
-            float radius = net.pts.size * NET_REST_LEN / MathUtils.PI2;
+            float radius = net.ringRadius;
             for (NetPoint p : net.pts) {
                 if (p.attached != null) continue;
                 float dx = p.x - cx;
@@ -547,6 +589,21 @@ public class LootScreen implements Screen {
      * end-to-end, an open strand ties its ends onto a sealed ring, and two sealed
      * rings pop into one big ring. The deployed tether joins in once it is cut free.
      */
+    /** Casting over a loose strand auto-cuts the payline and splices it on. */
+    private void connectCastNet() {
+        if (deployed == null || deployed.pts.size < 3) return;
+        for (Net other : freeNets) {
+            if (other.closed) continue;
+            if (findContact(deployed, other)) {
+                Net cast = deployed;
+                deployed = null; // auto-cut
+                freeNets.add(cast);
+                spliceNets(cast, other, contact[0], contact[1]);
+                return;
+            }
+        }
+    }
+
     private void interactNets() {
         for (int a = 0; a < freeNets.size; a++) {
             for (int b = a + 1; b < freeNets.size; b++) {
@@ -651,6 +708,7 @@ public class LootScreen implements Screen {
             MathUtils.atan2(p.y - fcy, p.x - fcx),
             MathUtils.atan2(q.y - fcy, q.x - fcx)));
         na.closed = true;
+        sealRing(na); // re-captures the combined catch and resets the drawstring floor
         burstSparks(cx, cy, 24);
         game.sfx.playThud(0.4f);
     }
@@ -670,22 +728,6 @@ public class LootScreen implements Screen {
             }
             if (!caught) disintegrate(net);
         }
-    }
-
-    /** A catch is empty when nothing is stuck to the net and no crate sits inside the ring. */
-    private boolean isEmptyCatch(Net net) {
-        for (NetPoint p : net.pts) {
-            if (p.attached != null) return false;
-        }
-        float[] poly = new float[net.pts.size * 2];
-        for (int i = 0; i < net.pts.size; i++) {
-            poly[i * 2] = net.pts.get(i).x;
-            poly[i * 2 + 1] = net.pts.get(i).y;
-        }
-        for (Loot crate : lootItems) {
-            if (Intersector.isPointInPolygon(poly, 0, poly.length, crate.x, crate.y)) return false;
-        }
-        return true;
     }
 
     /** The net burns away: every point flares into a drifting spark. */
