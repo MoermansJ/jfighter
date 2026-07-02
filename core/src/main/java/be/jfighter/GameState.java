@@ -128,7 +128,18 @@ public class GameState {
             } while (secondary == primary);
             crew.add(new CrewMember(name, primary, secondary));
         }
+        if (Dev.MODE) {
+            boarder = new CrewMember("INTRUDER", Skill.COMBAT,
+                skills[MathUtils.random(skills.length - 2)]);
+            boarder.hostile = true;
+            boarder.station = 1; // stands in the (stationless) cargo hold
+            boarder.deckX = 90;
+            boarder.deckY = 22;
+        }
     }
+
+    // dev-mode boarder (#42): a hostile figure in the cargo hold, player-controllable
+    public CrewMember boarder;
 
     private long stationSeq;
 

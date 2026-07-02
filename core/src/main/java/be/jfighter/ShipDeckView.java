@@ -43,7 +43,7 @@ public class ShipDeckView {
     private static final boolean[] ROOM_AMBER = {true, false, true, false, false, false, false, false}; // engine + hangar glow warm
     // the skill governing each room's single station (null = no station, e.g. quarters)
     private static final Skill[] ROOM_SKILL = {
-        Skill.ENGINEERING, Skill.LOGISTICS, Skill.FLIGHT_OPS, null,
+        Skill.ENGINEERING, null /* cargo hold: no station */, Skill.FLIGHT_OPS, null,
         Skill.GUNNERY, Skill.HELM, Skill.MEDICINE, Skill.SYSTEMS
     };
     private static final float CORRIDOR_X1 = 5f, CORRIDOR_X2 = 455f;
@@ -120,6 +120,16 @@ public class ShipDeckView {
 
     private final GameState state;
     private final Map<CrewMember, Sim> sims = new HashMap<>();
+    private final Array<CrewMember> figureList = new Array<>();
+    private final java.util.Set<CrewMember> engaged = new java.util.HashSet<>();
+
+    /** Everyone walking the deck: the crew plus any boarder. */
+    private Array<CrewMember> figures() {
+        figureList.clear();
+        for (CrewMember c : state.crew) figureList.add(c);
+        if (state.boarder != null) figureList.add(state.boarder);
+        return figureList;
+    }
     private final float[] roomBrightness = new float[ROOMS.length];
     private float corridorBrightness;
     private float time;
@@ -186,7 +196,8 @@ public class ShipDeckView {
             compVolume[COMP_CORRIDOR] += (al[1] - al[0]) * (al[3] - al[2]); // spur is corridor volume
             compVolume[chamberComp(a)] = (al[5] - al[4]) * (al[7] - al[6]);
         }
-        for (CrewMember c : state.crew) {
+        buildGrid();
+        for (CrewMember c : figures()) {
             Sim sim = new Sim();
             if (c.deckX < 0) {
                 Vector2 spot = stationSpot(effectiveStation(c), c);
@@ -231,7 +242,7 @@ public class ShipDeckView {
 
     /** Which crew member's figure is under this screen position, or null. */
     public CrewMember crewAt(float screenX, float screenY) {
-        for (CrewMember c : state.crew) {
+        for (CrewMember c : figures()) {
             Sim sim = sims.get(c);
             if (sim == null) continue;
             float bx = px(sim.x);
@@ -326,7 +337,39 @@ public class ShipDeckView {
         boolean[] occupied = new boolean[ROOMS.length];
         boolean corridorOccupied = false;
 
-        for (CrewMember c : state.crew) {
+        // hand-to-hand: the boarder engages crew in the same compartment within viewing
+        // range (auto-initiation; personality traits could gate this later)
+        engaged.clear();
+        CrewMember boarder = state.boarder;
+        if (boarder != null && !boarder.isDead()) {
+            Sim bs = sims.get(boarder);
+            if (bs != null) {
+                int broom = roomAtDeck(bs.x, bs.y);
+                for (CrewMember c : state.crew) {
+                    if (c.isDead()) continue;
+                    Sim cs = sims.get(c);
+                    if (cs == null || roomAtDeck(cs.x, cs.y) != broom) continue;
+                    float ddx = cs.x - bs.x;
+                    float ddy = cs.y - bs.y;
+                    if (ddx * ddx + ddy * ddy > 30f * 30f) continue; // out of viewing range
+                    engaged.add(c);
+                    engaged.add(boarder);
+                    float boarderDps = 6f + 2f * boarder.bonusFor(Skill.COMBAT);
+                    float crewDps = 6f + 2f * c.bonusFor(Skill.COMBAT);
+                    c.hp = Math.max(0f, c.hp - boarderDps * delta);
+                    c.damageFlash = 0.4f;
+                    boarder.hp = Math.max(0f, boarder.hp - crewDps * delta);
+                    boarder.damageFlash = 0.4f;
+                }
+                // left alone in a manned-type room, the boarder wrecks its station
+                if (!engaged.contains(boarder) && broom != -1 && ROOM_SKILL[broom] != null) {
+                    state.roomIntegrity[broom] =
+                        Math.max(0f, state.roomIntegrity[broom] - 0.02f * delta);
+                }
+            }
+        }
+
+        for (CrewMember c : figures()) {
             Sim sim = sims.computeIfAbsent(c, k -> {
                 Sim s = new Sim();
                 s.x = c.deckX >= 0 ? c.deckX : 40;
@@ -340,14 +383,18 @@ public class ShipDeckView {
                 sim.fallT = Math.min(1f, sim.fallT + delta / FALL_DURATION);
                 continue; // the dead don't walk, breathe, or run consoles
             }
-            if (sim.plannedStation != effectiveStation(c)) planPath(c, sim);
-            moveAlongPath(sim, delta);
-            // queue promotion: if my spot changed (e.g. I now man the station), walk to it
-            if (sim.path.size == 0) {
-                Vector2 spot = stationSpot(effectiveStation(c), c);
-                float sdx = spot.x - sim.x;
-                float sdy = spot.y - sim.y;
-                if (sdx * sdx + sdy * sdy > 9f) planPath(c, sim);
+            if (engaged.contains(c)) {
+                sim.moving = false; // locked in the melee
+            } else {
+                if (sim.plannedStation != effectiveStation(c)) planPath(c, sim);
+                moveAlongPath(sim, delta);
+                // queue promotion: if my spot changed (e.g. I now man the station), walk to it
+                if (sim.path.size == 0) {
+                    Vector2 spot = stationSpot(effectiveStation(c), c);
+                    float sdx = spot.x - sim.x;
+                    float sdy = spot.y - sim.y;
+                    if (sdx * sdx + sdy * sdy > 9f) planPath(c, sim);
+                }
             }
             c.deckX = sim.x;
             c.deckY = sim.y;
@@ -455,28 +502,170 @@ public class ShipDeckView {
         return sum / vol;
     }
 
+    /** Crew in the console tint; hostiles inverted so they always stand out (#40). */
+    private void setFigureColor(ShapeRenderer shapes, CrewMember c) {
+        Color col = figureColor(c);
+        if (c.hostile) Palette.setInverted(shapes, col.r, col.g, col.b, col.a);
+        else Palette.set(shapes, col);
+    }
+
     private void planPath(CrewMember c, Sim sim) {
         int target = effectiveStation(c);
         Vector2 spot = stationSpot(target, c);
         sim.path.clear();
-        int cur = roomAtDeck(sim.x, sim.y);
-        float corridorMid = (CORRIDOR_Y1 + CORRIDOR_Y2) / 2f;
-        if (cur == target) {
-            sim.path.add(spot);
-        } else {
-            if (cur != -1) {
-                float dx = doorX(cur);
-                sim.path.add(new Vector2(dx, doorApproachY(cur)));
-                sim.path.add(new Vector2(dx, corridorMid));
-            } else {
-                sim.path.add(new Vector2(sim.x, corridorMid));
+        if (!pathBetween(sim.x, sim.y, spot.x, spot.y, sim.path)) {
+            // fallback: the old corridor-waypoint route
+            int cur = roomAtDeck(sim.x, sim.y);
+            float corridorMid = (CORRIDOR_Y1 + CORRIDOR_Y2) / 2f;
+            if (cur != target) {
+                if (cur != -1) {
+                    float dx = doorX(cur);
+                    sim.path.add(new Vector2(dx, doorApproachY(cur)));
+                    sim.path.add(new Vector2(dx, corridorMid));
+                } else {
+                    sim.path.add(new Vector2(sim.x, corridorMid));
+                }
+                float tx = doorX(target);
+                sim.path.add(new Vector2(tx, corridorMid));
+                sim.path.add(new Vector2(tx, doorApproachY(target)));
             }
-            float tx = doorX(target);
-            sim.path.add(new Vector2(tx, corridorMid));
-            sim.path.add(new Vector2(tx, doorApproachY(target)));
-            sim.path.add(spot);
         }
+        sim.path.add(spot);
         sim.plannedStation = target;
+    }
+
+    // --- tile grid (#41): every walkable area of the deck is reachable via BFS across cells;
+    // doors gate the crossings between compartments ---
+    private static final float CELL = 5f;
+    private static final float GRID_X0 = 0f;
+    private static final float GRID_Y0 = -10f;
+    private static final int GRID_W = 106;
+    private static final int GRID_H = 27;
+    private final boolean[][] walkable = new boolean[GRID_W][GRID_H];
+    private final boolean[][] doorway = new boolean[GRID_W][GRID_H];
+    private final int[][] compOf = new int[GRID_W][GRID_H];
+
+    private void buildGrid() {
+        for (int gx = 0; gx < GRID_W; gx++) {
+            for (int gy = 0; gy < GRID_H; gy++) {
+                float x = GRID_X0 + (gx + 0.5f) * CELL;
+                float y = GRID_Y0 + (gy + 0.5f) * CELL;
+                int comp = compAtDeck(x, y);
+                compOf[gx][gy] = comp;
+                walkable[gx][gy] = comp != -1;
+            }
+        }
+        for (int d = 0; d < DOOR_COUNT; d++) {
+            float dx = doorPosX(d);
+            float dy = doorPosY(d);
+            for (int gx = 0; gx < GRID_W; gx++) {
+                for (int gy = 0; gy < GRID_H; gy++) {
+                    float x = GRID_X0 + (gx + 0.5f) * CELL;
+                    float y = GRID_Y0 + (gy + 0.5f) * CELL;
+                    if (Math.abs(x - dx) <= DOOR_HALF + 2f && Math.abs(y - dy) <= 6f && walkable[gx][gy]) {
+                        doorway[gx][gy] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    /** Compartment under a deck point: room index, corridor (+spurs), chamber, or -1 (hull). */
+    private static int compAtDeck(float x, float y) {
+        int room = roomAtDeck(x, y);
+        if (room != -1) return room;
+        if (x >= CORRIDOR_X1 && x <= CORRIDOR_X2 && y >= CORRIDOR_Y1 && y <= CORRIDOR_Y2) {
+            return COMP_CORRIDOR;
+        }
+        for (int a = 0; a < AIRLOCKS.length; a++) {
+            float[] al = AIRLOCKS[a];
+            if (x >= al[0] && x <= al[1] && y >= al[2] && y <= al[3]) return COMP_CORRIDOR;
+            if (x >= al[4] && x <= al[5] && y >= al[6] && y <= al[7]) return chamberComp(a);
+        }
+        return -1;
+    }
+
+    /** BFS a route between two deck points; waypoints (cell centres, collinear-compressed) land in out. */
+    public boolean pathBetween(float sx, float sy, float tx, float ty, Array<Vector2> out) {
+        int scx = nearestWalkableX(sx, sy);
+        int scy = nearestWalkableY(sx, sy);
+        int tcx = nearestWalkableX(tx, ty);
+        int tcy = nearestWalkableY(tx, ty);
+        if (scx < 0 || tcx < 0) return false;
+        int start = scx * GRID_H + scy;
+        int goal = tcx * GRID_H + tcy;
+        int[] prev = new int[GRID_W * GRID_H];
+        java.util.Arrays.fill(prev, -2);
+        java.util.ArrayDeque<Integer> queue = new java.util.ArrayDeque<>();
+        prev[start] = -1;
+        queue.add(start);
+        int[] dx = {1, -1, 0, 0};
+        int[] dy = {0, 0, 1, -1};
+        while (!queue.isEmpty()) {
+            int cur = queue.poll();
+            if (cur == goal) break;
+            int cx = cur / GRID_H;
+            int cy = cur % GRID_H;
+            for (int k = 0; k < 4; k++) {
+                int nx = cx + dx[k];
+                int ny = cy + dy[k];
+                if (nx < 0 || ny < 0 || nx >= GRID_W || ny >= GRID_H) continue;
+                int idx = nx * GRID_H + ny;
+                if (prev[idx] != -2 || !walkable[nx][ny]) continue;
+                if (compOf[cx][cy] != compOf[nx][ny]
+                        && !doorway[cx][cy] && !doorway[nx][ny]) {
+                    continue; // compartment crossings only happen at doors
+                }
+                prev[idx] = cur;
+                queue.add(idx);
+            }
+        }
+        if (prev[goal] == -2) return false;
+        Array<Vector2> cells = new Array<>();
+        for (int at = goal; at != -1; at = prev[at]) {
+            cells.add(new Vector2(GRID_X0 + (at / GRID_H + 0.5f) * CELL,
+                GRID_Y0 + (at % GRID_H + 0.5f) * CELL));
+        }
+        cells.reverse();
+        // compress collinear runs so figures walk clean straight lines
+        for (int i = 1; i < cells.size; i++) {
+            Vector2 a = cells.get(i - 1);
+            Vector2 b = cells.get(i);
+            while (i + 1 < cells.size) {
+                Vector2 nxt = cells.get(i + 1);
+                boolean sameDir = MathUtils.isEqual(nxt.x - b.x, b.x - a.x, 0.01f)
+                    && MathUtils.isEqual(nxt.y - b.y, b.y - a.y, 0.01f);
+                if (!sameDir) break;
+                cells.removeIndex(i);
+                b = cells.get(i);
+            }
+        }
+        out.addAll(cells);
+        return true;
+    }
+
+    private int nearestWalkableX(float x, float y) {
+        int[] c = nearestWalkable(x, y);
+        return c == null ? -1 : c[0];
+    }
+
+    private int nearestWalkableY(float x, float y) {
+        int[] c = nearestWalkable(x, y);
+        return c == null ? -1 : c[1];
+    }
+
+    private int[] nearestWalkable(float x, float y) {
+        int gx = MathUtils.clamp((int) ((x - GRID_X0) / CELL), 0, GRID_W - 1);
+        int gy = MathUtils.clamp((int) ((y - GRID_Y0) / CELL), 0, GRID_H - 1);
+        for (int ring = 0; ring <= 2; ring++) {
+            for (int ax = gx - ring; ax <= gx + ring; ax++) {
+                for (int ay = gy - ring; ay <= gy + ring; ay++) {
+                    if (ax < 0 || ay < 0 || ax >= GRID_W || ay >= GRID_H) continue;
+                    if (walkable[ax][ay]) return new int[]{ax, ay};
+                }
+            }
+        }
+        return null;
     }
 
     private void moveAlongPath(Sim sim, float delta) {
@@ -731,7 +920,7 @@ public class ShipDeckView {
         shapes.rect(px(CORRIDOR_X1), py(HULL_TOP, 0), (TAPER_X - CORRIDOR_X1) * SCALE, WALL_H * Z_FACTOR * SCALE);
         // figure shadows
         Palette.set(shapes, 0f, 0f, 0f, 0.5f);
-        for (CrewMember c : state.crew) {
+        for (CrewMember c : figures()) {
             Sim sim = sims.get(c);
             if (sim == null) continue;
             shapes.ellipse(px(sim.x) - 5, py(sim.y, 0) - 2.5f, 10, 5);
@@ -793,7 +982,7 @@ public class ShipDeckView {
         drawParkedCraft(shapes, 150, 87, 0.38f, false);
         drawParkedCraft(shapes, 205, 86, 0.32f, true);
         // crew figures (+ selection/hover rings at their feet)
-        for (CrewMember c : state.crew) {
+        for (CrewMember c : figures()) {
             Sim sim = sims.get(c);
             if (sim == null) continue;
             if (c == selectedCrew) {
@@ -815,10 +1004,10 @@ public class ShipDeckView {
 
         // pass 3, filled: heads + REC dot
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        for (CrewMember c : state.crew) {
+        for (CrewMember c : figures()) {
             Sim sim = sims.get(c);
             if (sim == null) continue;
-            Palette.set(shapes, figureColor(c));
+            setFigureColor(shapes, c);
             shapes.circle(bodyX(sim, FIGURE_H - 3), bodyY(sim, FIGURE_H - 3), 2.6f, 10);
         }
         Palette.set(shapes, 0.9f, 0.15f, 0.1f, 1f);
@@ -873,7 +1062,7 @@ public class ShipDeckView {
         float neckX = bodyX(sim, FIGURE_H - 5), neckY = bodyY(sim, FIGURE_H - 5);
         // limbs spread perpendicular to the body axis
         float sideX = fallDy(sim), sideY = -fallDx(sim);
-        Palette.set(shapes, figureColor(c));
+        setFigureColor(shapes, c);
         float swing = sim.moving ? MathUtils.sin(sim.walkPhase) * 3.5f : 0f;
         shapes.line(hipX, hipY, bx - (2 + swing) * sideX, by - (2 + swing) * sideY);  // legs
         shapes.line(hipX, hipY, bx + (2 + swing) * sideX, by + (2 + swing) * sideY);

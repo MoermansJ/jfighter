@@ -14,6 +14,7 @@ public class CrewMember {
     public final String name;
     public final Skill primary;
     public final Skill secondary;
+    public boolean hostile;   // boarders fight the crew and read in the inverted scheme colour
     public int station = -1;
     public long assignedAt;
     public float hp = MAX_HP;

@@ -7,6 +7,7 @@ public enum Skill {
     ENGINEERING, // engine room
     MEDICINE,    // medical bay
     SYSTEMS,     // life support
-    LOGISTICS,   // cargo hold
-    FLIGHT_OPS   // hangar bay
+    LOGISTICS,   // encounters + (former) cargo hold
+    FLIGHT_OPS,  // hangar bay
+    COMBAT       // hand-to-hand fighting on the deck
 }
