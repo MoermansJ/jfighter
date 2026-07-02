@@ -43,7 +43,7 @@ public class LootScreen implements Screen {
     private static final float CARGO_TOW_FACTOR = 0.3f;  // how much rope correction moves a crate
     private static final float CARGO_TOW_IMPULSE = 2f;   // velocity a crate picks up from rope pull
 
-    private static final int LOOT_COUNT = 6;
+    private static final int LOOT_COUNT_MIN = 4, LOOT_COUNT_MAX = 8;
     private static final int CREDITS_PER_LOOT = 25;
     private static final float CATCH_FLASH_TIME = 1.5f;
 
@@ -90,24 +90,36 @@ public class LootScreen implements Screen {
     private static final float SPARK_MAX_LIFE = 1.0f;
 
     // derelict hulk: gravity well in the middle of the arena
-    private static final float HULK_X = ARENA_WIDTH / 2f;
-    private static final float HULK_Y = ARENA_HEIGHT / 2f;
-    private static final float HULK_RADIUS = 36f;
-    private static final float HULK_GRAVITY = 200000f;   // accel = gravity / distance², px/s²
-    private static final float HULK_GRAVITY_CAP = 45f;   // max pull, close in
+    // gravity object + layout: randomised per instance in show() for map variety
+    private float hulkX;
+    private float hulkY;
+    private float hulkRadius;
+    private float hulkGravity;    // accel = gravity / distance², px/s²
+    private float hulkGravityCap; // max pull, close in
+    private float exitY;
+    private int lootCount;
+    private final Array<float[]> asteroids = new Array<>();      // {x, y, radius}
+    private final Array<float[]> asteroidShapes = new Array<>(); // polygon per asteroid
     private static final float HULK_RESTITUTION = 0.35f;
     private static final float HULK_SPIN = 6f;           // deg/s slow tumble
     private static final float THUD_COOLDOWN = 0.15f;
     // gravity indicator: rings that fall inward toward the well
-    private static final float GRAVITY_RING_OUTER = 160f; // roughly where the pull becomes noticeable
     private static final int GRAVITY_RING_COUNT = 3;
     private static final float GRAVITY_RING_SPEED = 0.18f; // ring cycles per second
-    private static final float EVENT_HORIZON_RADIUS = 16f; // dark core at the centre of the well
 
     // exit zone at the player's insertion point
     private static final float EXIT_X = 90f;
-    private static final float EXIT_Y = ARENA_HEIGHT / 2f;
     private static final float EXIT_RADIUS = 70f;
+
+    /** Where the pull becomes noticeable, scaled to the object's size. */
+    private float gravityRingOuter() {
+        return hulkRadius * 3.2f + 40f;
+    }
+
+    /** Dark core at the centre of the well, scaled to the object's size. */
+    private float eventHorizonRadius() {
+        return hulkRadius * 0.45f;
+    }
 
     private final JFighter game;
     private final GameState state;
@@ -212,12 +224,13 @@ public class LootScreen implements Screen {
 
     @Override
     public void show() {
+        randomizeLayout();
         viewport = new FitViewport(ARENA_WIDTH, ARENA_HEIGHT);
         shapes = new ShapeRenderer();
         batch = new SpriteBatch();
         font = game.fonts.font;
         Fonts.scale(font, 1.4f);
-        player = new Player(EXIT_X - Player.WIDTH / 2f, EXIT_Y - Player.HEIGHT / 2f);
+        player = new Player(EXIT_X - Player.WIDTH / 2f, exitY - Player.HEIGHT / 2f);
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         effects.setPincerHull(true);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
@@ -225,12 +238,64 @@ public class LootScreen implements Screen {
         spawnLoot();
     }
 
+    /** Every visit rolls a different arena: gravity object, exit, cargo count, asteroid field. */
+    private void randomizeLayout() {
+        exitY = ARENA_HEIGHT * MathUtils.random(0.25f, 0.75f);
+        lootCount = MathUtils.random(LOOT_COUNT_MIN, LOOT_COUNT_MAX);
+        hulkRadius = MathUtils.random(26f, 50f);
+        hulkGravity = MathUtils.random(120000f, 320000f);
+        hulkGravityCap = MathUtils.random(30f, 60f);
+        do {
+            hulkX = MathUtils.random(420f, ARENA_WIDTH - 160f);
+            hulkY = MathUtils.random(150f, ARENA_HEIGHT - 150f);
+        } while (Vector2.dst(hulkX, hulkY, EXIT_X, exitY) < EXIT_RADIUS + hulkRadius + 240f);
+
+        asteroids.clear();
+        asteroidShapes.clear();
+        int rocks = MathUtils.random(0, 4);
+        for (int i = 0; i < rocks; i++) {
+            for (int attempt = 0; attempt < 30; attempt++) {
+                float r = MathUtils.random(14f, 30f);
+                float x = MathUtils.random(300f, ARENA_WIDTH - 60f);
+                float y = MathUtils.random(60f, ARENA_HEIGHT - 60f);
+                if (Vector2.dst(x, y, EXIT_X, exitY) < EXIT_RADIUS + r + 90f) continue;
+                if (Vector2.dst(x, y, hulkX, hulkY) < hulkRadius + r + 120f) continue;
+                boolean clear = true;
+                for (float[] a : asteroids) {
+                    if (Vector2.dst(x, y, a[0], a[1]) < a[2] + r + 70f) {
+                        clear = false;
+                        break;
+                    }
+                }
+                if (!clear) continue;
+                asteroids.add(new float[]{x, y, r});
+                int verts = 9;
+                float[] shape = new float[verts * 2];
+                for (int v = 0; v < verts; v++) {
+                    float angle = v * 360f / verts;
+                    float rr = r + MathUtils.random(-r * 0.3f, r * 0.25f);
+                    shape[v * 2] = MathUtils.cosDeg(angle) * rr;
+                    shape[v * 2 + 1] = MathUtils.sinDeg(angle) * rr;
+                }
+                asteroidShapes.add(shape);
+                break;
+            }
+        }
+    }
+
+    private boolean nearAsteroid(float x, float y, float margin) {
+        for (float[] a : asteroids) {
+            if (Vector2.dst(x, y, a[0], a[1]) < a[2] + margin) return true;
+        }
+        return false;
+    }
+
     private void buildHulkShape() {
         int verts = 10;
         hulkShape = new float[verts * 2];
         for (int i = 0; i < verts; i++) {
             float angle = i * 360f / verts;
-            float r = HULK_RADIUS + MathUtils.random(-10f, 10f);
+            float r = hulkRadius + MathUtils.random(-10f, 10f);
             hulkShape[i * 2] = MathUtils.cosDeg(angle) * r;
             hulkShape[i * 2 + 1] = MathUtils.sinDeg(angle) * r;
         }
@@ -238,13 +303,14 @@ public class LootScreen implements Screen {
 
     private void spawnLoot() {
         lootItems.clear();
-        for (int i = 0; i < LOOT_COUNT; i++) {
+        for (int i = 0; i < lootCount; i++) {
             float x, y;
             do {
                 x = MathUtils.random(320f, ARENA_WIDTH - 60f);
                 y = MathUtils.random(60f, ARENA_HEIGHT - 60f);
-            } while (Vector2.dst(x, y, HULK_X, HULK_Y) < HULK_RADIUS + 90f
-                    || Vector2.dst(x, y, EXIT_X, EXIT_Y) < EXIT_RADIUS + 60f);
+            } while (Vector2.dst(x, y, hulkX, hulkY) < hulkRadius + 90f
+                    || Vector2.dst(x, y, EXIT_X, exitY) < EXIT_RADIUS + 60f
+                    || nearAsteroid(x, y, 40f));
             float angle = MathUtils.random(360f);
             float speed = MathUtils.random(CARGO_MIN_DRIFT, 15f); // derelict: barely adrift
             lootItems.add(new Loot(x, y,
@@ -777,7 +843,10 @@ public class LootScreen implements Screen {
             if (net.closed) continue;
             for (NetPoint p : net.pts) {
                 if (p.attached != null) continue;
-                pushPoint(p, HULK_X, HULK_Y, HULK_RADIUS + 4f);
+                pushPoint(p, hulkX, hulkY, hulkRadius + 4f);
+                for (float[] a : asteroids) {
+                    pushPoint(p, a[0], a[1], a[2] + 3f);
+                }
             }
         }
     }
@@ -1194,7 +1263,7 @@ public class LootScreen implements Screen {
     private void collectAtExit() {
         for (int i = lootItems.size - 1; i >= 0; i--) {
             Loot crate = lootItems.get(i);
-            if (Vector2.dst(crate.x, crate.y, EXIT_X, EXIT_Y) >= EXIT_RADIUS) continue;
+            if (Vector2.dst(crate.x, crate.y, EXIT_X, exitY) >= EXIT_RADIUS) continue;
             for (Net net : allNets()) {
                 for (NetPoint p : net.pts) {
                     if (p.attached == crate) {
@@ -1309,19 +1378,19 @@ public class LootScreen implements Screen {
         }
     }
 
-    private static float hulkPullX(float x, float y) {
-        float dx = HULK_X - x;
-        float dy = HULK_Y - y;
+    private float hulkPullX(float x, float y) {
+        float dx = hulkX - x;
+        float dy = hulkY - y;
         float d2 = Math.max(dx * dx + dy * dy, 1f);
-        float a = Math.min(HULK_GRAVITY_CAP, HULK_GRAVITY / d2);
+        float a = Math.min(hulkGravityCap, hulkGravity / d2);
         return dx / (float) Math.sqrt(d2) * a;
     }
 
-    private static float hulkPullY(float x, float y) {
-        float dx = HULK_X - x;
-        float dy = HULK_Y - y;
+    private float hulkPullY(float x, float y) {
+        float dx = hulkX - x;
+        float dy = hulkY - y;
         float d2 = Math.max(dx * dx + dy * dy, 1f);
-        float a = Math.min(HULK_GRAVITY_CAP, HULK_GRAVITY / d2);
+        float a = Math.min(hulkGravityCap, hulkGravity / d2);
         return dy / (float) Math.sqrt(d2) * a;
     }
 
@@ -1437,11 +1506,19 @@ public class LootScreen implements Screen {
 
     /** The hulk is immovable: ship and cargo bounce off it. */
     private void collideWithHulk() {
+        collideCircle(hulkX, hulkY, hulkRadius);
+        for (float[] a : asteroids) {
+            collideCircle(a[0], a[1], a[2]);
+        }
+    }
+
+    /** Immovable circle obstacle: shoves the ship and cargo out with restitution. */
+    private void collideCircle(float obX, float obY, float obR) {
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
-        float shipDist = HULK_RADIUS + SHIP_RADIUS;
-        float dx = cx - HULK_X;
-        float dy = cy - HULK_Y;
+        float shipDist = obR + SHIP_RADIUS;
+        float dx = cx - obX;
+        float dy = cy - obY;
         float d2 = dx * dx + dy * dy;
         if (d2 < shipDist * shipDist && d2 > 0f) {
             float d = (float) Math.sqrt(d2);
@@ -1457,10 +1534,10 @@ public class LootScreen implements Screen {
             }
         }
 
-        float cargoDist = HULK_RADIUS + CARGO_RADIUS;
+        float cargoDist = obR + CARGO_RADIUS;
         for (Loot loot : lootItems) {
-            dx = loot.x - HULK_X;
-            dy = loot.y - HULK_Y;
+            dx = loot.x - obX;
+            dy = loot.y - obY;
             d2 = dx * dx + dy * dy;
             if (d2 >= cargoDist * cargoDist || d2 == 0f) continue;
             float d = (float) Math.sqrt(d2);
@@ -1491,8 +1568,8 @@ public class LootScreen implements Screen {
             float a0 = i * 360f / segments;
             float a1 = (i + 1) * 360f / segments;
             shapes.line(
-                EXIT_X + MathUtils.cosDeg(a0) * EXIT_RADIUS, EXIT_Y + MathUtils.sinDeg(a0) * EXIT_RADIUS,
-                EXIT_X + MathUtils.cosDeg(a1) * EXIT_RADIUS, EXIT_Y + MathUtils.sinDeg(a1) * EXIT_RADIUS);
+                EXIT_X + MathUtils.cosDeg(a0) * EXIT_RADIUS, exitY + MathUtils.sinDeg(a0) * EXIT_RADIUS,
+                EXIT_X + MathUtils.cosDeg(a1) * EXIT_RADIUS, exitY + MathUtils.sinDeg(a1) * EXIT_RADIUS);
         }
         shapes.end();
     }
@@ -1503,15 +1580,26 @@ public class LootScreen implements Screen {
         shapes.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < GRAVITY_RING_COUNT; i++) {
             float phase = (effects.time() * GRAVITY_RING_SPEED + i / (float) GRAVITY_RING_COUNT) % 1f;
-            float r = MathUtils.lerp(GRAVITY_RING_OUTER, HULK_RADIUS + 6f, phase);
+            float r = MathUtils.lerp(gravityRingOuter(), hulkRadius + 6f, phase);
             float b = 0.08f + 0.22f * phase;
             shapes.setColor(0.8f * b, 0.7f * b, b, 1f); // faint violet
-            shapes.circle(HULK_X, HULK_Y, r, 48);
+            shapes.circle(hulkX, hulkY, r, 48);
         }
         shapes.end();
 
+        // asteroid field: immovable rocks that snag nets and bounce anything
+        shapes.setColor(0.42f, 0.38f, 0.33f, 1f);
+        for (int i = 0; i < asteroids.size; i++) {
+            float[] a = asteroids.get(i);
+            transform.setToTranslation(a[0], a[1], 0);
+            shapes.setTransformMatrix(transform);
+            shapes.polygon(asteroidShapes.get(i));
+            shapes.circle(a[2] * 0.3f, -a[2] * 0.2f, a[2] * 0.22f, 8); // crater
+        }
+        shapes.setTransformMatrix(identity);
+
         hulkRotation += HULK_SPIN * delta;
-        transform.setToTranslation(HULK_X, HULK_Y, 0).rotate(0, 0, 1, hulkRotation);
+        transform.setToTranslation(hulkX, hulkY, 0).rotate(0, 0, 1, hulkRotation);
         shapes.setTransformMatrix(transform);
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0.5f, 0.48f, 0.4f, 1f);
@@ -1524,12 +1612,12 @@ public class LootScreen implements Screen {
         // event horizon: a small dark core with a bright boundary ring
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0, 0, 0, 1f);
-        shapes.circle(0, 0, EVENT_HORIZON_RADIUS, 24);
+        shapes.circle(0, 0, eventHorizonRadius(), 24);
         shapes.end();
         float pulse = 0.65f + 0.25f * MathUtils.sin(effects.time() * 2f);
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0.7f * pulse, 0.85f * pulse, pulse, 1f);
-        shapes.circle(0, 0, EVENT_HORIZON_RADIUS, 24);
+        shapes.circle(0, 0, eventHorizonRadius(), 24);
         shapes.end();
         shapes.setTransformMatrix(identity);
     }
@@ -1639,7 +1727,7 @@ public class LootScreen implements Screen {
         batch.begin();
         font.setColor(0.3f, 0.9f, 0.4f, 1f);
         GlyphLayout gl = new GlyphLayout(font, "EXIT");
-        font.draw(batch, "EXIT", EXIT_X - gl.width / 2f, EXIT_Y + EXIT_RADIUS + 24);
+        font.draw(batch, "EXIT", EXIT_X - gl.width / 2f, exitY + EXIT_RADIUS + 24);
         batch.end();
     }
 
