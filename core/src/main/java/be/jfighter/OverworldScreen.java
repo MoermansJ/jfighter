@@ -20,7 +20,8 @@ public class OverworldScreen implements Screen {
     private static final float WORLD_WIDTH = JFighter.WORLD_WIDTH;
     private static final float WORLD_HEIGHT = JFighter.WORLD_HEIGHT;
     private static final float MAP_TOP = 270f; // divider: sector map below, ship blueprint above
-    private static final float NODE_RADIUS = 18f;
+    private static final float NODE_RADIUS = 11f;     // visual size
+    private static final float NODE_HIT_RADIUS = 18f; // clicks stay comfortable
     private static final int TRAVEL_FUEL_COST = 1;
 
     // crew roster panel, top-left of the deck-view section (inside the monitor bezel)
@@ -153,8 +154,7 @@ public class OverworldScreen implements Screen {
         GlyphLayout o2Gl = new GlyphLayout(font, "O2: " + o2 + "%");
         font.draw(batch, o2Gl, 930 - o2Gl.width, 491);
         font.setColor(Color.GRAY);
-        font.draw(batch, state.map.sectorName.toUpperCase()
-            + "  —  travel costs " + TRAVEL_FUEL_COST + " fuel", 10, MAP_TOP - 8);
+        font.draw(batch, state.map.sectorName.toUpperCase(), 10, MAP_TOP - 8);
 
         // deck view labels + feed overlay
         font.getData().setScale(1f);
@@ -448,7 +448,7 @@ public class OverworldScreen implements Screen {
         for (Node n : state.map.allNodes()) {
             float dx = mouse.x - n.x;
             float dy = mouse.y - n.y;
-            if (dx * dx + dy * dy <= NODE_RADIUS * NODE_RADIUS) {
+            if (dx * dx + dy * dy <= NODE_HIT_RADIUS * NODE_HIT_RADIUS) {
                 hoveredNode = n;
                 break;
             }
