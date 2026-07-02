@@ -234,6 +234,15 @@ public class OverworldScreen implements Screen {
         for (float y = 68; y < MAP_TOP; y += 68) {
             shapes.line(0, y, WORLD_WIDTH, y);
         }
+        // nebulas: layered violet swirls marking severed routes
+        for (OverworldMap.Nebula n : state.map.getNebulas()) {
+            shapes.setColor(0.16f, 0.08f, 0.22f, 1f);
+            shapes.circle(n.x, n.y, n.radius, 40);
+            shapes.setColor(0.22f, 0.11f, 0.3f, 1f);
+            shapes.circle(n.x + n.radius * 0.16f, n.y - n.radius * 0.1f, n.radius * 0.66f, 32);
+            shapes.setColor(0.28f, 0.15f, 0.36f, 1f);
+            shapes.circle(n.x - n.radius * 0.2f, n.y + n.radius * 0.14f, n.radius * 0.38f, 24);
+        }
         for (OverworldMap.Decal d : state.map.getDecals()) {
             switch (d.kind) {
                 case RING:

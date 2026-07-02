@@ -1,7 +1,10 @@
 package be.jfighter;
 
+import com.badlogic.gdx.math.Intersector;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.math.Vector2;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -32,6 +35,17 @@ public class OverworldMap {
         }
     }
 
+    /** A dark cloud on the map that severs the routes running through it. */
+    public static class Nebula {
+        public final float x, y, radius;
+
+        Nebula(float x, float y, float radius) {
+            this.x = x;
+            this.y = y;
+            this.radius = radius;
+        }
+    }
+
     // map area within the bottom section of the overworld screen
     public static final float AREA_LEFT = 90f;
     public static final float AREA_RIGHT = 880f;
@@ -39,6 +53,8 @@ public class OverworldMap {
     public static final float AREA_TOP = 225f;
     private static final int COLUMNS = 5;
     private static final float MIN_Y_SEPARATION = 55f;
+    private static final float NEIGHBOUR_DIST = 230f;  // nodes this close in adjacent columns connect
+    private static final float ODD_PATH_CHANCE = 0.3f; // per column-pair chance of a column-skipping link
 
     private static final String[] SECTOR_NAMES = {
         "Draco", "Perseus", "Lyra", "Orion", "Cygnus", "Vela",
@@ -47,6 +63,7 @@ public class OverworldMap {
 
     private final Map<Integer, Node> nodes = new HashMap<>();
     private final List<Decal> decals = new ArrayList<>();
+    private final List<Nebula> nebulas = new ArrayList<>();
     public final int lastNodeId;
     public final String sectorName;
     private int currentNodeId = 0;
@@ -88,26 +105,47 @@ public class OverworldMap {
             columns.add(column);
         }
 
-        // edges between adjacent columns: everyone connects forward, everyone is reachable
+        // same-column links: vertical neighbours connect
+        for (List<Integer> column : columns) {
+            List<Integer> sorted = new ArrayList<>(column);
+            sorted.sort((a, b) -> Float.compare(ys.get(a), ys.get(b)));
+            for (int k = 1; k < sorted.size(); k++) {
+                link(adj, sorted.get(k - 1), sorted.get(k));
+            }
+        }
+
+        // adjacent-column links: anything close enough connects both ways,
+        // with a guaranteed forward and backward link per node
         for (int c = 0; c < COLUMNS - 1; c++) {
             List<Integer> cur = columns.get(c);
             List<Integer> next = columns.get(c + 1);
             for (int n : cur) {
-                link(adj, n, nearest(next, n, xs, ys, -1));
-            }
-            for (int m : next) {
-                if (!hasNeighbourIn(adj.get(m), cur)) {
-                    link(adj, nearest(cur, m, xs, ys, -1), m);
+                for (int m : next) {
+                    float dx = xs.get(m) - xs.get(n);
+                    float dy = ys.get(m) - ys.get(n);
+                    if (dx * dx + dy * dy < NEIGHBOUR_DIST * NEIGHBOUR_DIST) link(adj, n, m);
                 }
             }
-            // occasional extra route for variety
-            if (next.size() > 1 && MathUtils.randomBoolean(0.4f)) {
-                int n = cur.get(MathUtils.random(cur.size() - 1));
-                int firstChoice = nearest(next, n, xs, ys, -1);
-                int second = nearest(next, n, xs, ys, firstChoice);
-                if (second != -1) link(adj, n, second);
+            for (int n : cur) {
+                if (!hasNeighbourIn(adj.get(n), next)) link(adj, n, nearest(next, n, xs, ys, -1));
+            }
+            for (int m : next) {
+                if (!hasNeighbourIn(adj.get(m), cur)) link(adj, nearest(cur, m, xs, ys, -1), m);
             }
         }
+
+        // odd paths: the occasional long route that skips a column
+        for (int c = 0; c + 2 < COLUMNS; c++) {
+            if (MathUtils.randomBoolean(ODD_PATH_CHANCE)) {
+                List<Integer> cur = columns.get(c);
+                int n = cur.get(MathUtils.random(cur.size() - 1));
+                link(adj, n, nearest(columns.get(c + 2), n, xs, ys, -1));
+            }
+        }
+
+        // nebulas sever routes through them, but everything stays reachable
+        // and a quick-escape route (about half the nodes) always survives
+        placeNebulasAndPrune(xs, ys, adj, id);
 
         // types: HOME first, COMBAT last, at least one trader and one loot in between
         Node.Type[] types = new Node.Type[id];
@@ -131,6 +169,103 @@ public class OverworldMap {
             nodes.put(i, new Node(i, xs.get(i), ys.get(i), types[i], connections));
         }
         return id - 1;
+    }
+
+    /**
+     * Drops 0-2 nebulas onto clear patches of the map and severs the edges running
+     * through them. Cut edges are restored as needed so every node stays reachable
+     * and the shortest HOME→END route needs no more than about half the nodes.
+     */
+    private void placeNebulasAndPrune(List<Float> xs, List<Float> ys, Map<Integer, Set<Integer>> adj, int nodeCount) {
+        int wanted = MathUtils.random(0, 2);
+        for (int i = 0; i < wanted; i++) {
+            for (int attempt = 0; attempt < 25; attempt++) {
+                float r = MathUtils.random(30f, 55f);
+                float x = MathUtils.random(AREA_LEFT + 60f, AREA_RIGHT - 60f);
+                float y = MathUtils.random(AREA_BOTTOM + 15f, AREA_TOP - 15f);
+                boolean clear = true;
+                for (int n = 0; n < nodeCount && clear; n++) {
+                    clear = Vector2.dst(x, y, xs.get(n), ys.get(n)) > r + 20f;
+                }
+                if (clear) {
+                    nebulas.add(new Nebula(x, y, r));
+                    break;
+                }
+            }
+        }
+        if (nebulas.isEmpty()) return;
+
+        List<int[]> cut = new ArrayList<>();
+        for (int a = 0; a < nodeCount; a++) {
+            for (int b : new ArrayList<>(adj.get(a))) {
+                if (b <= a) continue;
+                if (crossesNebula(xs.get(a), ys.get(a), xs.get(b), ys.get(b))) {
+                    adj.get(a).remove(b);
+                    adj.get(b).remove(a);
+                    cut.add(new int[]{a, b});
+                }
+            }
+        }
+        // restore cuts until every node is reachable again
+        while (!cut.isEmpty() && reachableCount(adj, nodeCount) < nodeCount) {
+            int[] edge = cut.remove(cut.size() - 1);
+            link(adj, edge[0], edge[1]);
+        }
+        // quick escape: the shortest route may need at most about half the nodes
+        int hopLimit = Math.max(2, nodeCount / 2);
+        while (!cut.isEmpty() && hops(adj, nodeCount, nodeCount - 1) > hopLimit) {
+            int[] edge = cut.remove(cut.size() - 1);
+            link(adj, edge[0], edge[1]);
+        }
+    }
+
+    private boolean crossesNebula(float x1, float y1, float x2, float y2) {
+        for (Nebula n : nebulas) {
+            if (Intersector.intersectSegmentCircle(
+                    new Vector2(x1, y1), new Vector2(x2, y2),
+                    new Vector2(n.x, n.y), n.radius * n.radius)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Number of nodes reachable from HOME. */
+    private static int reachableCount(Map<Integer, Set<Integer>> adj, int nodeCount) {
+        boolean[] seen = new boolean[nodeCount];
+        ArrayDeque<Integer> queue = new ArrayDeque<>();
+        queue.add(0);
+        seen[0] = true;
+        int count = 1;
+        while (!queue.isEmpty()) {
+            for (int m : adj.get(queue.poll())) {
+                if (!seen[m]) {
+                    seen[m] = true;
+                    count++;
+                    queue.add(m);
+                }
+            }
+        }
+        return count;
+    }
+
+    /** BFS hop count from HOME to the target, or MAX_VALUE when unreachable. */
+    private static int hops(Map<Integer, Set<Integer>> adj, int nodeCount, int target) {
+        int[] dist = new int[nodeCount];
+        java.util.Arrays.fill(dist, Integer.MAX_VALUE);
+        dist[0] = 0;
+        ArrayDeque<Integer> queue = new ArrayDeque<>();
+        queue.add(0);
+        while (!queue.isEmpty()) {
+            int n = queue.poll();
+            for (int m : adj.get(n)) {
+                if (dist[m] == Integer.MAX_VALUE) {
+                    dist[m] = dist[n] + 1;
+                    queue.add(m);
+                }
+            }
+        }
+        return dist[target];
     }
 
     /** A y position keeping some distance from column mates — irregular, not evenly spaced. */
@@ -196,6 +331,10 @@ public class OverworldMap {
 
     public List<Decal> getDecals() {
         return decals;
+    }
+
+    public List<Nebula> getNebulas() {
+        return nebulas;
     }
 
     public Node getNode(int id) {
