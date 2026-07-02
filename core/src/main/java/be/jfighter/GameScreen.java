@@ -93,6 +93,11 @@ public class GameScreen implements Screen {
         float x, y, age, delay, speed, maxR;
     }
 
+    private static class WingDebris {
+        float x, y, vx, vy, rotation, spin, life = 25f;
+        boolean left;
+    }
+
     private static class CritToast {
         Enemy e;
         String text;
@@ -101,6 +106,7 @@ public class GameScreen implements Screen {
 
     private final Array<Spark> sparks = new Array<>();
     private final Array<CritToast> critToasts = new Array<>();
+    private final Array<WingDebris> wingDebris = new Array<>();
     private final Array<Shard> shards = new Array<>();
     private final Array<Blast> blasts = new Array<>();
 
@@ -111,6 +117,9 @@ public class GameScreen implements Screen {
         boolean onFire;      // crit: damage over time + flames
         boolean engineOut;   // crit: no thrust
         boolean helmDamaged; // crit: crippled turning
+        // destructible sections (#73): wings shear off before the core gives out
+        float leftWingHp = 12f;
+        float rightWingHp = 12f;
 
         Enemy(float x, float y) {
             body = new Player(x, y);
@@ -210,6 +219,17 @@ public class GameScreen implements Screen {
                 CritToast ct = critToasts.get(i);
                 ct.t -= delta;
                 if (ct.t <= 0) critToasts.removeIndex(i);
+            }
+            for (int i = wingDebris.size - 1; i >= 0; i--) {
+                WingDebris wd = wingDebris.get(i);
+                wd.life -= delta;
+                if (wd.life <= 0) {
+                    wingDebris.removeIndex(i);
+                    continue;
+                }
+                wd.x += wd.vx * delta;
+                wd.y += wd.vy * delta;
+                wd.rotation += wd.spin * delta;
             }
             effects.update(player, delta);
             effects.spawnExhaust(player, delta);
@@ -509,7 +529,7 @@ public class GameScreen implements Screen {
                 if (dx * dx + dy * dy < ENEMY_RADIUS * ENEMY_RADIUS) {
                     projectiles.removeIndex(i);
                     impact(p);
-                    if (!p.rocket) damageEnemy(e, p.damage); // rockets damage via their splash
+                    if (!p.rocket) damageEnemyAt(e, p.damage, p.x, p.y); // rockets damage via their splash
                     break;
                 }
             }
@@ -544,6 +564,47 @@ public class GameScreen implements Screen {
 
     private Player controlledBody() {
         return controlled < 0 || controlled >= enemies.size ? player : enemies.get(controlled).body;
+    }
+
+    /** Damage routed by hit position: outer hits shear wings off before the core takes it. */
+    private void damageEnemyAt(Enemy e, float dmg, float hx, float hy) {
+        // hit position in ship-local coords
+        float dx = hx - e.centerX();
+        float dy = hy - e.centerY();
+        float cos = MathUtils.cosDeg(-e.body.rotation);
+        float sin = MathUtils.sinDeg(-e.body.rotation);
+        float lx = dx * cos - dy * sin;
+        if (lx < -9f && e.leftWingHp > 0) {
+            e.leftWingHp -= dmg;
+            if (e.leftWingHp <= 0) shearWing(e, true);
+            else game.sfx.playThud(0.2f);
+            return;
+        }
+        if (lx > 9f && e.rightWingHp > 0) {
+            e.rightWingHp -= dmg;
+            if (e.rightWingHp <= 0) shearWing(e, false);
+            else game.sfx.playThud(0.2f);
+            return;
+        }
+        damageEnemy(e, dmg);
+    }
+
+    /** The wing tears free as tumbling debris; the ship flies on, crippled. */
+    private void shearWing(Enemy e, boolean left) {
+        WingDebris wd = new WingDebris();
+        wd.x = e.centerX();
+        wd.y = e.centerY();
+        wd.vx = e.body.vx + MathUtils.random(-30f, 30f);
+        wd.vy = e.body.vy + MathUtils.random(-30f, 30f);
+        wd.rotation = e.body.rotation;
+        wd.spin = MathUtils.random(-160f, 160f);
+        wd.left = left;
+        wingDebris.add(wd);
+        e.body.thrustMult *= 0.55f;
+        e.body.turnMult *= 0.55f;
+        addSparks(wd.x, wd.y, e.body.vx, e.body.vy, 10);
+        toast(e, left ? "LEFT WING SHEARED" : "WING SHEARED");
+        game.sfx.playThud(0.4f);
     }
 
     private void damageEnemy(Enemy e, float dmg) {
@@ -671,7 +732,7 @@ public class GameScreen implements Screen {
         beams.add(new float[]{ox, oy, ex, ey, continuous ? 0.05f : 0.14f, continuous ? 0.05f : 0.14f});
         if (hit != null) {
             addSparks(ex, ey, 0, 0, continuous ? 1 : 4);
-            damageEnemy(hit, damage);
+            damageEnemyAt(hit, damage, ex, ey);
         }
     }
 
@@ -973,7 +1034,9 @@ public class GameScreen implements Screen {
             shapeRenderer.setColor(i == controlled ? Color.ORANGE : new Color(0.95f, 0.25f, 0.2f, 1f));
             transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
             shapeRenderer.setTransformMatrix(transform);
-            ShipRenderer.drawB2(shapeRenderer);
+            ShipRenderer.drawB2Core(shapeRenderer);
+            if (e.leftWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, true);
+            if (e.rightWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, false);
             drawDamageMarks(e);
             if (e.body.thrustLevel > 0.02f) {
                 float flick = 0.8f + 0.35f * MathUtils.random();

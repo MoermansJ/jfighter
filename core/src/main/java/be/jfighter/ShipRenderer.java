@@ -13,27 +13,33 @@ public final class ShipRenderer {
     }
 
     public static void drawB2(ShapeRenderer shapes) {
-        // leading edges
-        shapes.line(0, 20, 28, 0);
-        shapes.line(0, 20, -28, 0);
-        // trailing edge W (right)
-        shapes.line(28, 0, 22, -12);
-        shapes.line(22, -12, 14, -4);
+        drawB2Core(shapes);
+        drawB2Wing(shapes, false);
+        drawB2Wing(shapes, true);
+    }
+
+    /** Fuselage: centre section, cockpit, inner trailing edge. */
+    public static void drawB2Core(ShapeRenderer shapes) {
+        shapes.line(0, 20, 14, 10); // inner leading edges
+        shapes.line(0, 20, -14, 10);
         shapes.line(14, -4, 6, -16);
         shapes.line(6, -16, 0, -10);
-        // trailing edge W (left)
-        shapes.line(-28, 0, -22, -12);
-        shapes.line(-22, -12, -14, -4);
         shapes.line(-14, -4, -6, -16);
         shapes.line(-6, -16, 0, -10);
-        // centerline + cockpit
         shapes.line(0, 18, 0, -10);
         shapes.circle(0, 14, 3, 8);
-        // engine exhaust slots
-        shapes.line(-14, -2, -10, -10);
         shapes.line(-10, -2, -6, -10);
         shapes.line(6, -10, 10, -2);
-        shapes.line(10, -10, 14, -2);
+    }
+
+    /** One outer wing; mirrored for the left side. Sections can be shot away (#73). */
+    public static void drawB2Wing(ShapeRenderer shapes, boolean left) {
+        float s = left ? -1f : 1f;
+        shapes.line(14 * s, 10, 28 * s, 0);  // outer leading edge
+        shapes.line(28 * s, 0, 22 * s, -12); // wingtip
+        shapes.line(22 * s, -12, 14 * s, -4);
+        shapes.line(14 * s, -4, 14 * s, 10); // wing root
+        shapes.line(14 * s, -2, 10 * s, -10); // outboard engine slot
     }
 
     /**
