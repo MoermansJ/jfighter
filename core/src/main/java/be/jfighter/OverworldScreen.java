@@ -101,6 +101,11 @@ public class OverworldScreen implements Screen {
             if (state.credits < 99999) state.credits = 99999; // infinite credits
         }
         mapTime += delta;
+        // ESC: back to the title with the run kept alive (RESUME picks it back up)
+        if (!victory && Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+            game.setScreen(new TitleScreen(game));
+            return;
+        }
         updateHover();
         // stop rendering once the screen switches: hide() disposed our resources
         if (handleInput()) return;
@@ -565,6 +570,7 @@ public class OverworldScreen implements Screen {
         // victory modal swallows all input until the run is closed out
         if (victory) {
             if (VICTORY_BTN.contains(mouse.x, mouse.y)) {
+                game.currentRun = null; // run over
                 game.setScreen(new TitleScreen(game));
                 return true;
             }

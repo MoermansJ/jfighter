@@ -14,6 +14,8 @@ import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 
 public class TitleScreen implements Screen {
+    private static final Rectangle RESUME_BUTTON =
+        new Rectangle((JFighter.WORLD_WIDTH - 200) / 2f, 140, 200, 40);
     private static final Rectangle BUTTON =
         new Rectangle((JFighter.WORLD_WIDTH - 200) / 2f, 90, 200, 40);
     private static final Rectangle OPTIONS_BUTTON =
@@ -26,6 +28,7 @@ public class TitleScreen implements Screen {
     private BitmapFont font;
     private GlyphLayout buttonLayout;
     private GlyphLayout optionsLayout;
+    private GlyphLayout resumeLayout;
 
     public TitleScreen(JFighter game) {
         this.game = game;
@@ -38,8 +41,9 @@ public class TitleScreen implements Screen {
         background = new Texture(Gdx.files.internal("jfightertitle640.png"));
         font = game.fonts.font;
         Fonts.scale(font, 2f);
-        buttonLayout = new GlyphLayout(font, "START GAME");
+        buttonLayout = new GlyphLayout(font, game.currentRun != null ? "NEW GAME" : "START GAME");
         optionsLayout = new GlyphLayout(font, "OPTIONS");
+        resumeLayout = new GlyphLayout(font, "RESUME");
     }
 
     @Override
@@ -55,10 +59,16 @@ public class TitleScreen implements Screen {
         );
         boolean hovered = BUTTON.contains(mouse.x, mouse.y);
         boolean optionsHovered = OPTIONS_BUTTON.contains(mouse.x, mouse.y);
+        boolean resumeHovered = game.currentRun != null && RESUME_BUTTON.contains(mouse.x, mouse.y);
 
         if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
+            if (resumeHovered) {
+                game.setScreen(new OverworldScreen(game, game.currentRun));
+                return;
+            }
             if (hovered) {
-                game.setScreen(new OverworldScreen(game, new GameState()));
+                game.currentRun = new GameState(); // abandons any run in progress
+                game.setScreen(new OverworldScreen(game, game.currentRun));
                 return;
             }
             if (optionsHovered) {
@@ -81,6 +91,13 @@ public class TitleScreen implements Screen {
         float optX = OPTIONS_BUTTON.x + (OPTIONS_BUTTON.width - optionsLayout.width) / 2f;
         float optY = OPTIONS_BUTTON.y + (OPTIONS_BUTTON.height + optionsLayout.height) / 2f;
         font.draw(batch, optionsLayout, optX, optY);
+        if (game.currentRun != null) {
+            font.setColor(resumeHovered ? Color.YELLOW : Color.GREEN);
+            float resX = RESUME_BUTTON.x + (RESUME_BUTTON.width - resumeLayout.width) / 2f;
+            float resY = RESUME_BUTTON.y + (RESUME_BUTTON.height + resumeLayout.height) / 2f;
+            font.draw(batch, resumeLayout, resX, resY);
+        }
+        Dev.drawIndicator(batch, font, JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         batch.end();
     }
 

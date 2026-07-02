@@ -22,6 +22,7 @@ public class JFighter extends Game {
 
     public SoundFx sfx;
     public Fonts fonts;
+    public GameState currentRun; // kept alive when ESC returns to the title (RESUME)
 
     @Override
     public void create() {
