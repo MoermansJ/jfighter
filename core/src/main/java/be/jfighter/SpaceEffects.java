@@ -91,6 +91,7 @@ public class SpaceEffects {
 
     private static class Puff {
         float x, y, vx, vy, life;
+        boolean hot; // exhaust plume particle (orange) vs RCS gas (pale blue)
     }
 
     private static class Twinkle {
@@ -430,7 +431,17 @@ public class SpaceEffects {
                 shapes.setTransformMatrix(transform);
                 if (pincerHull) ShipRenderer.drawPincer(shapes, pincerGrab);
                 else ShipRenderer.drawB2(shapes);
-                if (player.thrustLevel > 0.02f) ShipRenderer.drawExhaust(shapes, player.thrustLevel);
+                if (player.thrustLevel > 0.02f) {
+                    // two-tone flickering plume: orange outer, bright core
+                    float sr = shapes.getColor().r, sg = shapes.getColor().g,
+                        sb = shapes.getColor().b, sa = shapes.getColor().a;
+                    float flick = 0.8f + 0.35f * MathUtils.random();
+                    shapes.setColor(1f, 0.5f, 0.12f, 1f);
+                    ShipRenderer.drawExhaust(shapes, player.thrustLevel * flick);
+                    shapes.setColor(1f, 0.85f, 0.4f, 1f);
+                    ShipRenderer.drawExhaust(shapes, player.thrustLevel * flick * 0.55f);
+                    shapes.setColor(sr, sg, sb, sa);
+                }
             }
         }
         // velocity indicator: where you're drifting
@@ -449,7 +460,8 @@ public class SpaceEffects {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (Puff p : puffs) {
             float frac = p.life / PUFF_LIFE;
-            shapes.setColor(0.7f * frac, 0.85f * frac, frac, 1f);
+            if (p.hot) shapes.setColor(frac, 0.55f * frac, 0.12f * frac, 1f);
+            else shapes.setColor(0.7f * frac, 0.85f * frac, frac, 1f);
             shapes.circle(p.x, p.y, 1.6f * frac + 0.6f, 6);
         }
         float pulse = 0.3f + 0.7f * (0.5f + 0.5f * MathUtils.sin(time * LIGHT_PULSE_HZ * MathUtils.PI2));
@@ -491,6 +503,24 @@ public class SpaceEffects {
         p.vx = vx;
         p.vy = vy;
         p.life = PUFF_LIFE;
+        puffs.add(p);
+    }
+
+    /** Hot exhaust particles trailing a burning ship; call once per frame per ship. */
+    public void spawnExhaust(Player ship, float delta) {
+        if (ship.thrustLevel < 0.1f) return;
+        if (MathUtils.random() > 24f * ship.thrustLevel * delta) return;
+        float cx = ship.x + Player.WIDTH / 2f;
+        float cy = ship.y + Player.HEIGHT / 2f;
+        float fx = -MathUtils.sinDeg(ship.rotation);
+        float fy = MathUtils.cosDeg(ship.rotation);
+        Puff p = new Puff();
+        p.x = cx - fx * 14f + MathUtils.random(-4f, 4f);
+        p.y = cy - fy * 14f + MathUtils.random(-4f, 4f);
+        p.vx = ship.vx - fx * (PUFF_JET_SPEED + 40f * ship.thrustLevel) + MathUtils.random(-10f, 10f);
+        p.vy = ship.vy - fy * (PUFF_JET_SPEED + 40f * ship.thrustLevel) + MathUtils.random(-10f, 10f);
+        p.life = PUFF_LIFE;
+        p.hot = true;
         puffs.add(p);
     }
 

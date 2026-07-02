@@ -148,6 +148,8 @@ public class GameScreen implements Screen {
             bounceOffWalls(e.body);
         }
         effects.update(player, delta);
+        effects.spawnExhaust(player, delta);
+        for (Enemy e : enemies) effects.spawnExhaust(e.body, delta);
         updateProjectiles(delta);
         updateEffects(delta);
 
@@ -442,7 +444,13 @@ public class GameScreen implements Screen {
             transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
             shapeRenderer.setTransformMatrix(transform);
             ShipRenderer.drawB2(shapeRenderer);
-            if (e.body.thrustLevel > 0.02f) ShipRenderer.drawExhaust(shapeRenderer, e.body.thrustLevel);
+            if (e.body.thrustLevel > 0.02f) {
+                float flick = 0.8f + 0.35f * MathUtils.random();
+                shapeRenderer.setColor(1f, 0.5f, 0.12f, 1f);
+                ShipRenderer.drawExhaust(shapeRenderer, e.body.thrustLevel * flick);
+                shapeRenderer.setColor(1f, 0.85f, 0.4f, 1f);
+                ShipRenderer.drawExhaust(shapeRenderer, e.body.thrustLevel * flick * 0.55f);
+            }
         }
         shapeRenderer.setTransformMatrix(transform.idt());
         shapeRenderer.end();

@@ -273,6 +273,7 @@ public class LootScreen implements Screen {
         interactShipWithBlobs();
         updatePincer(delta);
         effects.update(player, delta);
+        effects.spawnExhaust(player, delta);
 
         payOutDeployedNet();
         updateNetPoints(delta);
