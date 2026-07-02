@@ -7,6 +7,8 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
+import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
@@ -25,6 +27,11 @@ public class GameScreen implements Screen {
     // solid arena walls: no wrapping or clipping through the border
     private static final float WALL_RESTITUTION = 0.5f;
 
+    // enemy ships: idle drifters for now — targets to fly against and shoot at
+    private static final float ENEMY_RADIUS = 18f;
+    private static final int ENEMY_HP = 3;
+    private static final int CREDITS_PER_KILL = 40;
+
     private final JFighter game;
     private final GameState state;
 
@@ -35,8 +42,31 @@ public class GameScreen implements Screen {
     private Player player;
     private SpaceEffects effects;
     private final Array<Projectile> projectiles = new Array<>();
+    private final Array<Enemy> enemies = new Array<>();
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
+
+    private static class Enemy {
+        final Player body; // reuses ship physics: drag keeps them slowly adrift
+        int hp = ENEMY_HP;
+
+        Enemy(float x, float y) {
+            body = new Player(x, y);
+            body.rotation = MathUtils.random(360f);
+            float angle = MathUtils.random(360f);
+            float speed = MathUtils.random(8f, 22f);
+            body.vx = MathUtils.cosDeg(angle) * speed;
+            body.vy = MathUtils.sinDeg(angle) * speed;
+        }
+
+        float centerX() {
+            return body.x + Player.WIDTH / 2f;
+        }
+
+        float centerY() {
+            return body.y + Player.HEIGHT / 2f;
+        }
+    }
 
     public GameScreen(JFighter game, GameState state) {
         this.game = game;
@@ -53,6 +83,26 @@ public class GameScreen implements Screen {
         player = new Player(120f, (ARENA_HEIGHT - Player.HEIGHT) / 2f);
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
+        spawnEnemies();
+    }
+
+    private void spawnEnemies() {
+        int count = MathUtils.random(2, 3);
+        for (int i = 0; i < count; i++) {
+            float x, y;
+            do {
+                x = MathUtils.random(ARENA_WIDTH * 0.45f, ARENA_WIDTH - 80f);
+                y = MathUtils.random(60f, ARENA_HEIGHT - 60f);
+            } while (tooCloseToOthers(x, y));
+            enemies.add(new Enemy(x, y));
+        }
+    }
+
+    private boolean tooCloseToOthers(float x, float y) {
+        for (Enemy e : enemies) {
+            if (Vector2.dst(x, y, e.body.x, e.body.y) < 140f) return true;
+        }
+        return false;
     }
 
     @Override
@@ -62,6 +112,10 @@ public class GameScreen implements Screen {
         effects.handleFlightInput(player, delta);
         player.updatePosition(delta);
         bounceOffWalls(player);
+        for (Enemy e : enemies) {
+            e.body.updatePosition(delta);
+            bounceOffWalls(e.body);
+        }
         effects.update(player, delta);
         updateProjectiles(delta);
 
@@ -73,6 +127,7 @@ public class GameScreen implements Screen {
         effects.renderBackground(shapeRenderer);
         drawArenaBounds();
         effects.renderAutopilot(shapeRenderer);
+        drawEnemies();
         effects.renderShip(shapeRenderer, player);
 
         // projectile capsules (filled mode, per-projectile transform)
@@ -98,6 +153,14 @@ public class GameScreen implements Screen {
         batch.begin();
         font.setColor(Color.YELLOW);
         font.draw(batch, "Credits: " + state.credits, 10, HUD_H - 10);
+        font.setColor(enemies.size > 0 ? Color.RED : Color.GRAY);
+        font.draw(batch, "Hostiles: " + enemies.size, 10, HUD_H - 35);
+        if (enemies.isEmpty()) {
+            font.setColor(Color.GREEN);
+            String msg = "HOSTILES ELIMINATED — press ESC to return";
+            GlyphLayout gl = new GlyphLayout(font, msg);
+            font.draw(batch, msg, (HUD_W - gl.width) / 2f, HUD_H / 2f);
+        }
         font.setColor(Color.WHITE);
         font.draw(batch, (player.throttle * 10) + "%",
             HUD_W - SpaceEffects.THROTTLE_HUD_MARGIN - SpaceEffects.THROTTLE_BLOCK_W,
@@ -161,8 +224,46 @@ public class GameScreen implements Screen {
             p.update(delta);
             if (p.isOutOfBounds(ARENA_WIDTH, ARENA_HEIGHT)) {
                 projectiles.removeIndex(i);
+                continue;
+            }
+            for (int j = enemies.size - 1; j >= 0; j--) {
+                Enemy e = enemies.get(j);
+                float dx = p.x - e.centerX();
+                float dy = p.y - e.centerY();
+                if (dx * dx + dy * dy < ENEMY_RADIUS * ENEMY_RADIUS) {
+                    projectiles.removeIndex(i);
+                    if (--e.hp <= 0) {
+                        killEnemy(j);
+                    } else {
+                        game.sfx.playThud(0.25f);
+                    }
+                    break;
+                }
             }
         }
+    }
+
+    private void killEnemy(int index) {
+        enemies.removeIndex(index);
+        state.credits += CREDITS_PER_KILL;
+        game.sfx.playCatch();
+        if (enemies.isEmpty()) {
+            // combat resolved: all hostiles destroyed
+            state.map.getCurrentNode().completed = true;
+        }
+    }
+
+    /** Hostile wireframes, drawn in red; same hull as the player until variants exist. */
+    private void drawEnemies() {
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
+        for (Enemy e : enemies) {
+            transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
+            shapeRenderer.setTransformMatrix(transform);
+            ShipRenderer.drawB2(shapeRenderer);
+        }
+        shapeRenderer.setTransformMatrix(transform.idt());
+        shapeRenderer.end();
     }
 
     @Override

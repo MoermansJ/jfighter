@@ -487,8 +487,7 @@ public class OverworldScreen implements Screen {
                 if (!travelTo(node)) return false; // out of fuel: stay put
                 if (node.type == Node.Type.COMBAT && !node.completed
                         && MathUtils.random() >= escapeChance()) {
-                    // failed to slip past: hostiles force the fight
-                    node.completed = true; // trivial until enemies exist (#58)
+                    // failed to slip past: hostiles force the fight (completes when they die)
                     game.setScreen(new GameScreen(game, state));
                     return true;
                 }
@@ -561,11 +560,7 @@ public class OverworldScreen implements Screen {
         selectedNode = null;
         if (!travelTo(node)) return false; // out of fuel: stay put
         switch (node.type) {
-            case COMBAT:
-                // until enemies exist (#58), combat resolves trivially on entry
-                node.completed = true;
-                game.setScreen(new GameScreen(game, state));
-                return true;
+            case COMBAT: game.setScreen(new GameScreen(game, state)); return true; // completes when hostiles die
             case TRADER: game.setScreen(new TraderScreen(game, state)); return true; // traders never complete
             case LOOT:   game.setScreen(new LootScreen(game, state)); return true;
             default: return false; // HOME: stay on map
