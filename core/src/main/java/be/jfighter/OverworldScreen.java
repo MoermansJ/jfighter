@@ -53,6 +53,14 @@ public class OverworldScreen implements Screen {
     private Node hoveredNode;
     private Node selectedNode;      // node whose dialog is open
     private float mouseX, mouseY;   // world coords, updated each frame for the cursor tooltip
+    private float mapTime;          // drives map ambience: twinkle, scan sweep, node pulses
+
+    // dim starfield behind the map grid, mostly faint with a few bright outliers
+    private static final int MAP_STAR_COUNT = 90;
+    private final float[] mapStarX = new float[MAP_STAR_COUNT];
+    private final float[] mapStarY = new float[MAP_STAR_COUNT];
+    private final float[] mapStarB = new float[MAP_STAR_COUNT];
+    private final float[] mapStarPhase = new float[MAP_STAR_COUNT];
     private CrewMember selectedCrew; // crew member being (re)stationed
     private CrewMember hoveredCrew;
     private int hoveredRoom = -1;
@@ -76,6 +84,14 @@ public class OverworldScreen implements Screen {
         font = new BitmapFont();
         font.getData().setScale(1.4f);
         deckView = new ShipDeckView(state);
+        for (int i = 0; i < MAP_STAR_COUNT; i++) {
+            mapStarX[i] = MathUtils.random(MSCR_X1 + 4, MSCR_X2 - 4);
+            mapStarY[i] = MathUtils.random(MSCR_Y1 + 4, MSCR_Y2 - 4);
+            // mostly faint, occasionally bright
+            mapStarB[i] = MathUtils.randomBoolean(0.12f) ? MathUtils.random(0.3f, 0.5f)
+                : MathUtils.random(0.06f, 0.18f);
+            mapStarPhase[i] = MathUtils.random(MathUtils.PI2);
+        }
     }
 
     @Override
@@ -84,6 +100,7 @@ public class OverworldScreen implements Screen {
             state.fuel = state.maxFuel; // infinite fuel
             if (state.credits < 99999) state.credits = 99999; // infinite credits
         }
+        mapTime += delta;
         updateHover();
         // stop rendering once the screen switches: hide() disposed our resources
         if (handleInput()) return;
@@ -108,6 +125,16 @@ public class OverworldScreen implements Screen {
         shapes.rect(MSCR_X2, MSCR_Y1, MBEZ_X2 - MSCR_X2, MSCR_Y2 - MSCR_Y1);
         shapes.setColor(0.004f, 0.01f, 0.02f, 1f);
         shapes.rect(MSCR_X1, MSCR_Y1, MSCR_X2 - MSCR_X1, MSCR_Y2 - MSCR_Y1);
+        // dim starfield with a slow twinkle
+        for (int i = 0; i < MAP_STAR_COUNT; i++) {
+            float a = mapStarB[i] * (0.7f + 0.3f * MathUtils.sin(mapTime * 1.5f + mapStarPhase[i]));
+            shapes.setColor(0.8f, 0.85f, 1f, a);
+            shapes.circle(mapStarX[i], mapStarY[i], mapStarB[i] > 0.25f ? 1.3f : 0.9f, 6);
+        }
+        // slow scan-line sweep drifting up the console
+        float sweepY = MSCR_Y1 + (mapTime * 18f) % (MSCR_Y2 - MSCR_Y1);
+        shapes.setColor(0.3f, 0.8f, 1f, 0.05f);
+        shapes.rect(MSCR_X1, sweepY, MSCR_X2 - MSCR_X1, 2f);
         shapes.end();
 
         // section divider + bezel edges
@@ -147,11 +174,16 @@ public class OverworldScreen implements Screen {
         shapes.end();
 
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        // objective marker on the final node
+        // objective marker on the final node, with a soft pulse
         Node last = state.map.getNode(state.map.lastNodeId);
         shapes.setColor(0.9f, 0.6f, 0.2f, 1f);
         shapes.circle(last.x, last.y, NODE_RADIUS + 5f, 24);
+        shapes.setColor(0.9f, 0.6f, 0.2f, 0.25f + 0.15f * MathUtils.sin(mapTime * 2.4f));
+        shapes.circle(last.x, last.y, NODE_RADIUS + 9f + 2.5f * MathUtils.sin(mapTime * 2.4f), 24);
         Node current = state.map.getCurrentNode();
+        // soft pulse on the current position too
+        shapes.setColor(1f, 1f, 1f, 0.2f + 0.12f * MathUtils.sin(mapTime * 3f));
+        shapes.circle(current.x, current.y, NODE_RADIUS + 10f + 2f * MathUtils.sin(mapTime * 3f), 24);
         for (Node n : state.map.allNodes()) {
             if (n == current) {
                 shapes.setColor(Color.WHITE);
