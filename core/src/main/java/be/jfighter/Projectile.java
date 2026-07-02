@@ -8,13 +8,15 @@ public class Projectile {
     public float x;
     public float y;
     public final float rotation;
+    public final Object shooter; // the firing ship never hits itself
     private final float vx;
     private final float vy;
 
-    public Projectile(float originX, float originY, float rotation) {
+    public Projectile(float originX, float originY, float rotation, Object shooter) {
         this.x = originX;
         this.y = originY;
         this.rotation = rotation;
+        this.shooter = shooter;
         this.vx = -MathUtils.sinDeg(rotation);
         this.vy = MathUtils.cosDeg(rotation);
     }

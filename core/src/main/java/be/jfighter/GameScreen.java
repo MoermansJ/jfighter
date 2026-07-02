@@ -43,6 +43,8 @@ public class GameScreen implements Screen {
     private SpaceEffects effects;
     private final Array<Projectile> projectiles = new Array<>();
     private final Array<Enemy> enemies = new Array<>();
+    // manual dev control: -1 = the fighter, otherwise an enemy index (no AI yet — TAB hands over the stick)
+    private int controlled = -1;
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
     private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
@@ -51,6 +53,7 @@ public class GameScreen implements Screen {
         {"LEFT/RIGHT", "turn"},
         {"LMB", "set autopilot"},
         {"RMB", "cancel autopilot"},
+        {"TAB", "switch controlled ship (dev)"},
         {"ESC", "leave instance"},
     });
 
@@ -137,7 +140,7 @@ public class GameScreen implements Screen {
     public void render(float delta) {
         // stop rendering once the screen switches: hide() disposed our resources
         if (handleInput(delta)) return;
-        effects.handleFlightInput(player, delta);
+        effects.handleFlightInput(controlledBody(), delta);
         player.updatePosition(delta);
         bounceOffWalls(player);
         for (Enemy e : enemies) {
@@ -185,6 +188,9 @@ public class GameScreen implements Screen {
         font.draw(batch, "Credits: " + state.credits, 10, HUD_H - 10);
         font.setColor(enemies.size > 0 ? Color.RED : Color.GRAY);
         font.draw(batch, "Hostiles: " + enemies.size, 10, HUD_H - 35);
+        font.setColor(controlled < 0 ? Color.GRAY : Color.ORANGE);
+        font.draw(batch, "Controlling: " + (controlled < 0 ? "FIGHTER" : "ENEMY " + (controlled + 1)),
+            10, HUD_H - 60);
         if (enemies.isEmpty()) {
             font.setColor(Color.GREEN);
             String msg = "HOSTILES ELIMINATED — press ESC to return";
@@ -209,10 +215,15 @@ public class GameScreen implements Screen {
             return true;
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
+            Player shooter = controlledBody();
             projectiles.add(new Projectile(
-                player.x + Player.WIDTH / 2f,
-                player.y + Player.HEIGHT / 2f,
-                player.rotation));
+                shooter.x + Player.WIDTH / 2f,
+                shooter.y + Player.HEIGHT / 2f,
+                shooter.rotation, shooter));
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.TAB)) {
+            // cycle control: fighter -> enemy 0 -> enemy 1 -> ... -> fighter
+            controlled = controlled + 1 >= enemies.size ? -1 : controlled + 1;
         }
         if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
             Vector2 target = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
@@ -261,6 +272,7 @@ public class GameScreen implements Screen {
             }
             for (int j = enemies.size - 1; j >= 0; j--) {
                 Enemy e = enemies.get(j);
+                if (p.shooter == e.body) continue; // no self-hits
                 float dx = p.x - e.centerX();
                 float dy = p.y - e.centerY();
                 if (dx * dx + dy * dy < ENEMY_RADIUS * ENEMY_RADIUS) {
@@ -276,7 +288,13 @@ public class GameScreen implements Screen {
         }
     }
 
+    private Player controlledBody() {
+        return controlled < 0 || controlled >= enemies.size ? player : enemies.get(controlled).body;
+    }
+
     private void killEnemy(int index) {
+        if (controlled == index) controlled = -1;
+        else if (controlled > index) controlled--;
         Enemy e = enemies.get(index);
         spawnDeathEffect(e.centerX(), e.centerY(), e.body.vx, e.body.vy);
         enemies.removeIndex(index);
@@ -418,11 +436,13 @@ public class GameScreen implements Screen {
     /** Hostile wireframes, drawn in red; same hull as the player until variants exist. */
     private void drawEnemies() {
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-        shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
-        for (Enemy e : enemies) {
+        for (int i = 0; i < enemies.size; i++) {
+            Enemy e = enemies.get(i);
+            shapeRenderer.setColor(i == controlled ? Color.ORANGE : new Color(0.95f, 0.25f, 0.2f, 1f));
             transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
             shapeRenderer.setTransformMatrix(transform);
             ShipRenderer.drawB2(shapeRenderer);
+            if (e.body.thrustLevel > 0.02f) ShipRenderer.drawExhaust(shapeRenderer, e.body.thrustLevel);
         }
         shapeRenderer.setTransformMatrix(transform.idt());
         shapeRenderer.end();
