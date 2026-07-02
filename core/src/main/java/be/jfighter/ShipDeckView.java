@@ -102,6 +102,9 @@ public class ShipDeckView {
     // monitor bezel around the feed; the deck + stars render inside the screen rect
     private static final float BEZ_X1 = 8f, BEZ_X2 = 952f, BEZ_Y1 = 278f, BEZ_Y2 = 532f;
     private static final float SCR_X1 = 20f, SCR_X2 = 940f, SCR_Y1 = 290f, SCR_Y2 = 524f;
+    // console colour buttons (blue/green/red) on the bottom bezel strip
+    private static final float[] SCHEME_BTN_X = {BEZ_X1 + 22, BEZ_X1 + 42, BEZ_X1 + 62};
+    private static final float SCHEME_BTN_Y = (BEZ_Y1 + SCR_Y1) / 2f;
     // background starfield drifting past the cruising ship (screen coords, wraps inside the screen rect)
     private static final int[] BG_STAR_COUNT = {26, 14};
     private static final float[] BG_STAR_SPEED = {4f, 9f};
@@ -128,6 +131,16 @@ public class ShipDeckView {
     private final float[][] bgStarX = new float[BG_STAR_COUNT.length][];
     private final float[][] bgStarY = new float[BG_STAR_COUNT.length][];
     private final float[] bgStarOff = new float[BG_STAR_COUNT.length];
+
+    /** Which console colour button is at (x,y): 0 blue, 1 green, 2 red, -1 none. */
+    public int schemeButtonAt(float x, float y) {
+        for (int i = 0; i < SCHEME_BTN_X.length; i++) {
+            float dx = x - SCHEME_BTN_X[i];
+            float dy = y - SCHEME_BTN_Y;
+            if (dx * dx + dy * dy <= 49f) return i;
+        }
+        return -1;
+    }
 
     /** Deck position of a door's centre. */
     private static float doorPosX(int door) {
@@ -501,13 +514,13 @@ public class ShipDeckView {
     /** Room furniture, pipework and corridor markings — kept faint so figures stay readable. */
     private void drawDeckDetail(ShapeRenderer shapes) {
         // corridor: dashed centreline
-        shapes.setColor(0.1f, 0.2f, 0.26f, 0.8f);
+        Palette.set(shapes, 0.1f, 0.2f, 0.26f, 0.8f);
         float midY = (CORRIDOR_Y1 + CORRIDOR_Y2) / 2f;
         for (float x = CORRIDOR_X1 + 6; x < CORRIDOR_X2 - 10; x += 18) {
             dl(shapes, x, midY, x + 9, midY);
         }
         // corridor: pipe run along the north edge
-        shapes.setColor(0.14f, 0.24f, 0.3f, 0.7f);
+        Palette.set(shapes, 0.14f, 0.24f, 0.3f, 0.7f);
         dl(shapes, CORRIDOR_X1 + 4, CORRIDOR_Y2 - 3, CORRIDOR_X2 - 4, CORRIDOR_Y2 - 3);
         for (float x = CORRIDOR_X1 + 30; x < CORRIDOR_X2 - 10; x += 60) {
             dl(shapes, x, CORRIDOR_Y2 - 3, x, CORRIDOR_Y2 - 1); // pipe clamps
@@ -515,21 +528,21 @@ public class ShipDeckView {
 
         // engine room: reactor ring + feed pipes
         float b0 = roomBrightness[0];
-        shapes.setColor(0.45f * b0 + 0.2f, 0.3f * b0 + 0.14f, 0.1f, 0.85f);
+        Palette.set(shapes, 0.45f * b0 + 0.2f, 0.3f * b0 + 0.14f, 0.1f, 0.85f);
         deckCircle(shapes, 60, 95, 9);
         deckCircle(shapes, 60, 95, 5);
         dl(shapes, 16, 90, 51, 93);
         dl(shapes, 16, 100, 51, 97);
 
         // cargo hold: pallet squares
-        shapes.setColor(0.16f, 0.3f, 0.36f, 0.85f);
+        Palette.set(shapes, 0.16f, 0.3f, 0.36f, 0.85f);
         deckRectOutline(shapes, 52, 8, 13, 13);
         deckRectOutline(shapes, 52, 26, 13, 13);
         deckRectOutline(shapes, 70, 16, 13, 13);
         deckRectOutline(shapes, 116, 8, 13, 13);
 
         // quarters: bunks along the south wall
-        shapes.setColor(0.18f, 0.3f, 0.36f, 0.85f);
+        Palette.set(shapes, 0.18f, 0.3f, 0.36f, 0.85f);
         for (int k = 0; k < 3; k++) {
             float bx = 172 + k * 28;
             deckRectOutline(shapes, bx, 5, 18, 9);
@@ -537,12 +550,12 @@ public class ShipDeckView {
         }
 
         // medical bay: two beds
-        shapes.setColor(0.2f, 0.34f, 0.38f, 0.85f);
+        Palette.set(shapes, 0.2f, 0.34f, 0.38f, 0.85f);
         deckRectOutline(shapes, 292, 6, 18, 8);
         deckRectOutline(shapes, 320, 6, 18, 8);
 
         // weapons room: ammo racks
-        shapes.setColor(0.24f, 0.28f, 0.3f, 0.85f);
+        Palette.set(shapes, 0.24f, 0.28f, 0.3f, 0.85f);
         for (int k = 0; k < 2; k++) {
             float ry = 74 + k * 14;
             dl(shapes, 258, ry, 290, ry);
@@ -551,13 +564,13 @@ public class ShipDeckView {
 
         // bridge: console arc facing the nose
         float b5 = roomBrightness[5];
-        shapes.setColor(0.2f * b5 + 0.1f, 0.5f * b5 + 0.15f, 0.65f * b5 + 0.2f, 0.9f);
+        Palette.set(shapes, 0.2f * b5 + 0.1f, 0.5f * b5 + 0.15f, 0.65f * b5 + 0.2f, 0.9f);
         dl(shapes, 398, 78, 408, 84);
         dl(shapes, 408, 84, 408, 92);
         dl(shapes, 408, 92, 398, 98);
 
         // life support: O2 tanks
-        shapes.setColor(0.18f, 0.34f, 0.38f, 0.85f);
+        Palette.set(shapes, 0.18f, 0.34f, 0.38f, 0.85f);
         deckCircle(shapes, 422, 12, 4);
         deckCircle(shapes, 432, 12, 4);
         deckCircle(shapes, 442, 12, 4);
@@ -568,7 +581,7 @@ public class ShipDeckView {
         for (int i = 0; i < ROOMS.length; i++) {
             float[] r = ROOMS[i];
             float b = roomBrightness[i];
-            shapes.setColor(0.18f + 0.2f * b, 0.32f + 0.25f * b, 0.4f + 0.25f * b, 0.45f);
+            Palette.set(shapes, 0.18f + 0.2f * b, 0.32f + 0.25f * b, 0.4f + 0.25f * b, 0.45f);
             float cx = r[0] + r[2] / 2f;
             float cy = r[1] + r[3] * 0.3f;
             float s = 6f;
@@ -640,17 +653,17 @@ public class ShipDeckView {
         // pass 1, filled: bezel, screen, stars, floors, light pools, back-wall faces, figure shadows
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         // monitor bezel frame (four strips between outer and screen rects)
-        shapes.setColor(0.14f, 0.15f, 0.17f, 1f);
+        Palette.set(shapes, 0.14f, 0.15f, 0.17f, 1f);
         shapes.rect(BEZ_X1, BEZ_Y1, BEZ_X2 - BEZ_X1, SCR_Y1 - BEZ_Y1);
         shapes.rect(BEZ_X1, SCR_Y2, BEZ_X2 - BEZ_X1, BEZ_Y2 - SCR_Y2);
         shapes.rect(BEZ_X1, SCR_Y1, SCR_X1 - BEZ_X1, SCR_Y2 - SCR_Y1);
         shapes.rect(SCR_X2, SCR_Y1, BEZ_X2 - SCR_X2, SCR_Y2 - SCR_Y1);
         // screen background
-        shapes.setColor(0.004f, 0.01f, 0.02f, 1f);
+        Palette.set(shapes, 0.004f, 0.01f, 0.02f, 1f);
         shapes.rect(SCR_X1, SCR_Y1, SCR_X2 - SCR_X1, SCR_Y2 - SCR_Y1);
         // parallax stars sliding past the hull
         for (int l = 0; l < BG_STAR_COUNT.length; l++) {
-            shapes.setColor(0.8f, 0.85f, 1f, BG_STAR_ALPHA[l]);
+            Palette.set(shapes, 0.8f, 0.85f, 1f, BG_STAR_ALPHA[l]);
             float span = SCR_X2 - SCR_X1;
             for (int i = 0; i < BG_STAR_COUNT[l]; i++) {
                 float sx = SCR_X1 + wrap(bgStarX[l][i] - SCR_X1 + bgStarOff[l], span);
@@ -658,7 +671,7 @@ public class ShipDeckView {
             }
         }
         // hull floor silhouette
-        shapes.setColor(0.015f, 0.03f, 0.045f, 1f);
+        Palette.set(shapes, 0.015f, 0.03f, 0.045f, 1f);
         fillDeckPoly(shapes);
         // corridor (floor colours redden as oxygen bleeds out)
         float cb = corridorBrightness;
@@ -688,13 +701,13 @@ public class ShipDeckView {
             float cy = r[1] + r[3] * 0.7f;
             for (int ring = 3; ring >= 1; ring--) {
                 float alpha = 0.045f * b * flicker;
-                if (ROOM_AMBER[i]) shapes.setColor(1f, 0.7f, 0.3f, alpha);
-                else shapes.setColor(0.3f, 0.8f, 1f, alpha);
+                if (ROOM_AMBER[i]) Palette.set(shapes, 1f, 0.7f, 0.3f, alpha);
+                else Palette.set(shapes, 0.3f, 0.8f, 1f, alpha);
                 shapes.ellipse(px(cx) - ring * 11, py(cy, 0) - ring * 6.5f, ring * 22, ring * 13);
             }
         }
         // back-wall faces (far bulkheads, away from camera): projected as screen rects
-        shapes.setColor(0.045f, 0.075f, 0.105f, 0.95f);
+        Palette.set(shapes, 0.045f, 0.075f, 0.105f, 0.95f);
         for (float[] r : ROOMS) {
             if (r[1] >= CORRIDOR_Y2) { // north rooms
                 shapes.rect(px(r[0]), py(r[1] + r[3], 0), r[2] * SCALE, WALL_H * Z_FACTOR * SCALE);
@@ -702,7 +715,7 @@ public class ShipDeckView {
         }
         shapes.rect(px(CORRIDOR_X1), py(HULL_TOP, 0), (TAPER_X - CORRIDOR_X1) * SCALE, WALL_H * Z_FACTOR * SCALE);
         // figure shadows
-        shapes.setColor(0f, 0f, 0f, 0.5f);
+        Palette.set(shapes, 0f, 0f, 0f, 0.5f);
         for (CrewMember c : state.crew) {
             Sim sim = sims.get(c);
             if (sim == null) continue;
@@ -713,28 +726,28 @@ public class ShipDeckView {
         // pass 2, lines: outlines, wall edges, props, figures, scanline
         shapes.begin(ShapeRenderer.ShapeType.Line);
         // bezel edges + corner accents
-        shapes.setColor(0.32f, 0.34f, 0.38f, 1f);
+        Palette.set(shapes, 0.32f, 0.34f, 0.38f, 1f);
         shapes.rect(BEZ_X1, BEZ_Y1, BEZ_X2 - BEZ_X1, BEZ_Y2 - BEZ_Y1);
-        shapes.setColor(0.06f, 0.07f, 0.09f, 1f);
+        Palette.set(shapes, 0.06f, 0.07f, 0.09f, 1f);
         shapes.rect(SCR_X1, SCR_Y1, SCR_X2 - SCR_X1, SCR_Y2 - SCR_Y1);
-        shapes.setColor(0.45f, 0.48f, 0.52f, 1f);
+        Palette.set(shapes, 0.45f, 0.48f, 0.52f, 1f);
         for (float[] c : new float[][] {{BEZ_X1 + 6, BEZ_Y1 + 6}, {BEZ_X2 - 6, BEZ_Y1 + 6},
                                         {BEZ_X1 + 6, BEZ_Y2 - 6}, {BEZ_X2 - 6, BEZ_Y2 - 6}}) {
             shapes.circle(c[0], c[1], 2.5f, 8); // corner screws
         }
         // hull outline
-        shapes.setColor(0.2f, 0.4f, 0.5f, 1f);
+        Palette.set(shapes, 0.2f, 0.4f, 0.5f, 1f);
         lineDeckPoly(shapes);
         // rooms
         for (int i = 0; i < ROOMS.length; i++) {
             float[] r = ROOMS[i];
             float b = roomBrightness[i];
-            if (i == highlightRoom) shapes.setColor(0.5f, 0.9f, 1f, 1f);
-            else shapes.setColor(0.1f + 0.25f * b, 0.2f + 0.35f * b, 0.28f + 0.4f * b, 1f);
+            if (i == highlightRoom) Palette.set(shapes, 0.5f, 0.9f, 1f, 1f);
+            else Palette.set(shapes, 0.1f + 0.25f * b, 0.2f + 0.35f * b, 0.28f + 0.4f * b, 1f);
             drawRoomOutline(shapes, i);
         }
         // corridor edges, with gaps at every room door (and the airlock spur on the south edge)
-        shapes.setColor(0.12f, 0.22f, 0.28f, 1f);
+        Palette.set(shapes, 0.12f, 0.22f, 0.28f, 1f);
         drawGappedCorridorEdge(shapes, CORRIDOR_Y2, true);
         drawGappedCorridorEdge(shapes, CORRIDOR_Y1, false);
         for (int a = 0; a < AIRLOCKS.length; a++) {
@@ -749,8 +762,8 @@ public class ShipDeckView {
         for (int i = 0; i < ROOMS.length; i++) {
             float[] r = ROOMS[i];
             float b = roomBrightness[i];
-            if (ROOM_AMBER[i]) shapes.setColor(0.9f * b, 0.6f * b, 0.2f * b, 1f);
-            else shapes.setColor(0.25f * b, 0.7f * b, 0.9f * b, 1f);
+            if (ROOM_AMBER[i]) Palette.set(shapes, 0.9f * b, 0.6f * b, 0.2f * b, 1f);
+            else Palette.set(shapes, 0.25f * b, 0.7f * b, 0.9f * b, 1f);
             float cx = r[0] + r[2] / 2f;
             float wy = r[1] >= CORRIDOR_Y2 ? r[1] + r[3] - 3 : r[1] + 3;
             shapes.rect(px(cx - 8), py(wy, 4), 16 * SCALE, 3);
@@ -761,7 +774,7 @@ public class ShipDeckView {
         drawDeckDetail(shapes);
         // hangar bay: the carrier's two craft parked side by side (B-2 fighter + pincer pod)
         float hb = 0.25f + 0.35f * roomBrightness[2];
-        shapes.setColor(hb * 0.8f, hb * 1.3f, hb * 1.6f, 1f);
+        Palette.set(shapes, hb * 0.8f, hb * 1.3f, hb * 1.6f, 1f);
         drawParkedCraft(shapes, 150, 87, 0.38f, false);
         drawParkedCraft(shapes, 205, 86, 0.32f, true);
         // crew figures (+ selection/hover rings at their feet)
@@ -769,19 +782,19 @@ public class ShipDeckView {
             Sim sim = sims.get(c);
             if (sim == null) continue;
             if (c == selectedCrew) {
-                shapes.setColor(1f, 0.9f, 0.3f, 0.9f);
+                Palette.set(shapes, 1f, 0.9f, 0.3f, 0.9f);
                 shapes.ellipse(px(sim.x) - 7, py(sim.y, 0) - 3.5f, 14, 7);
             } else if (c == hoveredCrew) {
-                shapes.setColor(0.7f, 0.95f, 1f, 0.45f);
+                Palette.set(shapes, 0.7f, 0.95f, 1f, 0.45f);
                 shapes.ellipse(px(sim.x) - 6, py(sim.y, 0) - 3f, 12, 6);
             }
             drawFigure(shapes, c, sim);
         }
         // scanline sweep, top to bottom of the monitor screen
         float scan = (SCR_Y2 - 4) - (time % SCAN_PERIOD) / SCAN_PERIOD * (SCR_Y2 - SCR_Y1 - 8);
-        shapes.setColor(0.3f, 0.9f, 1f, 0.10f);
+        Palette.set(shapes, 0.3f, 0.9f, 1f, 0.10f);
         shapes.line(SCR_X1 + 4, scan + 2, SCR_X2 - 4, scan + 2);
-        shapes.setColor(0.3f, 0.9f, 1f, 0.22f);
+        Palette.set(shapes, 0.3f, 0.9f, 1f, 0.22f);
         shapes.line(SCR_X1 + 4, scan, SCR_X2 - 4, scan);
         shapes.end();
 
@@ -790,11 +803,22 @@ public class ShipDeckView {
         for (CrewMember c : state.crew) {
             Sim sim = sims.get(c);
             if (sim == null) continue;
-            shapes.setColor(figureColor(c));
+            Palette.set(shapes, figureColor(c));
             shapes.circle(bodyX(sim, FIGURE_H - 3), bodyY(sim, FIGURE_H - 3), 2.6f, 10);
         }
-        shapes.setColor(0.9f, 0.15f, 0.1f, 1f);
+        Palette.set(shapes, 0.9f, 0.15f, 0.1f, 1f);
         shapes.circle(896, SCR_Y1 + 8, 3.5f, 10); // record dot, left of the LIVE label
+        // console colour buttons on the bottom bezel strip (raw colours, never tinted)
+        for (int i = 0; i < SCHEME_BTN_X.length; i++) {
+            if (Palette.scheme().ordinal() == i) {
+                shapes.setColor(0.7f, 0.72f, 0.75f, 1f);
+                shapes.circle(SCHEME_BTN_X[i], SCHEME_BTN_Y, 6f, 12); // active ring
+            }
+            if (i == 0) shapes.setColor(0.25f, 0.55f, 0.95f, 1f);
+            else if (i == 1) shapes.setColor(0.25f, 0.85f, 0.35f, 1f);
+            else shapes.setColor(0.9f, 0.25f, 0.2f, 1f);
+            shapes.circle(SCHEME_BTN_X[i], SCHEME_BTN_Y, 4f, 12);
+        }
         // airlock door status lights: green = open, red = sealed
         for (int a = 0; a < AIRLOCKS.length; a++) {
             float[] al = AIRLOCKS[a];
@@ -834,7 +858,7 @@ public class ShipDeckView {
         float neckX = bodyX(sim, FIGURE_H - 5), neckY = bodyY(sim, FIGURE_H - 5);
         // limbs spread perpendicular to the body axis
         float sideX = fallDy(sim), sideY = -fallDx(sim);
-        shapes.setColor(figureColor(c));
+        Palette.set(shapes, figureColor(c));
         float swing = sim.moving ? MathUtils.sin(sim.walkPhase) * 3.5f : 0f;
         shapes.line(hipX, hipY, bx - (2 + swing) * sideX, by - (2 + swing) * sideY);  // legs
         shapes.line(hipX, hipY, bx + (2 + swing) * sideX, by + (2 + swing) * sideY);
@@ -866,16 +890,16 @@ public class ShipDeckView {
             String label = ROOM_NAMES[i];
             int stat = roomStat(i);
             if (stat > 0) label += " +" + stat;
-            if (stat > 0) font.setColor(0.35f, 0.85f, 0.5f, 1f);
-            else font.setColor(0.25f + 0.35f * b, 0.45f + 0.35f * b, 0.55f + 0.35f * b, 1f);
+            if (stat > 0) Palette.set(font, 0.35f, 0.85f, 0.5f, 1f);
+            else Palette.set(font, 0.25f + 0.35f * b, 0.45f + 0.35f * b, 0.55f + 0.35f * b, 1f);
             GlyphLayout gl = new GlyphLayout(font, label);
             font.draw(batch, label, px(r[0] + r[2] / 2f) - gl.width / 2f, py(r[1] + 10, 0));
         }
         // airlock labels (redden while the outer door is open or the chamber has vented)
         for (int a = 0; a < AIRLOCKS.length; a++) {
             float[] al = AIRLOCKS[a];
-            if (doorOpen[outerDoor(a)] || state.oxygen[chamberComp(a)] < 0.5f) font.setColor(0.9f, 0.35f, 0.3f, 1f);
-            else font.setColor(0.35f, 0.55f, 0.65f, 1f);
+            if (doorOpen[outerDoor(a)] || state.oxygen[chamberComp(a)] < 0.5f) Palette.set(font, 0.9f, 0.35f, 0.3f, 1f);
+            else Palette.set(font, 0.35f, 0.55f, 0.65f, 1f);
             String label = "AIRLOCK " + (char) ('A' + a);
             GlyphLayout airGl = new GlyphLayout(font, label);
             font.draw(batch, label, px((al[4] + al[5]) / 2f) - airGl.width / 2f, py((al[6] + al[7]) / 2f + 3, 0));
@@ -886,7 +910,7 @@ public class ShipDeckView {
         // feed overlay, right-aligned in the bottom-right corner inside the bezel
         float overlayRight = SCR_X2 - 10;
         GlyphLayout liveGl = new GlyphLayout(font, "LIVE");
-        font.setColor(0.9f, 0.2f, 0.15f, 1f);
+        Palette.set(font, 0.9f, 0.2f, 0.15f, 1f);
         font.draw(batch, liveGl, overlayRight - liveGl.width, SCR_Y1 + 12);
     }
 
@@ -952,7 +976,7 @@ public class ShipDeckView {
         boolean north = al[8] == 1;
         float innerY = north ? al[6] : al[7]; // chamber edge facing the corridor
         float outerY = north ? al[7] : al[6]; // chamber edge in the hull
-        shapes.setColor(0.12f, 0.22f, 0.28f, 1f);
+        Palette.set(shapes, 0.12f, 0.22f, 0.28f, 1f);
         // spur walls
         shapes.line(px(al[0]), py(al[2], 0), px(al[0]), py(al[3], 0));
         shapes.line(px(al[1]), py(al[2], 0), px(al[1]), py(al[3], 0));
@@ -974,15 +998,15 @@ public class ShipDeckView {
     /** Floor colour, blended toward warning red as the compartment's oxygen drops. */
     private static void setFloorColor(ShapeRenderer shapes, float r, float g, float b, float oxy) {
         float deficit = 1f - oxy;
-        shapes.setColor(
+        Palette.set(shapes, 
             MathUtils.lerp(r, 0.30f, deficit),
             MathUtils.lerp(g, 0.02f, deficit),
             MathUtils.lerp(b, 0.03f, deficit), 1f);
     }
 
     private static void setDoorLightColor(ShapeRenderer shapes, boolean open) {
-        if (open) shapes.setColor(0.3f, 0.9f, 0.45f, 1f);
-        else shapes.setColor(0.9f, 0.2f, 0.15f, 1f);
+        if (open) Palette.set(shapes, 0.3f, 0.9f, 0.45f, 1f);
+        else Palette.set(shapes, 0.9f, 0.2f, 0.15f, 1f);
     }
 
     /**
@@ -992,8 +1016,8 @@ public class ShipDeckView {
     private void drawDoor(ShapeRenderer shapes, float x1, float x2, float y, boolean open, boolean held) {
         float lineY = py(y, 0);
         if (open) {
-            if (held) shapes.setColor(0.75f, 1f, 0.8f, 1f);
-            else shapes.setColor(0.3f, 0.9f, 0.45f, 1f);
+            if (held) Palette.set(shapes, 0.75f, 1f, 0.8f, 1f);
+            else Palette.set(shapes, 0.3f, 0.9f, 0.45f, 1f);
             float stub = (x2 - x1) * 0.15f;
             shapes.line(px(x1), lineY, px(x1 + stub), lineY);
             shapes.line(px(x2 - stub), lineY, px(x2), lineY);
@@ -1002,7 +1026,7 @@ public class ShipDeckView {
                 shapes.line(px(x2 - stub), lineY, px(x2 - stub), lineY + 3f);
             }
         } else {
-            shapes.setColor(0.95f, 0.7f, 0.2f, 1f);
+            Palette.set(shapes, 0.95f, 0.7f, 0.2f, 1f);
             shapes.line(px(x1), lineY, px(x2), lineY);
             shapes.line(px(x1), lineY + 1.5f, px(x2), lineY + 1.5f); // doubled: reads as a sealed hatch
         }

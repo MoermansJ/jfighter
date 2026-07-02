@@ -605,6 +605,12 @@ public class OverworldScreen implements Screen {
                     return false;
                 }
             }
+            // console colour buttons on the monitor bezel
+            int schemeBtn = deckView.schemeButtonAt(mouse.x, mouse.y);
+            if (schemeBtn != -1) {
+                Palette.setScheme(Palette.Scheme.values()[schemeBtn]);
+                return false;
+            }
             // airlock doors toggle on click, without disturbing crew selection
             int door = deckView.doorAt(mouse.x, mouse.y);
             if (door != -1) {
