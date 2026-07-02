@@ -522,6 +522,9 @@ public class OverworldScreen implements Screen {
             } else if (hoveredNode.type == Node.Type.HOME) {
                 // HOME has nothing to enter: travel there directly, no dialog
                 travelTo(hoveredNode);
+            } else if (hoveredNode.completed && !Dev.MODE) {
+                // nothing left to initiate here: just travel (dev builds may replay)
+                travelTo(hoveredNode);
             } else {
                 selectedNode = hoveredNode;
             }
@@ -543,8 +546,12 @@ public class OverworldScreen implements Screen {
         selectedNode = null;
         if (!travelTo(node)) return false; // out of fuel: stay put
         switch (node.type) {
-            case COMBAT: game.setScreen(new GameScreen(game, state)); return true;
-            case TRADER: game.setScreen(new TraderScreen(game, state)); return true;
+            case COMBAT:
+                // until enemies exist (#58), combat resolves trivially on entry
+                node.completed = true;
+                game.setScreen(new GameScreen(game, state));
+                return true;
+            case TRADER: game.setScreen(new TraderScreen(game, state)); return true; // traders never complete
             case LOOT:   game.setScreen(new LootScreen(game, state)); return true;
             default: return false; // HOME: stay on map
         }

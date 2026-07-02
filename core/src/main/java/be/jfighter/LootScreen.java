@@ -1133,6 +1133,9 @@ public class LootScreen implements Screen {
             state.credits += CREDITS_PER_LOOT;
             catchFlash = CATCH_FLASH_TIME;
             game.sfx.playCatch();
+            if (lootItems.isEmpty()) {
+                state.map.getCurrentNode().completed = true; // all cargo delivered: this site is stripped
+            }
         }
     }
 
