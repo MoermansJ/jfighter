@@ -63,11 +63,13 @@ public class ShipDeckView {
     private static final int COMP_CORRIDOR = ROOMS.length;
     private static final float OXY_FLOW = 0.8f;   // equalisation rate through an open door, per second
     private static final float VENT_FLOW = 3.2f;  // venting to space is faster
-    private static final float OXY_REGEN = 0.02f; // life-support regeneration per second (room 7; will scale with crew stats later)
+    // Regeneration must lose decisively to an open vent chain, or rooms never
+    // reach lethal vacuum and suffocation can't trigger. Full refill ~3.5 min.
+    private static final float OXY_REGEN = 0.005f; // life-support regen per second (will scale with crew stats later)
 
     // crew health: vacuum suffocates, the medbay heals
     private static final int ROOM_MEDBAY = 6;
-    private static final float SUFFOCATE_THRESHOLD = 0.05f; // compartment counts as airless below this
+    private static final float SUFFOCATE_THRESHOLD = 0.10f; // compartment counts as airless below this
     private static final float SUFFOCATE_DPS = 8f;
     private static final float MEDBAY_HEAL_PER_SEC = 4f;
     private static final float FALL_DURATION = 0.7f; // seconds for a dead crew member to keel over
