@@ -55,6 +55,8 @@ public class GameScreen implements Screen {
     private float shieldSince;   // time since the last hit (drives recharge)
     private float shieldFlash;   // shimmer ring on shield hits
     private float defeatT = -1f; // >= 0 once the fighter is destroyed
+    private float stormTimer = MathUtils.random(6f, 11f); // stormy nodes: next radiation wave
+    private float stormFlash;
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
     private final PauseMenu pause = new PauseMenu();
@@ -186,6 +188,16 @@ public class GameScreen implements Screen {
             fireWeapons(delta);
             updateProjectiles(delta);
             updateEffects(delta);
+            if (state.map.getCurrentNode().stormy && defeatT < 0) {
+                stormTimer -= delta;
+                if (stormTimer <= 0) {
+                    // solar radiation event: a wave knocks a chunk off the shields
+                    stormTimer = MathUtils.random(7f, 12f);
+                    stormFlash = 0.7f;
+                    damagePlayer(8f);
+                }
+            }
+            if (stormFlash > 0) stormFlash -= delta;
         }
 
         ScreenUtils.clear(0, 0, 0, 1f);
@@ -319,8 +331,22 @@ public class GameScreen implements Screen {
             HUD_W - SpaceEffects.THROTTLE_HUD_MARGIN - SpaceEffects.THROTTLE_BLOCK_W,
             SpaceEffects.THROTTLE_HUD_MARGIN
                 + Player.THROTTLE_STEPS * (SpaceEffects.THROTTLE_BLOCK_H + SpaceEffects.THROTTLE_BLOCK_GAP) + 20);
+        if (stormFlash > 0) {
+            font.setColor(1f, 0.6f, 0.2f, 1f);
+            GlyphLayout sr = new GlyphLayout(font, "SOLAR RADIATION");
+            font.draw(batch, sr, (HUD_W - sr.width) / 2f, HUD_H - 70);
+        }
         Dev.drawIndicator(batch, font, HUD_W, HUD_H);
         batch.end();
+
+        if (stormFlash > 0) {
+            Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+            shapeRenderer.setProjectionMatrix(hudMatrix);
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+            shapeRenderer.setColor(1f, 0.5f, 0.15f, 0.18f * (stormFlash / 0.7f));
+            shapeRenderer.rect(0, 0, HUD_W, HUD_H);
+            shapeRenderer.end();
+        }
 
         controlsHelp.draw(shapeRenderer, batch, font, hudMatrix);
     }

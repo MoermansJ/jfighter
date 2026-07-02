@@ -35,6 +35,21 @@ public class OverworldMap {
         }
     }
 
+    /** A massive body on the map (black hole or star) that severs nearby routes. */
+    public static class Obstacle {
+        public enum Kind { BLACK_HOLE, STAR }
+
+        public final Kind kind;
+        public final float x, y, radius;
+
+        Obstacle(Kind kind, float x, float y, float radius) {
+            this.kind = kind;
+            this.x = x;
+            this.y = y;
+            this.radius = radius;
+        }
+    }
+
     /** A dark cloud on the map that severs the routes running through it. */
     public static class Nebula {
         public final float x, y, radius;
@@ -64,6 +79,7 @@ public class OverworldMap {
     private final Map<Integer, Node> nodes = new HashMap<>();
     private final List<Decal> decals = new ArrayList<>();
     private final List<Nebula> nebulas = new ArrayList<>();
+    private final List<Obstacle> obstacles = new ArrayList<>();
     public final int lastNodeId;
     public final String sectorName;
     private int currentNodeId = 0;
@@ -167,7 +183,15 @@ public class OverworldMap {
         for (int i = 0; i < id; i++) {
             List<Integer> connections = new ArrayList<>(adj.get(i));
             Collections.sort(connections);
-            nodes.put(i, new Node(i, xs.get(i), ys.get(i), types[i], connections));
+            Node node = new Node(i, xs.get(i), ys.get(i), types[i], connections);
+            // solar storms: nodes close to a star suffer radiation events in their instances
+            for (Obstacle o : obstacles) {
+                if (o.kind == Obstacle.Kind.STAR
+                        && Vector2.dst(o.x, o.y, node.x, node.y) < o.radius + 130f) {
+                    node.stormy = true;
+                }
+            }
+            nodes.put(i, node);
         }
         return id - 1;
     }
@@ -194,7 +218,27 @@ public class OverworldMap {
                 }
             }
         }
-        if (nebulas.isEmpty()) return;
+        // at most one massive body per sector: a black hole or a star, never near HOME/END
+        if (MathUtils.randomBoolean(0.55f)) {
+            Obstacle.Kind kind = MathUtils.randomBoolean()
+                ? Obstacle.Kind.BLACK_HOLE : Obstacle.Kind.STAR;
+            float r = kind == Obstacle.Kind.BLACK_HOLE
+                ? MathUtils.random(22f, 34f) : MathUtils.random(30f, 44f);
+            for (int attempt = 0; attempt < 30; attempt++) {
+                float x = MathUtils.random(AREA_LEFT + 90f, AREA_RIGHT - 90f);
+                float y = MathUtils.random(AREA_BOTTOM + 20f, AREA_TOP - 20f);
+                boolean clear = Vector2.dst(x, y, xs.get(0), ys.get(0)) > r + 140f
+                    && Vector2.dst(x, y, xs.get(nodeCount - 1), ys.get(nodeCount - 1)) > r + 140f;
+                for (int n = 0; n < nodeCount && clear; n++) {
+                    clear = Vector2.dst(x, y, xs.get(n), ys.get(n)) > r + 24f;
+                }
+                if (clear) {
+                    obstacles.add(new Obstacle(kind, x, y, r));
+                    break;
+                }
+            }
+        }
+        if (nebulas.isEmpty() && obstacles.isEmpty()) return;
 
         List<int[]> cut = new ArrayList<>();
         for (int a = 0; a < nodeCount; a++) {
@@ -225,6 +269,14 @@ public class OverworldMap {
             if (Intersector.intersectSegmentCircle(
                     new Vector2(x1, y1), new Vector2(x2, y2),
                     new Vector2(n.x, n.y), n.radius * n.radius)) {
+                return true;
+            }
+        }
+        for (Obstacle o : obstacles) {
+            float r = o.radius * 1.25f; // exclusion zone reaches past the body
+            if (Intersector.intersectSegmentCircle(
+                    new Vector2(x1, y1), new Vector2(x2, y2),
+                    new Vector2(o.x, o.y), r * r)) {
                 return true;
             }
         }
@@ -336,6 +388,10 @@ public class OverworldMap {
 
     public List<Nebula> getNebulas() {
         return nebulas;
+    }
+
+    public List<Obstacle> getObstacles() {
+        return obstacles;
     }
 
     public Node getNode(int id) {

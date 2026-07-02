@@ -141,6 +141,8 @@ public class LootScreen implements Screen {
     private final Array<Spark> sparks = new Array<>();
     private final int[] contact = new int[2];
     private final Array<Loot> pincerHeld = new Array<>();
+    private float stormTimer = MathUtils.random(6f, 11f); // stormy nodes: next radiation wave
+    private float stormFlash;
     private float grabPulse;     // jaw-snap animation, spikes on capture
     private float ejectCooldown; // capture disabled briefly after an eject
     private float prevShipVx, prevShipVy; // for hold slosh from ship acceleration
@@ -401,6 +403,28 @@ public class LootScreen implements Screen {
         updateSparks(delta);
         collectAtExit();
         if (catchFlash > 0) catchFlash -= delta;
+        if (state.map.getCurrentNode().stormy) {
+            stormTimer -= delta;
+            if (stormTimer <= 0) {
+                // solar radiation: shields take the brunt, everything gets shoved
+                stormTimer = MathUtils.random(7f, 12f);
+                stormFlash = 0.7f;
+                if (state.shield > 0) state.shield = Math.max(0, state.shield - 8f);
+                else state.hull = Math.max(1f, state.hull - 4f);
+                float gustA = MathUtils.random(360f);
+                float gx = MathUtils.cosDeg(gustA) * 45f;
+                float gy = MathUtils.sinDeg(gustA) * 45f;
+                player.vx += gx;
+                player.vy += gy;
+                for (Loot crate : lootItems) {
+                    if (isHeld(crate)) continue;
+                    crate.vx += gx * 0.6f;
+                    crate.vy += gy * 0.6f;
+                }
+                game.sfx.playThud(0.35f);
+            }
+        }
+        if (stormFlash > 0) stormFlash -= delta;
         }
 
         ScreenUtils.clear(0, 0, 0.05f, 1f);
@@ -1839,8 +1863,22 @@ public class LootScreen implements Screen {
             GlyphLayout gl = new GlyphLayout(font, msg);
             font.draw(batch, msg, (HUD_W - gl.width) / 2f, HUD_H / 2f);
         }
+        if (stormFlash > 0) {
+            font.setColor(1f, 0.6f, 0.2f, 1f);
+            GlyphLayout sr = new GlyphLayout(font, "SOLAR RADIATION");
+            font.draw(batch, sr, (HUD_W - sr.width) / 2f, HUD_H - 70);
+        }
         Dev.drawIndicator(batch, font, HUD_W, HUD_H);
         batch.end();
+
+        if (stormFlash > 0) {
+            Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+            shapes.setProjectionMatrix(hudMatrix);
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(1f, 0.5f, 0.15f, 0.18f * (stormFlash / 0.7f));
+            shapes.rect(0, 0, HUD_W, HUD_H);
+            shapes.end();
+        }
 
         controlsHelp.draw(shapes, batch, font, hudMatrix);
     }

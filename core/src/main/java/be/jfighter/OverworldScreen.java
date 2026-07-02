@@ -66,6 +66,8 @@ public class OverworldScreen implements Screen {
     private int hoveredRoom = -1;
     private ShipDeckView deckView;
     private boolean victory;
+    private String toast;   // transient travel message (nebula abrasion etc.)
+    private float toastT;
     private final Matrix4 identity = new Matrix4();
 
     private static final Rectangle VICTORY_BTN =
@@ -103,6 +105,7 @@ public class OverworldScreen implements Screen {
             if (state.credits < 99999) state.credits = 99999; // infinite credits
         }
         mapTime += delta;
+        if (toastT > 0) toastT -= delta;
         // ESC: back to the title with the run kept alive (RESUME picks it back up)
         if (!victory && Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             game.setScreen(new TitleScreen(game));
@@ -225,6 +228,11 @@ public class OverworldScreen implements Screen {
         font.draw(batch, o2Gl, 930 - o2Gl.width, 491);
         font.setColor(Color.GRAY);
         font.draw(batch, state.map.sectorName.toUpperCase() + "  ::  SECTOR " + state.sector, 26, MSCR_Y2 - 8);
+        if (toastT > 0) {
+            font.setColor(0.95f, 0.45f, 0.3f, 1f);
+            GlyphLayout tg = new GlyphLayout(font, toast);
+            font.draw(batch, tg, (WORLD_WIDTH - tg.width) / 2f, MSCR_Y2 - 8);
+        }
 
         // deck view labels + feed overlay
         Fonts.scale(font, 1f);
@@ -325,6 +333,42 @@ public class OverworldScreen implements Screen {
             shapes.circle(n.x + n.radius * 0.16f, n.y - n.radius * 0.1f, n.radius * 0.66f, 32);
             shapes.setColor(0.28f, 0.15f, 0.36f, 1f);
             shapes.circle(n.x - n.radius * 0.2f, n.y + n.radius * 0.14f, n.radius * 0.38f, 24);
+        }
+        // massive bodies: black holes and stars
+        for (OverworldMap.Obstacle ob : state.map.getObstacles()) {
+            if (ob.kind == OverworldMap.Obstacle.Kind.BLACK_HOLE) {
+                shapes.setColor(0.05f, 0.05f, 0.08f, 1f);
+                shapes.circle(ob.x, ob.y, ob.radius * 0.45f, 24); // dark core
+                shapes.setColor(0.7f, 0.55f, 0.9f, 0.8f);
+                shapes.circle(ob.x, ob.y, ob.radius * 0.55f, 24); // horizon rim
+                // accretion ring, slightly squashed
+                shapes.setColor(0.55f, 0.35f, 0.7f, 0.5f);
+                shapes.ellipse(ob.x - ob.radius, ob.y - ob.radius * 0.35f,
+                    ob.radius * 2f, ob.radius * 0.7f);
+            } else {
+                float flare = 0.75f + 0.25f * MathUtils.sin(mapTime * 3.1f);
+                shapes.setColor(1f * flare, 0.75f * flare, 0.25f * flare, 0.9f);
+                shapes.circle(ob.x, ob.y, ob.radius * 0.55f, 24); // bright disc
+                shapes.setColor(0.9f, 0.55f, 0.15f, 0.4f);
+                shapes.circle(ob.x, ob.y, ob.radius * 0.8f, 24);  // corona
+                for (int k = 0; k < 8; k++) { // flare spokes
+                    float a0 = k * 45f + mapTime * 8f;
+                    shapes.line(ob.x + MathUtils.cosDeg(a0) * ob.radius * 0.8f,
+                        ob.y + MathUtils.sinDeg(a0) * ob.radius * 0.8f,
+                        ob.x + MathUtils.cosDeg(a0) * (ob.radius * 0.8f + 6f + 3f * flare),
+                        ob.y + MathUtils.sinDeg(a0) * (ob.radius * 0.8f + 6f + 3f * flare));
+                }
+            }
+        }
+        // storm-affected nodes carry a little flare glyph so the risk is visible
+        shapes.setColor(1f, 0.65f, 0.2f, 0.9f);
+        for (Node n : state.map.allNodes()) {
+            if (!n.stormy) continue;
+            float gx = n.x + NODE_RADIUS + 7f;
+            float gy = n.y + NODE_RADIUS + 5f;
+            shapes.line(gx - 3, gy + 4, gx + 1, gy);
+            shapes.line(gx + 1, gy, gx - 1, gy);
+            shapes.line(gx - 1, gy, gx + 3, gy - 4);
         }
         for (OverworldMap.Decal d : state.map.getDecals()) {
             switch (d.kind) {
@@ -687,6 +731,20 @@ public class OverworldScreen implements Screen {
         if (state.fuel < TRAVEL_FUEL_COST) return false;
         state.fuel -= TRAVEL_FUEL_COST;
         if (!node.visited) state.nodesVisited++;
+        Node from = state.map.getCurrentNode();
+        // routes brushing a nebula scour the hull (never lethal)
+        for (OverworldMap.Nebula neb : state.map.getNebulas()) {
+            if (com.badlogic.gdx.math.Intersector.intersectSegmentCircle(
+                    new com.badlogic.gdx.math.Vector2(from.x, from.y),
+                    new com.badlogic.gdx.math.Vector2(node.x, node.y),
+                    new com.badlogic.gdx.math.Vector2(neb.x, neb.y),
+                    (neb.radius + 25f) * (neb.radius + 25f))) {
+                state.hull = Math.max(1f, state.hull - 5f);
+                toast = "NEBULA ABRASION — HULL -5";
+                toastT = 3f;
+                break;
+            }
+        }
         state.map.setCurrentNode(node.id);
         if (node.type == Node.Type.HOME) {
             // home dock: full repairs

@@ -12,6 +12,7 @@ public class Node {
     public final List<Integer> connections;
     public boolean visited;   // the player has been here: its type is known for the rest of the run
     public boolean completed; // the instance here is resolved: it cannot be initiated again (traders never complete)
+    public boolean stormy;    // near a star: instances here get solar radiation events
 
     public Node(int id, float x, float y, Type type, List<Integer> connections) {
         this.id = id;
