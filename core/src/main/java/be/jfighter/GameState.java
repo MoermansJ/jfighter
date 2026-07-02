@@ -107,9 +107,11 @@ public class GameState {
 
     public GameState() {
         this.map = new OverworldMap();
-        this.credits = 500;
+        this.credits = 500 + 100 * Meta.perkLevel(Meta.PERK_CREDITS);
         this.maxFuel = 100f;
-        this.fuel = 8f; // scarce: each node hop costs 1
+        this.fuel = 8f + 2 * Meta.perkLevel(Meta.PERK_FUEL); // scarce: each node hop costs 1
+        this.maxHull += 15 * Meta.perkLevel(Meta.PERK_HULL);
+        this.hull = maxHull;
         // roguelite: every run starts with a fresh random crew (the map is random too;
         // the ship layout stays fixed for now)
         List<String> names = new ArrayList<>(List.of(SURNAMES));

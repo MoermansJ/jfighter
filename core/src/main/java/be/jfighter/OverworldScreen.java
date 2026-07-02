@@ -66,6 +66,7 @@ public class OverworldScreen implements Screen {
     private int hoveredRoom = -1;
     private ShipDeckView deckView;
     private boolean victory;
+    private boolean tacticalPause; // P: the deck sim freezes, orders still go in
     private String toast;   // transient travel message (nebula abrasion etc.)
     private float toastT;
     private final Matrix4 identity = new Matrix4();
@@ -111,6 +112,7 @@ public class OverworldScreen implements Screen {
             game.setScreen(new TitleScreen(game));
             return;
         }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.P)) tacticalPause = !tacticalPause;
         updateHover();
         // stop rendering once the screen switches: hide() disposed our resources
         if (handleInput()) return;
@@ -122,7 +124,7 @@ public class OverworldScreen implements Screen {
 
         deckView.setHighlight(selectedCrew != null ? hoveredRoom : -1);
         deckView.setFocus(selectedCrew, hoveredCrew);
-        deckView.update(delta);
+        if (!tacticalPause) deckView.update(delta); // tactical pause freezes crew, oxygen, doors
         deckView.renderShapes(shapes);
         drawRoster();
 
@@ -262,6 +264,11 @@ public class OverworldScreen implements Screen {
             String station = selectedCrew.station < 0 ? "unassigned" : ShipDeckView.ROOM_NAMES[selectedCrew.station];
             font.draw(batch, "Station: " + station, ROSTER_X, detailY - 22);
             font.draw(batch, "Click a compartment to station", ROSTER_X, detailY - 44);
+        }
+        if (tacticalPause) {
+            font.setColor(1f, 0.75f, 0.2f, 1f);
+            GlyphLayout pg = new GlyphLayout(font, "|| TACTICAL PAUSE — P to resume");
+            font.draw(batch, pg, (WORLD_WIDTH - pg.width) / 2f, 300);
         }
         Dev.drawIndicator(batch, font, WORLD_WIDTH, WORLD_HEIGHT);
         Fonts.scale(font, 1.4f);

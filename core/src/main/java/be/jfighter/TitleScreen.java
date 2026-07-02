@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.utils.ScreenUtils;
@@ -23,6 +24,12 @@ public class TitleScreen implements Screen {
 
     private final JFighter game;
     private SpriteBatch batch;
+    private ShapeRenderer shapes;
+    private static final String[][] PERKS = {
+        {Meta.PERK_FUEL, "+2 starting fuel"},
+        {Meta.PERK_CREDITS, "+100 starting credits"},
+        {Meta.PERK_HULL, "+15 max hull"},
+    };
     private FitViewport viewport;
     private Texture background;
     private BitmapFont font;
@@ -37,6 +44,7 @@ public class TitleScreen implements Screen {
     @Override
     public void show() {
         batch = new SpriteBatch();
+        shapes = new ShapeRenderer();
         viewport = new FitViewport(JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         background = new Texture(Gdx.files.internal("jfightertitle640.png"));
         font = game.fonts.font;
@@ -75,6 +83,11 @@ public class TitleScreen implements Screen {
                 game.setScreen(new OptionsScreen(game));
                 return;
             }
+            for (int i = 0; i < PERKS.length; i++) {
+                if (perkRect(i).contains(mouse.x, mouse.y)) {
+                    Meta.buyPerk(PERKS[i][0]);
+                }
+            }
         }
 
         batch.begin();
@@ -97,8 +110,29 @@ public class TitleScreen implements Screen {
             float resY = RESUME_BUTTON.y + (RESUME_BUTTON.height + resumeLayout.height) / 2f;
             font.draw(batch, resumeLayout, resX, resY);
         }
+        // meta-progression perk shop, bottom-left
+        Fonts.scale(font, 1f);
+        font.setColor(Color.LIGHT_GRAY);
+        font.draw(batch, "SALVAGE: " + Meta.salvage(), 16, 190);
+        for (int i = 0; i < PERKS.length; i++) {
+            Rectangle r = perkRect(i);
+            boolean can = Meta.salvage() >= Meta.PERK_COST;
+            font.setColor(can ? Color.WHITE : Color.GRAY);
+            font.draw(batch, PERKS[i][1] + "  L" + Meta.perkLevel(PERKS[i][0])
+                + "  (" + Meta.PERK_COST + " salv)", r.x + 6, r.y + r.height - 6);
+        }
+        Fonts.scale(font, 2f);
         Dev.drawIndicator(batch, font, JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         batch.end();
+
+        shapes.setProjectionMatrix(viewport.getCamera().combined);
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < PERKS.length; i++) {
+            Rectangle r = perkRect(i);
+            shapes.setColor(0.35f, 0.4f, 0.45f, 1f);
+            shapes.rect(r.x, r.y, r.width, r.height);
+        }
+        shapes.end();
     }
 
     @Override
@@ -117,9 +151,14 @@ public class TitleScreen implements Screen {
         dispose();
     }
 
+    private static Rectangle perkRect(int i) {
+        return new Rectangle(12, 156 - i * 30, 250, 26);
+    }
+
     @Override
     public void dispose() {
         batch.dispose();
+        shapes.dispose();
         background.dispose();
     }
 }

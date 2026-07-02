@@ -20,6 +20,7 @@ public class SummaryScreen implements Screen {
     private SpriteBatch batch;
     private FitViewport viewport;
     private BitmapFont font;
+    private int salvageEarned;
 
     public SummaryScreen(JFighter game, GameState state, boolean won) {
         this.game = game;
@@ -33,6 +34,9 @@ public class SummaryScreen implements Screen {
         batch = new SpriteBatch();
         viewport = new FitViewport(JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         font = game.fonts.font;
+        // meta-progression: the run pays out persistent salvage
+        salvageEarned = state.sectorsCleared + state.credits / 300;
+        if (salvageEarned > 0) Meta.addSalvage(salvageEarned);
     }
 
     @Override
@@ -62,6 +66,7 @@ public class SummaryScreen implements Screen {
             {"Hostiles destroyed", String.valueOf(state.hostilesDestroyed)},
             {"Credits amassed", String.valueOf(state.credits)},
             {"Crew lost", String.valueOf(state.crewLost())},
+            {"Salvage earned", "+" + salvageEarned + "  (total " + Meta.salvage() + ")"},
         };
         float y = 390;
         for (String[] row : rows) {
