@@ -21,6 +21,12 @@ public class SoundFx {
     private Sound thruster;
     private Sound twang;
     private Sound thud;
+    private final Sound[] cannons = new Sound[3];
+    private Sound laser;
+    private Sound rocket;
+    private Sound clamp;
+    private Sound snap;
+    private Sound ping;
     private long thrusterId = -1;
     private boolean ready;
 
@@ -30,6 +36,14 @@ public class SoundFx {
             thruster = load(dir.child("thruster.wav"), synthThruster());
             twang = load(dir.child("twang.wav"), synthTwang());
             thud = load(dir.child("thud.wav"), synthThud());
+            cannons[0] = load(dir.child("cannon0.wav"), synthCannon(0.09f, 340f, 60f));
+            cannons[1] = load(dir.child("cannon1.wav"), synthCannon(0.16f, 200f, 90f));
+            cannons[2] = load(dir.child("cannon2.wav"), synthCannon(0.3f, 110f, 140f));
+            laser = load(dir.child("laser.wav"), synthLaser());
+            rocket = load(dir.child("rocket.wav"), synthRocket());
+            clamp = load(dir.child("clamp.wav"), synthClamp());
+            snap = load(dir.child("snap.wav"), synthSnap());
+            ping = load(dir.child("ping.wav"), synthPing());
             ready = true;
         } catch (Exception e) {
             Gdx.app.error("SoundFx", "audio disabled: " + e.getMessage());
@@ -65,12 +79,43 @@ public class SoundFx {
         if (ready) thud.play(MathUtils.clamp(strength, 0.15f, THUD_MAX_VOLUME));
     }
 
+    /** Snappy cannon report; caliber 0 = light, 2 = heavy. */
+    public void playCannon(int caliber) {
+        if (ready) cannons[MathUtils.clamp(caliber, 0, 2)].play(0.4f + 0.2f * caliber);
+    }
+
+    public void playLaser() {
+        if (ready) laser.play(0.4f);
+    }
+
+    public void playRocket() {
+        if (ready) rocket.play(0.55f);
+    }
+
+    public void playClamp() {
+        if (ready) clamp.play(0.55f);
+    }
+
+    public void playSnap() {
+        if (ready) snap.play(0.5f);
+    }
+
+    public void playPing() {
+        if (ready) ping.play(0.35f);
+    }
+
     public void dispose() {
         if (!ready) return;
         stopThruster();
         thruster.dispose();
         twang.dispose();
         thud.dispose();
+        for (Sound c : cannons) c.dispose();
+        laser.dispose();
+        rocket.dispose();
+        clamp.dispose();
+        snap.dispose();
+        ping.dispose();
     }
 
     // --- synthesis ---
@@ -119,6 +164,90 @@ public class SoundFx {
             s[i] = body + knock;
         }
         return normalise(s, 0.9f);
+    }
+
+    /** HighFleet-style cannon: click attack, noise crack, low tonal punch. */
+    private static float[] synthCannon(float dur, float punchHz, float crackDecay) {
+        int n = (int) (RATE * (dur + 0.1f));
+        float[] s = new float[n];
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            float crack = MathUtils.random(-1f, 1f) * (float) Math.exp(-t * crackDecay);
+            float punch = (float) (Math.sin(2 * Math.PI * punchHz * t * (1 - t * 0.9))
+                * Math.exp(-t / dur * 6));
+            float click = i < 40 ? 1f - i / 40f : 0f;
+            s[i] = crack * 0.7f + punch + click * 0.5f;
+        }
+        return normalise(s, 0.9f);
+    }
+
+    /** Zap: fast descending square sweep. */
+    private static float[] synthLaser() {
+        int n = (int) (RATE * 0.16f);
+        float[] s = new float[n];
+        double phase = 0;
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            double freq = 1500 * Math.exp(-t * 14) + 180;
+            phase += 2 * Math.PI * freq / RATE;
+            float sq = Math.sin(phase) > 0 ? 1f : -1f;
+            s[i] = sq * (float) Math.exp(-t * 18);
+        }
+        return normalise(s, 0.7f);
+    }
+
+    /** Whoosh: band-passed noise swelling then trailing off. */
+    private static float[] synthRocket() {
+        int n = (int) (RATE * 0.55f);
+        float[] s = new float[n];
+        float y = 0f;
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            float white = MathUtils.random(-1f, 1f);
+            y += 0.25f * (white - y);
+            float env = (float) (Math.sin(Math.PI * Math.min(1, t / 0.55f)) * Math.exp(-t * 2));
+            s[i] = y * env;
+        }
+        return normalise(s, 0.85f);
+    }
+
+    /** Metallic double click for the pincer jaws. */
+    private static float[] synthClamp() {
+        int n = (int) (RATE * 0.22f);
+        float[] s = new float[n];
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            float k1 = (float) (Math.sin(2 * Math.PI * 900 * t) * Math.exp(-t * 60));
+            float t2 = t - 0.09f;
+            float k2 = t2 > 0 ? (float) (Math.sin(2 * Math.PI * 620 * t2) * Math.exp(-t2 * 50)) : 0f;
+            s[i] = k1 + k2;
+        }
+        return normalise(s, 0.75f);
+    }
+
+    /** Bright short pluck for a strand snapping or splicing. */
+    private static float[] synthSnap() {
+        int n = (int) (RATE * 0.2f);
+        float[] s = new float[n];
+        double phase = 0;
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            double freq = 640 * Math.exp(-t * 5);
+            phase += 2 * Math.PI * freq / RATE;
+            s[i] = (float) ((Math.sin(phase) + 0.3 * Math.sin(3 * phase)) * Math.exp(-t * 22));
+        }
+        return normalise(s, 0.7f);
+    }
+
+    /** Soft console ping for the autopilot. */
+    private static float[] synthPing() {
+        int n = (int) (RATE * 0.14f);
+        float[] s = new float[n];
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            s[i] = (float) (Math.sin(2 * Math.PI * 880 * t) * Math.exp(-t * 26));
+        }
+        return normalise(s, 0.5f);
     }
 
     private static float[] normalise(float[] s, float peak) {

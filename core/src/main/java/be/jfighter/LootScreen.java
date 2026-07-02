@@ -253,6 +253,7 @@ public class LootScreen implements Screen {
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         buildHulkShape();
         spawnLoot();
+        game.sfx.startThruster();
     }
 
     /** Every visit rolls a different arena: gravity object, exit, cargo count, asteroid field. */
@@ -547,6 +548,7 @@ public class LootScreen implements Screen {
         collideWithHulk();
         interactShipWithBlobs();
         updatePincer(delta);
+        game.sfx.setThrusterLevel(player.thrustLevel);
         effects.update(player, delta);
         effects.spawnExhaust(player, delta);
 
@@ -626,6 +628,7 @@ public class LootScreen implements Screen {
         if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
             Vector2 target = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
             effects.setAutopilotTarget(target.x, target.y);
+            game.sfx.playPing();
         }
         if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT)) {
             effects.clearAutopilot();
@@ -688,7 +691,7 @@ public class LootScreen implements Screen {
             if (dx * dx + dy * dy < PINCER_RANGE * PINCER_RANGE) {
                 stowInHold(crate, cx, cy, fx, fy);
                 grabPulse = 1f;
-                game.sfx.playThud(0.3f);
+                game.sfx.playClamp();
             }
         }
     }
@@ -819,7 +822,7 @@ public class LootScreen implements Screen {
         pincerHeld.clear();
         ejectCooldown = EJECT_COOLDOWN;
         grabPulse = 1f;
-        game.sfx.playThud(0.35f);
+        game.sfx.playClamp();
     }
 
     /** Wraps the ejected clump in a ready-made sealed ring that travels with it. */
@@ -1268,7 +1271,7 @@ public class LootScreen implements Screen {
         ring.closed = true;
         freeNets.add(ring);
         sealRing(ring); // empty catches burn away immediately, as usual
-        game.sfx.playThud(0.3f);
+        game.sfx.playSnap();
     }
 
     private void releasePointLinks(NetPoint p) {
@@ -1350,7 +1353,7 @@ public class LootScreen implements Screen {
         na.pts.addAll(nb.pts);
         if (hookedNet == nb) hookedNet = na;
         freeNets.removeValue(nb, true);
-        game.sfx.playThud(0.2f);
+        game.sfx.playSnap();
     }
 
     /** An open strand just ties on: each floating end within reach knots itself to the ring. */
@@ -2115,6 +2118,7 @@ public class LootScreen implements Screen {
 
     @Override
     public void dispose() {
+        game.sfx.stopThruster();
         shapes.dispose();
         batch.dispose();
     }

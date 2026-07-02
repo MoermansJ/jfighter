@@ -148,6 +148,7 @@ public class GameScreen implements Screen {
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
         spawnEnemies();
+        game.sfx.startThruster();
     }
 
     private void spawnEnemies() {
@@ -213,6 +214,7 @@ public class GameScreen implements Screen {
             effects.update(player, delta);
             effects.spawnExhaust(player, delta);
             for (Enemy e : enemies) effects.spawnExhaust(e.body, delta);
+            game.sfx.setThrusterLevel(controlledBody().thrustLevel);
             fireWeapons(delta);
             updateProjectiles(delta);
             updateEffects(delta);
@@ -442,6 +444,7 @@ public class GameScreen implements Screen {
         if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
             Vector2 target = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
             effects.setAutopilotTarget(target.x, target.y);
+            game.sfx.playPing();
         }
         if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT)) {
             effects.clearAutopilot();
@@ -619,7 +622,7 @@ public class GameScreen implements Screen {
                     w.burstLeft--;
                     w.burstTimer = 0.07f;
                     fireBeam(body, nx, ny, body.rotation + MathUtils.random(-2f, 2f), w.type.damage, false);
-                    game.sfx.playThud(0.12f);
+                    game.sfx.playLaser();
                 }
                 break;
             default:
@@ -636,7 +639,9 @@ public class GameScreen implements Screen {
                     projectiles.add(p);
                     // muzzle flash scaled by caliber
                     addBlast(nx, ny, 0f, 150f, 5f + w.type.damage * 0.35f);
-                    game.sfx.playThud(0.12f + w.type.damage * 0.008f);
+                    if (w.type.isRocket()) game.sfx.playRocket();
+                    else game.sfx.playCannon(w.type == Weapon.Type.LIGHT_CANNON ? 0
+                        : w.type == Weapon.Type.MEDIUM_CANNON ? 1 : 2);
                 }
         }
     }
@@ -1000,6 +1005,7 @@ public class GameScreen implements Screen {
 
     @Override
     public void dispose() {
+        game.sfx.stopThruster();
         shapeRenderer.dispose();
         batch.dispose();
     }
