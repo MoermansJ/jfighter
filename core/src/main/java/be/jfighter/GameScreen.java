@@ -46,6 +46,26 @@ public class GameScreen implements Screen {
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
 
+    // death effects: assembled from sparks, tumbling hull shards and blast rings,
+    // with a random kind and jittered parameters so no two kills look identical
+    private enum DeathKind { FIREBALL, BREAKUP, CHAIN, OVERLOAD }
+
+    private static class Spark {
+        float x, y, vx, vy, life, maxLife;
+    }
+
+    private static class Shard {
+        float x, y, vx, vy, rotation, spin, len, life, maxLife;
+    }
+
+    private static class Blast {
+        float x, y, age, delay, speed, maxR;
+    }
+
+    private final Array<Spark> sparks = new Array<>();
+    private final Array<Shard> shards = new Array<>();
+    private final Array<Blast> blasts = new Array<>();
+
     private static class Enemy {
         final Player body; // reuses ship physics: drag keeps them slowly adrift
         int hp = ENEMY_HP;
@@ -118,6 +138,7 @@ public class GameScreen implements Screen {
         }
         effects.update(player, delta);
         updateProjectiles(delta);
+        updateEffects(delta);
 
         ScreenUtils.clear(0, 0, 0, 1f);
         viewport.apply();
@@ -128,6 +149,7 @@ public class GameScreen implements Screen {
         drawArenaBounds();
         effects.renderAutopilot(shapeRenderer);
         drawEnemies();
+        drawEffects();
         effects.renderShip(shapeRenderer, player);
 
         // projectile capsules (filled mode, per-projectile transform)
@@ -244,6 +266,8 @@ public class GameScreen implements Screen {
     }
 
     private void killEnemy(int index) {
+        Enemy e = enemies.get(index);
+        spawnDeathEffect(e.centerX(), e.centerY(), e.body.vx, e.body.vy);
         enemies.removeIndex(index);
         state.credits += CREDITS_PER_KILL;
         game.sfx.playCatch();
@@ -251,6 +275,133 @@ public class GameScreen implements Screen {
             // combat resolved: all hostiles destroyed
             state.map.getCurrentNode().completed = true;
         }
+    }
+
+    /** Picks a random destruction from the pool, parameters jittered per kill. */
+    private void spawnDeathEffect(float x, float y, float vx, float vy) {
+        DeathKind kind = DeathKind.values()[MathUtils.random(DeathKind.values().length - 1)];
+        switch (kind) {
+            case FIREBALL:
+                addBlast(x, y, 0f, MathUtils.random(150f, 220f), MathUtils.random(40f, 65f));
+                addSparks(x, y, vx, vy, MathUtils.random(16, 24));
+                break;
+            case BREAKUP:
+                addShards(x, y, vx, vy, MathUtils.random(4, 6));
+                addSparks(x, y, vx, vy, MathUtils.random(5, 9));
+                break;
+            case CHAIN: {
+                int pops = MathUtils.random(3, 4);
+                for (int i = 0; i < pops; i++) {
+                    addBlast(x + MathUtils.random(-14f, 14f), y + MathUtils.random(-14f, 14f),
+                        i * MathUtils.random(0.08f, 0.14f), MathUtils.random(90f, 130f),
+                        MathUtils.random(12f, 20f));
+                }
+                addBlast(x, y, pops * 0.12f + 0.1f, MathUtils.random(170f, 230f), MathUtils.random(45f, 60f));
+                addSparks(x, y, vx, vy, MathUtils.random(10, 16));
+                break;
+            }
+            case OVERLOAD:
+                addBlast(x, y, 0f, MathUtils.random(18f, 26f), MathUtils.random(12f, 16f)); // slow swell
+                addBlast(x, y, MathUtils.random(0.4f, 0.6f), MathUtils.random(260f, 340f),
+                    MathUtils.random(55f, 75f)); // then the sharp blast
+                addSparks(x, y, vx, vy, MathUtils.random(12, 18));
+                break;
+        }
+    }
+
+    private void addBlast(float x, float y, float delay, float speed, float maxR) {
+        Blast b = new Blast();
+        b.x = x;
+        b.y = y;
+        b.age = -delay;
+        b.speed = speed;
+        b.maxR = maxR;
+        blasts.add(b);
+    }
+
+    private void addSparks(float x, float y, float vx, float vy, int count) {
+        for (int i = 0; i < count; i++) {
+            Spark s = new Spark();
+            s.x = x;
+            s.y = y;
+            float angle = MathUtils.random(360f);
+            float speed = MathUtils.random(40f, 160f);
+            s.vx = vx * 0.4f + MathUtils.cosDeg(angle) * speed;
+            s.vy = vy * 0.4f + MathUtils.sinDeg(angle) * speed;
+            s.maxLife = s.life = MathUtils.random(0.35f, 0.9f);
+            sparks.add(s);
+        }
+    }
+
+    private void addShards(float x, float y, float vx, float vy, int count) {
+        for (int i = 0; i < count; i++) {
+            Shard f = new Shard();
+            f.x = x + MathUtils.random(-8f, 8f);
+            f.y = y + MathUtils.random(-8f, 8f);
+            float angle = MathUtils.random(360f);
+            float speed = MathUtils.random(20f, 70f);
+            f.vx = vx * 0.6f + MathUtils.cosDeg(angle) * speed;
+            f.vy = vy * 0.6f + MathUtils.sinDeg(angle) * speed;
+            f.rotation = MathUtils.random(360f);
+            f.spin = MathUtils.random(-240f, 240f);
+            f.len = MathUtils.random(6f, 16f);
+            f.maxLife = f.life = MathUtils.random(1f, 1.7f);
+            shards.add(f);
+        }
+    }
+
+    private void updateEffects(float delta) {
+        for (int i = sparks.size - 1; i >= 0; i--) {
+            Spark s = sparks.get(i);
+            s.life -= delta;
+            if (s.life <= 0) {
+                sparks.removeIndex(i);
+                continue;
+            }
+            s.x += s.vx * delta;
+            s.y += s.vy * delta;
+        }
+        for (int i = shards.size - 1; i >= 0; i--) {
+            Shard f = shards.get(i);
+            f.life -= delta;
+            if (f.life <= 0) {
+                shards.removeIndex(i);
+                continue;
+            }
+            f.x += f.vx * delta;
+            f.y += f.vy * delta;
+            f.rotation += f.spin * delta;
+        }
+        for (int i = blasts.size - 1; i >= 0; i--) {
+            Blast b = blasts.get(i);
+            b.age += delta;
+            if (b.age > 0 && b.age * b.speed > b.maxR) blasts.removeIndex(i);
+        }
+    }
+
+    private void drawEffects() {
+        if (sparks.size == 0 && shards.size == 0 && blasts.size == 0) return;
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        for (Spark s : sparks) {
+            float f = s.life / s.maxLife;
+            shapeRenderer.setColor(1f, 0.65f * f + 0.1f, 0.15f * f, 1f);
+            shapeRenderer.line(s.x, s.y, s.x - s.vx * 0.05f, s.y - s.vy * 0.05f);
+        }
+        for (Shard f : shards) {
+            float a = f.life / f.maxLife;
+            shapeRenderer.setColor(0.9f * a, 0.3f * a, 0.2f * a, 1f);
+            float cos = MathUtils.cosDeg(f.rotation);
+            float sin = MathUtils.sinDeg(f.rotation);
+            shapeRenderer.line(f.x - cos * f.len, f.y - sin * f.len, f.x + cos * f.len, f.y + sin * f.len);
+        }
+        for (Blast b : blasts) {
+            if (b.age <= 0) continue;
+            float r = b.age * b.speed;
+            float a = 1f - r / b.maxR;
+            shapeRenderer.setColor(1f, 0.75f * a + 0.15f, 0.2f * a, 1f);
+            shapeRenderer.circle(b.x, b.y, r, 32);
+        }
+        shapeRenderer.end();
     }
 
     /** Hostile wireframes, drawn in red; same hull as the player until variants exist. */
