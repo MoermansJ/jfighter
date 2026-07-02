@@ -57,6 +57,7 @@ public class GameScreen implements Screen {
     private float defeatT = -1f; // >= 0 once the fighter is destroyed
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
+    private final PauseMenu pause = new PauseMenu();
     private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
         {"SPACE", "fire"},
         {"UP/DOWN", "throttle"},
@@ -64,7 +65,7 @@ public class GameScreen implements Screen {
         {"LMB", "set autopilot"},
         {"RMB", "cancel autopilot"},
         {"TAB", "switch controlled ship (dev)"},
-        {"ESC", "leave instance"},
+        {"ESC", "pause menu"},
     });
 
     // death effects: assembled from sparks, tumbling hull shards and blast rings,
@@ -156,25 +157,28 @@ public class GameScreen implements Screen {
                 return;
             }
         }
-        // stop rendering once the screen switches: hide() disposed our resources
-        if (defeatT < 0 && handleInput(delta)) return;
-        if (defeatT < 0) effects.handleFlightInput(controlledBody(), delta);
-        shieldSince += delta;
-        if (shieldSince >= SHIELD_RECHARGE_DELAY && state.shield < state.maxShield) {
-            state.shield = Math.min(state.maxShield, state.shield + SHIELD_RECHARGE_RATE * delta);
+        if (defeatT < 0) pause.handleEscape();
+        if (!pause.isOpen()) {
+            // stop rendering once the screen switches: hide() disposed our resources
+            if (defeatT < 0 && handleInput(delta)) return;
+            if (defeatT < 0) effects.handleFlightInput(controlledBody(), delta);
+            shieldSince += delta;
+            if (shieldSince >= SHIELD_RECHARGE_DELAY && state.shield < state.maxShield) {
+                state.shield = Math.min(state.maxShield, state.shield + SHIELD_RECHARGE_RATE * delta);
+            }
+            if (shieldFlash > 0) shieldFlash -= delta;
+            player.updatePosition(delta);
+            bounceOffWalls(player);
+            for (Enemy e : enemies) {
+                e.body.updatePosition(delta);
+                bounceOffWalls(e.body);
+            }
+            effects.update(player, delta);
+            effects.spawnExhaust(player, delta);
+            for (Enemy e : enemies) effects.spawnExhaust(e.body, delta);
+            updateProjectiles(delta);
+            updateEffects(delta);
         }
-        if (shieldFlash > 0) shieldFlash -= delta;
-        player.updatePosition(delta);
-        bounceOffWalls(player);
-        for (Enemy e : enemies) {
-            e.body.updatePosition(delta);
-            bounceOffWalls(e.body);
-        }
-        effects.update(player, delta);
-        effects.spawnExhaust(player, delta);
-        for (Enemy e : enemies) effects.spawnExhaust(e.body, delta);
-        updateProjectiles(delta);
-        updateEffects(delta);
 
         ScreenUtils.clear(0, 0, 0, 1f);
         viewport.apply();
@@ -211,6 +215,11 @@ public class GameScreen implements Screen {
         shapeRenderer.end();
 
         drawHud();
+
+        if (pause.isOpen()
+                && pause.render(shapeRenderer, batch, font, hudMatrix, viewport, enemies.isEmpty())) {
+            game.setScreen(new OverworldScreen(game, state));
+        }
     }
 
     private void drawHud() {
@@ -268,10 +277,6 @@ public class GameScreen implements Screen {
 
     /** Returns true when the screen was switched and rendering must stop. */
     private boolean handleInput(float delta) {
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            game.setScreen(new OverworldScreen(game, state));
-            return true;
-        }
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
             Player shooter = controlledBody();
             projectiles.add(new Projectile(

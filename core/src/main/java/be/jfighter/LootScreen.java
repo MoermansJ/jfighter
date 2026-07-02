@@ -144,13 +144,14 @@ public class LootScreen implements Screen {
     private float grabPulse;     // jaw-snap animation, spikes on capture
     private float ejectCooldown; // capture disabled briefly after an eject
     private float prevShipVx, prevShipVy; // for hold slosh from ship acceleration
+    private final PauseMenu pause = new PauseMenu();
     private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
         {"SPACE", "cast / cut net"},
         {"E", "tractor hook"},
         {"F", "eject stowage"},
         {"LMB", "set autopilot"},
         {"RMB", "cancel autopilot"},
-        {"ESC", "leave instance"},
+        {"ESC", "pause menu"},
     });
     private final Array<Loot> lootItems = new Array<>();
     private float catchFlash;
@@ -350,6 +351,8 @@ public class LootScreen implements Screen {
 
     @Override
     public void render(float delta) {
+        pause.handleEscape();
+        if (!pause.isOpen()) {
         // stop rendering once the screen switches: hide() disposed our resources
         if (handleInput(delta)) return;
         effects.handleFlightInput(player, delta);
@@ -387,6 +390,7 @@ public class LootScreen implements Screen {
         updateSparks(delta);
         collectAtExit();
         if (catchFlash > 0) catchFlash -= delta;
+        }
 
         ScreenUtils.clear(0, 0, 0.05f, 1f);
         viewport.apply();
@@ -404,14 +408,15 @@ public class LootScreen implements Screen {
         effects.renderShip(shapes, player);
         drawWorldLabels();
         drawHud();
+
+        if (pause.isOpen()
+                && pause.render(shapes, batch, font, hudMatrix, viewport, lootItems.isEmpty())) {
+            game.setScreen(new OverworldScreen(game, state));
+        }
     }
 
     /** Returns true when the screen was switched and rendering must stop. */
     private boolean handleInput(float delta) {
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            game.setScreen(new OverworldScreen(game, state));
-            return true;
-        }
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
             if (deployed == null) {
                 deployed = new Net(); // start paying out a fresh net
