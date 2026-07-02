@@ -22,6 +22,9 @@ public class GameScreen implements Screen {
     private static final float HUD_W = JFighter.WORLD_WIDTH;
     private static final float HUD_H = JFighter.WORLD_HEIGHT;
 
+    // solid arena walls: no wrapping or clipping through the border
+    private static final float WALL_RESTITUTION = 0.5f;
+
     private final JFighter game;
     private final GameState state;
 
@@ -58,7 +61,7 @@ public class GameScreen implements Screen {
         if (handleInput(delta)) return;
         effects.handleFlightInput(player, delta);
         player.updatePosition(delta);
-        player.wrapAround(ARENA_WIDTH, ARENA_HEIGHT);
+        bounceOffWalls(player);
         effects.update(player, delta);
         updateProjectiles(delta);
 
@@ -68,6 +71,7 @@ public class GameScreen implements Screen {
         shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
 
         effects.renderBackground(shapeRenderer);
+        drawArenaBounds();
         effects.renderAutopilot(shapeRenderer);
         effects.renderShip(shapeRenderer, player);
 
@@ -123,6 +127,32 @@ public class GameScreen implements Screen {
             effects.clearAutopilot();
         }
         return false;
+    }
+
+    /** The arena has solid walls: ships bounce off instead of wrapping through. */
+    private static void bounceOffWalls(Player ship) {
+        if (ship.x < 0) {
+            ship.x = 0;
+            ship.vx = Math.abs(ship.vx) * WALL_RESTITUTION;
+        } else if (ship.x > ARENA_WIDTH - Player.WIDTH) {
+            ship.x = ARENA_WIDTH - Player.WIDTH;
+            ship.vx = -Math.abs(ship.vx) * WALL_RESTITUTION;
+        }
+        if (ship.y < 0) {
+            ship.y = 0;
+            ship.vy = Math.abs(ship.vy) * WALL_RESTITUTION;
+        } else if (ship.y > ARENA_HEIGHT - Player.HEIGHT) {
+            ship.y = ARENA_HEIGHT - Player.HEIGHT;
+            ship.vy = -Math.abs(ship.vy) * WALL_RESTITUTION;
+        }
+    }
+
+    /** Faint boundary so the wall reads before you hit it. */
+    private void drawArenaBounds() {
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        shapeRenderer.setColor(0.35f, 0.12f, 0.1f, 1f);
+        shapeRenderer.rect(2, 2, ARENA_WIDTH - 4, ARENA_HEIGHT - 4);
+        shapeRenderer.end();
     }
 
     private void updateProjectiles(float delta) {
