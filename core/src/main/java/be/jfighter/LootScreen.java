@@ -265,6 +265,7 @@ public class LootScreen implements Screen {
         collideCargoWithCargo();
         collideShipWithCargo();
         collideWithHulk();
+        interactShipWithBlobs();
         updatePincer(delta);
         effects.update(player, delta);
 
@@ -359,6 +360,67 @@ public class LootScreen implements Screen {
                 pincerHeld.add(crate);
                 grabPulse = 1f;
                 game.sfx.playThud(0.3f);
+            }
+        }
+    }
+
+    /**
+     * Sealed blobs are rigid to the craft: pushing with the arms moves the whole blob
+     * efficiently without deforming it, and a craft caught inside clips straight to
+     * the outside with no interaction.
+     */
+    private void interactShipWithBlobs() {
+        float shipX = player.x + Player.WIDTH / 2f;
+        float shipY = player.y + Player.HEIGHT / 2f;
+        for (Net net : freeNets) {
+            if (!net.closed || net.pts.size < 3) continue;
+            float cx = 0, cy = 0;
+            for (NetPoint p : net.pts) {
+                cx += p.x;
+                cy += p.y;
+            }
+            cx /= net.pts.size;
+            cy /= net.pts.size;
+            float r = net.ringRadius;
+            float dx = shipX - cx;
+            float dy = shipY - cy;
+            float dist = (float) Math.sqrt(dx * dx + dy * dy);
+            if (dist >= r + SHIP_RADIUS) continue;
+
+            if (dist < r) {
+                // caught inside: pop out through the nearest edge, nothing else happens
+                float nx = dist > 0.001f ? dx / dist : 1f;
+                float ny = dist > 0.001f ? dy / dist : 0f;
+                float target = r + SHIP_RADIUS + 2f;
+                player.x += nx * (target - dist);
+                player.y += ny * (target - dist);
+                shipX = player.x + Player.WIDTH / 2f;
+                shipY = player.y + Player.HEIGHT / 2f;
+                continue;
+            }
+
+            // pushing from outside: shove blob and catch rigidly, matching the ship's push speed
+            float nx = -dx / dist;
+            float ny = -dy / dist;
+            float overlap = r + SHIP_RADIUS - dist;
+            float vn = player.vx * nx + player.vy * ny;
+            for (NetPoint p : net.pts) {
+                p.x += nx * overlap;
+                p.y += ny * overlap;
+                float pvn = p.vx * nx + p.vy * ny;
+                if (pvn < vn) {
+                    p.vx += (vn - pvn) * nx;
+                    p.vy += (vn - pvn) * ny;
+                }
+            }
+            for (Loot crate : net.contents) {
+                crate.x += nx * overlap;
+                crate.y += ny * overlap;
+                float cvn = crate.vx * nx + crate.vy * ny;
+                if (cvn < vn) {
+                    crate.vx += (vn - cvn) * nx;
+                    crate.vy += (vn - cvn) * ny;
+                }
             }
         }
     }
