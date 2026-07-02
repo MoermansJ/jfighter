@@ -63,6 +63,8 @@ public class LootScreen implements Screen {
     private static final float[][] PINCER_SLOTS = {{0, 34}, {-17, 57}, {17, 57}};
     private static final float EJECT_SPEED = 140f;     // forward speed of the ejected bundle
     private static final float EJECT_COOLDOWN = 1.2f;  // capture pause after ejecting so the bundle gets away
+    private static final float EJECT_GLIDE_TIME = 4f;  // seconds of reduced drag so the bundle keeps its momentum
+    private static final float EJECT_GLIDE_DRAG = 0.15f; // drag multiplier while gliding
     private static final float GRAB_PULSE_DECAY = 2.5f; // per-second fade of the jaw-snap animation
 
     // tractor hook: fires backward from the tail, latches onto free nets, becomes a tow line
@@ -167,6 +169,7 @@ public class LootScreen implements Screen {
         boolean closed;      // strand crossed itself and sealed into a ring
         float ringRadius;    // current drawstring target radius while closed
         float minRadius;     // shrink floor, proportional to the size at sealing
+        float glideT;        // remaining low-drag time after an eject
         final Array<Loot> contents = new Array<>(); // crates caught when the ring sealed
     }
 
@@ -185,6 +188,7 @@ public class LootScreen implements Screen {
 
     private static class Loot {
         float x, y, vx, vy, rotation, spin;
+        float glideT; // remaining low-drag time after an eject
         final float lightPhase = MathUtils.random(MathUtils.PI2);
 
         Loot(float x, float y, float vx, float vy, float spin) {
@@ -394,6 +398,7 @@ public class LootScreen implements Screen {
         for (Loot crate : pincerHeld) {
             crate.vx = vx;
             crate.vy = vy;
+            crate.glideT = EJECT_GLIDE_TIME;
             cx += crate.x;
             cy += crate.y;
         }
@@ -422,6 +427,7 @@ public class LootScreen implements Screen {
         net.contents.addAll(pincerHeld);
         net.ringRadius = radius;
         net.minRadius = radius * RING_MIN_FRACTION;
+        net.glideT = EJECT_GLIDE_TIME;
         freeNets.add(net);
     }
 
@@ -510,7 +516,13 @@ public class LootScreen implements Screen {
 
     private void updateNetPoints(float delta) {
         float damping = (float) Math.exp(-NET_DRAG * delta);
+        float glideDamping = (float) Math.exp(-NET_DRAG * EJECT_GLIDE_DRAG * delta);
         for (Net net : allNets()) {
+            float d = damping;
+            if (net.glideT > 0f) {
+                net.glideT -= delta;
+                d = glideDamping; // the wrap net glides with its ejected cargo
+            }
             for (NetPoint p : net.pts) {
                 if (p.attached != null) {
                     p.x = p.attached.x + p.attachDx;
@@ -521,8 +533,8 @@ public class LootScreen implements Screen {
                 }
                 p.x += p.vx * delta;
                 p.y += p.vy * delta;
-                p.vx *= damping;
-                p.vy *= damping;
+                p.vx *= d;
+                p.vy *= d;
             }
         }
     }
@@ -1082,11 +1094,17 @@ public class LootScreen implements Screen {
 
     private void updateLoot(float delta) {
         float damping = (float) Math.exp(-CARGO_DRAG * delta);
+        float glideDamping = (float) Math.exp(-CARGO_DRAG * EJECT_GLIDE_DRAG * delta);
         for (Loot loot : lootItems) {
             if (isHeld(loot)) continue; // pinned in the pincer jaws
-            loot.vx *= damping;
-            loot.vy *= damping;
-            loot.spin *= damping;
+            float d = damping;
+            if (loot.glideT > 0f) {
+                loot.glideT -= delta;
+                d = glideDamping; // ejected stowage keeps its momentum
+            }
+            loot.vx *= d;
+            loot.vy *= d;
+            loot.spin *= d;
             keepDrifting(loot);
             loot.x += loot.vx * delta;
             loot.y += loot.vy * delta;
