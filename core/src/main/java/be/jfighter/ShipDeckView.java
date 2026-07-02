@@ -91,11 +91,12 @@ public class ShipDeckView {
     }
 
     // Nox projection: steep top-down oblique. Depth squashes, height rises on screen.
-    private static final float SCALE = 1.15f;
+    // Scale/offsets centre the hull in the monitor with a little border margin.
+    private static final float SCALE = 1.5f;
     private static final float SQUASH = 0.85f;
     private static final float Z_FACTOR = 0.55f;
-    private static final float OFFSET_X = 300f;
-    private static final float OFFSET_Y = 320f;
+    private static final float OFFSET_X = 86f;
+    private static final float OFFSET_Y = 333f;
 
     // monitor bezel around the feed; the deck + stars render inside the screen rect
     private static final float BEZ_X1 = 8f, BEZ_X2 = 952f, BEZ_Y1 = 278f, BEZ_Y2 = 532f;
