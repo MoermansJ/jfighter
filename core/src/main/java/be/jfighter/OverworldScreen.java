@@ -40,7 +40,7 @@ public class OverworldScreen implements Screen {
     private static final float ROSTER_ROW_H = 25f;
     private static final float ROSTER_W = 240f;
     private static final float DIALOG_W = 340f;
-    private static final float DIALOG_H = 160f;
+    private static final float DIALOG_H = 204f; // roomy enough for a skill-gated third option
 
     private final JFighter game;
     private final GameState state;
@@ -556,6 +556,11 @@ public class OverworldScreen implements Screen {
         Rectangle o1 = option1Btn(dx, dy);
         shapes.setColor(Color.GREEN);
         shapes.rect(o1.x, o1.y, o1.width, o1.height);
+        if (hasOption3(node)) {
+            Rectangle o3 = option3Btn(dx, dy);
+            shapes.setColor(0.4f, 0.75f, 1f, 1f);
+            shapes.rect(o3.x, o3.y, o3.width, o3.height);
+        }
         Rectangle o2 = option2Btn(dx, dy);
         shapes.setColor(Color.GRAY);
         shapes.rect(o2.x, o2.y, o2.width, o2.height);
@@ -570,6 +575,12 @@ public class OverworldScreen implements Screen {
         font.setColor(0.5f, 1f, 0.6f, 1f);
         font.draw(batch, encounterOption1(node),
             o1.x + 8, o1.y + o1.height - 8, o1.width - 16, Align.left, true);
+        if (hasOption3(node)) {
+            Rectangle o3 = option3Btn(dx, dy);
+            font.setColor(0.55f, 0.8f, 1f, 1f);
+            font.draw(batch, encounterOption3(node),
+                o3.x + 8, o3.y + o3.height - 8, o3.width - 16, Align.left, true);
+        }
         font.setColor(Color.LIGHT_GRAY);
         font.draw(batch, encounterOption2(node),
             o2.x + 8, o2.y + o2.height - 8, o2.width - 16, Align.left, true);
@@ -578,11 +589,46 @@ public class OverworldScreen implements Screen {
     }
 
     private Rectangle option1Btn(float dx, float dy) {
-        return new Rectangle(dx + 10f, dy + 46f, DIALOG_W - 20f, 48f);
+        return new Rectangle(dx + 10f, dy + 88f, DIALOG_W - 20f, 44f);
+    }
+
+    private Rectangle option3Btn(float dx, float dy) {
+        return new Rectangle(dx + 10f, dy + 46f, DIALOG_W - 20f, 36f);
     }
 
     private Rectangle option2Btn(float dx, float dy) {
         return new Rectangle(dx + 10f, dy + 8f, DIALOG_W - 20f, 32f);
+    }
+
+    /** The skill that could shortcut this encounter, when someone is good enough at it. */
+    private Skill option3Skill(Node node) {
+        if (!typeKnown(node) || node.completed) return null;
+        if (node.type == Node.Type.COMBAT) return Skill.GUNNERY;
+        if (node.type == Node.Type.LOOT) return Skill.LOGISTICS;
+        return null;
+    }
+
+    /** Best living crew bonus for the skill; the third option needs at least +2. */
+    private int bestBonus(Skill skill) {
+        int best = 0;
+        for (CrewMember c : state.crew) {
+            if (!c.isDead()) best = Math.max(best, c.bonusFor(skill));
+        }
+        return best;
+    }
+
+    private boolean hasOption3(Node node) {
+        Skill s = option3Skill(node);
+        return s != null && bestBonus(s) >= 2;
+    }
+
+    private String encounterOption3(Node node) {
+        Skill s = option3Skill(node);
+        int bonus = bestBonus(s);
+        if (node.type == Node.Type.COMBAT) {
+            return "3. Long-range barrage (GUNNERY +" + bonus + "): drive them off for salvage.";
+        }
+        return "3. Remote drone sweep (LOGISTICS +" + bonus + "): strip the cluster from here.";
     }
 
     private Rectangle rosterRow(int i) {
@@ -651,6 +697,21 @@ public class OverworldScreen implements Screen {
 
             if (option1Btn(dx, dy).contains(mouse.x, mouse.y)) {
                 return enterNode(selectedNode); // engage the encounter
+            }
+            if (hasOption3(selectedNode) && option3Btn(dx, dy).contains(mouse.x, mouse.y)) {
+                // the specialist shortcut: resolves the node without an instance
+                Node node = selectedNode;
+                selectedNode = null;
+                if (!travelTo(node)) return false;
+                int bonus = bestBonus(option3Skill(node));
+                int reward = (node.type == Node.Type.COMBAT ? 50 : 70) + 25 * bonus;
+                state.credits += reward;
+                node.completed = true;
+                state.instancesCompleted++;
+                toast = (node.type == Node.Type.COMBAT ? "HOSTILES DRIVEN OFF" : "CLUSTER STRIPPED")
+                    + " — +" + reward + " CR";
+                toastT = 3f;
+                return false;
             }
             if (option2Btn(dx, dy).contains(mouse.x, mouse.y)) {
                 // ignore the encounter: still travel to the node, just don't enter the instance
