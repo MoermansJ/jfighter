@@ -197,12 +197,13 @@ public class SpaceEffects {
         return autopilotActive;
     }
 
-    /** Turns the ship toward the waypoint with RCS torque; the throttle stays under manual control. */
+    /** Turns the ship toward the waypoint with RCS torque; the throttle stays under manual control.
+     *  Always paths inside the borders — the autopilot never steers for a wrap-around shortcut. */
     private void steerAutopilot(Player player, float delta) {
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
-        float dx = wrapDelta(autopilotX - cx, worldW);
-        float dy = wrapDelta(autopilotY - cy, worldH);
+        float dx = autopilotX - cx;
+        float dy = autopilotY - cy;
         if (dx * dx + dy * dy < AUTOPILOT_ARRIVE_RADIUS * AUTOPILOT_ARRIVE_RADIUS) {
             clearAutopilot();
             return;
@@ -218,14 +219,6 @@ public class SpaceEffects {
             player.rotateRight(delta);
             spawnRcsPuff(player, -1);
         }
-    }
-
-    /** Shortest offset to a target in a wrapping world. */
-    private static float wrapDelta(float d, float span) {
-        d %= span;
-        if (d > span / 2f) d -= span;
-        if (d < -span / 2f) d += span;
-        return d;
     }
 
     /** Waypoint marker: pulsing cyan ring + crosshair. World coords; call inside the world shape pass. */
