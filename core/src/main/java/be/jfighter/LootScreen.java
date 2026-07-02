@@ -59,8 +59,13 @@ public class LootScreen implements Screen {
     private static final int PINCER_CAPACITY = 3;
     private static final float PINCER_RANGE = 36f; // capture reach around the claw centre
     private static final float PINCER_CLAW_FORWARD = 39f; // claw centre this far ahead of the ship centre
-    // held slots in ship-local coords (x right, y forward): a tight clump inside the jaws
-    private static final float[][] PINCER_SLOTS = {{0, 34}, {-17, 57}, {17, 57}};
+    // cargo hold: a circular bay between the jaws where downscaled crates rattle around
+    private static final float HOLD_CENTER_FWD = 44f;  // hold centre ahead of the ship centre
+    private static final float HOLD_RADIUS = 26f;      // big enough for three downscaled crates
+    private static final float HELD_SCALE = 0.7f;      // caught cargo shrinks to fit the hold
+    private static final float HOLD_RESTITUTION = 0.75f;
+    private static final float HOLD_DAMPING = 0.5f;    // per-second velocity decay inside the hold
+    private static final float HOLD_SLOSH = 0.6f;      // how much ship acceleration stirs the cargo
     private static final float EJECT_SPEED = 140f;     // forward speed of the ejected bundle
     private static final float EJECT_COOLDOWN = 1.2f;  // capture pause after ejecting so the bundle gets away
     private static final float EJECT_GLIDE_TIME = 4f;  // seconds of reduced drag so the bundle keeps its momentum
@@ -126,6 +131,7 @@ public class LootScreen implements Screen {
     private final Array<Loot> pincerHeld = new Array<>();
     private float grabPulse;     // jaw-snap animation, spikes on capture
     private float ejectCooldown; // capture disabled briefly after an eject
+    private float prevShipVx, prevShipVy; // for hold slosh from ship acceleration
     private boolean showControls;
 
     private static final String[][] CONTROLS = {
@@ -189,6 +195,7 @@ public class LootScreen implements Screen {
     private static class Loot {
         float x, y, vx, vy, rotation, spin;
         float glideT; // remaining low-drag time after an eject
+        float holdX, holdY, holdVx, holdVy; // hold-local state while trapped in the pincer
         final float lightPhase = MathUtils.random(MathUtils.PI2);
 
         Loot(float x, float y, float vx, float vy, float spin) {
@@ -342,26 +349,59 @@ public class LootScreen implements Screen {
         return pincerHeld.contains(crate, true);
     }
 
-    /** Cargo drifting near the open jaws is captured automatically (paused briefly after an eject). */
+    /** Free cargo drifting near the open jaws is captured automatically (netted cargo is left alone). */
     private void autoCapture() {
         if (ejectCooldown > 0f || pincerHeld.size >= PINCER_CAPACITY) return;
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
-        float clawX = cx - MathUtils.sinDeg(player.rotation) * PINCER_CLAW_FORWARD;
-        float clawY = cy + MathUtils.cosDeg(player.rotation) * PINCER_CLAW_FORWARD;
+        float fx = -MathUtils.sinDeg(player.rotation);
+        float fy = MathUtils.cosDeg(player.rotation);
+        float clawX = cx + fx * PINCER_CLAW_FORWARD;
+        float clawY = cy + fy * PINCER_CLAW_FORWARD;
         for (Loot crate : lootItems) {
             if (pincerHeld.size >= PINCER_CAPACITY) break;
-            if (isHeld(crate)) continue;
+            if (isHeld(crate) || isNetted(crate)) continue;
             float dx = crate.x - clawX;
             float dy = crate.y - clawY;
             if (dx * dx + dy * dy < PINCER_RANGE * PINCER_RANGE) {
-                detachNetPoints(crate);
-                removeFromCatches(crate);
-                pincerHeld.add(crate);
+                stowInHold(crate, cx, cy, fx, fy);
                 grabPulse = 1f;
                 game.sfx.playThud(0.3f);
             }
         }
+    }
+
+    /** Cargo counts as netted when it sits in a sealed ring's catch or a strand is stuck to it. */
+    private boolean isNetted(Loot crate) {
+        for (Net net : allNets()) {
+            if (net.closed && net.contents.contains(crate, true)) return true;
+            for (NetPoint p : net.pts) {
+                if (p.attached == crate) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Enters the hold keeping its relative motion, so it rattles around in there. */
+    private void stowInHold(Loot crate, float cx, float cy, float fx, float fy) {
+        float rx = fy, ry = -fx;
+        float hx = cx + fx * HOLD_CENTER_FWD;
+        float hy = cy + fy * HOLD_CENTER_FWD;
+        float dx = crate.x - hx;
+        float dy = crate.y - hy;
+        crate.holdX = dx * rx + dy * ry;
+        crate.holdY = dx * fx + dy * fy;
+        float maxR = HOLD_RADIUS - CARGO_RADIUS * HELD_SCALE;
+        float d = (float) Math.sqrt(crate.holdX * crate.holdX + crate.holdY * crate.holdY);
+        if (d > maxR && d > 0.001f) {
+            crate.holdX *= maxR / d;
+            crate.holdY *= maxR / d;
+        }
+        float dvx = crate.vx - player.vx;
+        float dvy = crate.vy - player.vy;
+        crate.holdVx = dvx * rx + dvy * ry;
+        crate.holdVy = dvx * fx + dvy * fy;
+        pincerHeld.add(crate);
     }
 
     /**
@@ -436,19 +476,6 @@ public class LootScreen implements Screen {
         }
     }
 
-    /** Any net points stuck to the crate let go (the pincer rips it free). */
-    private void detachNetPoints(Loot crate) {
-        for (Net net : allNets()) {
-            for (NetPoint p : net.pts) {
-                if (p.attached == crate) {
-                    p.attached = null;
-                    p.vx = crate.vx;
-                    p.vy = crate.vy;
-                }
-            }
-        }
-    }
-
     /** F: the stow is ejected forward at moderate speed, bound together in a sealed net. */
     private void ejectPincer() {
         if (pincerHeld.size == 0) return;
@@ -493,7 +520,10 @@ public class LootScreen implements Screen {
         freeNets.add(net);
     }
 
-    /** Held crates ride in the jaws: pinned to their slots, matching the ship's velocity. */
+    /**
+     * Held crates rattle around the circular hold between the jaws: they bounce off
+     * the hold wall and each other, and ship acceleration sloshes them about.
+     */
     private void updatePincer(float delta) {
         if (ejectCooldown > 0f) ejectCooldown -= delta;
         autoCapture();
@@ -503,14 +533,75 @@ public class LootScreen implements Screen {
         float fy = MathUtils.cosDeg(player.rotation);
         float rx = fy; // right = forward rotated -90°
         float ry = -fx;
+        // ship acceleration this frame stirs the hold (expressed in hold-local coords)
+        float ax = player.vx - prevShipVx;
+        float ay = player.vy - prevShipVy;
+        prevShipVx = player.vx;
+        prevShipVy = player.vy;
+        float sloshX = -(ax * rx + ay * ry) * HOLD_SLOSH;
+        float sloshY = -(ax * fx + ay * fy) * HOLD_SLOSH;
+
+        float heldR = CARGO_RADIUS * HELD_SCALE;
+        float maxR = HOLD_RADIUS - heldR;
+        float damping = (float) Math.exp(-HOLD_DAMPING * delta);
+        for (Loot crate : pincerHeld) {
+            crate.holdVx = crate.holdVx * damping + sloshX;
+            crate.holdVy = crate.holdVy * damping + sloshY;
+            crate.holdX += crate.holdVx * delta;
+            crate.holdY += crate.holdVy * delta;
+        }
+        // held-held bumps: separate and exchange normal velocity
         for (int i = 0; i < pincerHeld.size; i++) {
-            Loot crate = pincerHeld.get(i);
-            float sx = PINCER_SLOTS[i][0];
-            float sy = PINCER_SLOTS[i][1];
-            crate.x = cx + rx * sx + fx * sy;
-            crate.y = cy + ry * sx + fy * sy;
+            for (int j = i + 1; j < pincerHeld.size; j++) {
+                Loot a = pincerHeld.get(i);
+                Loot b = pincerHeld.get(j);
+                float dx = b.holdX - a.holdX;
+                float dy = b.holdY - a.holdY;
+                float d2 = dx * dx + dy * dy;
+                float minDist = 2 * heldR;
+                if (d2 >= minDist * minDist || d2 == 0f) continue;
+                float d = (float) Math.sqrt(d2);
+                float nx = dx / d;
+                float ny = dy / d;
+                float overlap = (minDist - d) / 2f;
+                a.holdX -= nx * overlap;
+                a.holdY -= ny * overlap;
+                b.holdX += nx * overlap;
+                b.holdY += ny * overlap;
+                float rvn = (a.holdVx - b.holdVx) * nx + (a.holdVy - b.holdVy) * ny;
+                if (rvn > 0f) {
+                    float impulse = (1f + HOLD_RESTITUTION) * rvn / 2f;
+                    a.holdVx -= impulse * nx;
+                    a.holdVy -= impulse * ny;
+                    b.holdVx += impulse * nx;
+                    b.holdVy += impulse * ny;
+                }
+            }
+        }
+        // hold wall: bounce back inside
+        for (Loot crate : pincerHeld) {
+            float d = (float) Math.sqrt(crate.holdX * crate.holdX + crate.holdY * crate.holdY);
+            if (d > maxR && d > 0.001f) {
+                float nx = crate.holdX / d;
+                float ny = crate.holdY / d;
+                crate.holdX = nx * maxR;
+                crate.holdY = ny * maxR;
+                float vn = crate.holdVx * nx + crate.holdVy * ny;
+                if (vn > 0f) {
+                    crate.holdVx -= (1f + HOLD_RESTITUTION) * vn * nx;
+                    crate.holdVy -= (1f + HOLD_RESTITUTION) * vn * ny;
+                }
+            }
+        }
+        // place in the world, riding with the ship
+        float hx = cx + fx * HOLD_CENTER_FWD;
+        float hy = cy + fy * HOLD_CENTER_FWD;
+        for (Loot crate : pincerHeld) {
+            crate.x = hx + rx * crate.holdX + fx * crate.holdY;
+            crate.y = hy + ry * crate.holdX + fy * crate.holdY;
             crate.vx = player.vx;
             crate.vy = player.vy;
+            crate.rotation += crate.spin * delta; // keeps tumbling in the hold
         }
         // jaw animation: base pinch from a full hold plus a snap pulse on capture/eject
         if (grabPulse > 0f) grabPulse = Math.max(0f, grabPulse - GRAB_PULSE_DECAY * delta);
@@ -1408,6 +1499,7 @@ public class LootScreen implements Screen {
         shapes.setColor(Color.YELLOW);
         for (Loot loot : lootItems) {
             transform.setToTranslation(loot.x, loot.y, 0).rotate(0, 0, 1, loot.rotation);
+            if (isHeld(loot)) transform.scale(HELD_SCALE, HELD_SCALE, 1f); // shrunk to fit the hold
             shapes.setTransformMatrix(transform);
             // crate: square with an X through it
             shapes.rect(-8, -8, 16, 16);
@@ -1421,10 +1513,11 @@ public class LootScreen implements Screen {
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (Loot loot : lootItems) {
             float pulse = 0.2f + 0.8f * (0.5f + 0.5f * MathUtils.sin(effects.time() * 2.5f + loot.lightPhase));
+            float s = isHeld(loot) ? 8 * HELD_SCALE : 8;
             float cos = MathUtils.cosDeg(loot.rotation);
             float sin = MathUtils.sinDeg(loot.rotation);
-            float lx = loot.x + 8 * cos - 8 * sin;
-            float ly = loot.y + 8 * sin + 8 * cos;
+            float lx = loot.x + s * cos - s * sin;
+            float ly = loot.y + s * sin + s * cos;
             shapes.setColor(pulse, 0.75f * pulse, 0.15f * pulse, 1f);
             shapes.circle(lx, ly, 1.6f, 6);
         }
