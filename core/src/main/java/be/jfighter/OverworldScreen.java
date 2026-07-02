@@ -140,8 +140,8 @@ public class OverworldScreen implements Screen {
         batch.setProjectionMatrix(viewport.getCamera().combined);
         batch.begin();
         font.getData().setScale(1f);
-        font.setColor(Color.WHITE);
         for (Node n : state.map.allNodes()) {
+            font.setColor(n.completed ? SPENT_NODE : Color.WHITE);
             String label = n.id == state.map.lastNodeId ? "END" : typeKnown(n) ? n.type.name() : "???";
             GlyphLayout gl = new GlyphLayout(font, label);
             font.draw(batch, label, n.x - gl.width / 2f, n.y - NODE_RADIUS - 6f);
@@ -573,6 +573,7 @@ public class OverworldScreen implements Screen {
     }
 
     private Color nodeColor(Node n) {
+        if (n.completed) return SPENT_NODE; // visited and stripped: reads as spent
         if (!typeKnown(n)) return UNKNOWN_NODE; // don't leak the type through the colour
         switch (n.type) {
             case HOME:   return Color.GRAY;
@@ -584,6 +585,7 @@ public class OverworldScreen implements Screen {
     }
 
     private static final Color UNKNOWN_NODE = new Color(0.55f, 0.6f, 0.62f, 1f);
+    private static final Color SPENT_NODE = new Color(0.3f, 0.32f, 0.33f, 1f);
 
     @Override
     public void resize(int width, int height) {
