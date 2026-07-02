@@ -32,6 +32,13 @@ public class GameScreen implements Screen {
     private static final int ENEMY_HP = 3;
     private static final int CREDITS_PER_KILL = 40;
 
+    // ship integrity: shields absorb first and recharge after a quiet spell
+    private static final float SHIP_HIT_RADIUS = 18f;
+    private static final float HIT_DAMAGE = 10f;
+    private static final float SHIELD_RECHARGE_DELAY = 3f; // seconds without a hit
+    private static final float SHIELD_RECHARGE_RATE = 8f;  // points per second
+    private static final float DEFEAT_DELAY = 1.6f;        // linger on the wreck before the summary
+
     private final JFighter game;
     private final GameState state;
 
@@ -45,6 +52,9 @@ public class GameScreen implements Screen {
     private final Array<Enemy> enemies = new Array<>();
     // manual dev control: -1 = the fighter, otherwise an enemy index (no AI yet — TAB hands over the stick)
     private int controlled = -1;
+    private float shieldSince;   // time since the last hit (drives recharge)
+    private float shieldFlash;   // shimmer ring on shield hits
+    private float defeatT = -1f; // >= 0 once the fighter is destroyed
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
     private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
@@ -138,9 +148,22 @@ public class GameScreen implements Screen {
 
     @Override
     public void render(float delta) {
+        if (defeatT >= 0) {
+            defeatT += delta;
+            if (defeatT >= DEFEAT_DELAY) {
+                game.currentRun = null; // run lost
+                game.setScreen(new SummaryScreen(game, state, false));
+                return;
+            }
+        }
         // stop rendering once the screen switches: hide() disposed our resources
-        if (handleInput(delta)) return;
-        effects.handleFlightInput(controlledBody(), delta);
+        if (defeatT < 0 && handleInput(delta)) return;
+        if (defeatT < 0) effects.handleFlightInput(controlledBody(), delta);
+        shieldSince += delta;
+        if (shieldSince >= SHIELD_RECHARGE_DELAY && state.shield < state.maxShield) {
+            state.shield = Math.min(state.maxShield, state.shield + SHIELD_RECHARGE_RATE * delta);
+        }
+        if (shieldFlash > 0) shieldFlash -= delta;
         player.updatePosition(delta);
         bounceOffWalls(player);
         for (Enemy e : enemies) {
@@ -163,7 +186,17 @@ public class GameScreen implements Screen {
         effects.renderAutopilot(shapeRenderer);
         drawEnemies();
         drawEffects();
-        effects.renderShip(shapeRenderer, player);
+        if (defeatT < 0) {
+            effects.renderShip(shapeRenderer, player);
+            if (shieldFlash > 0) {
+                shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+                float a = shieldFlash / 0.4f;
+                shapeRenderer.setColor(0.4f * a, 0.8f * a, a, 1f);
+                shapeRenderer.circle(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
+                    26f + 6f * (1f - a), 24);
+                shapeRenderer.end();
+            }
+        }
 
         // projectile capsules (filled mode, per-projectile transform)
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
@@ -184,8 +217,31 @@ public class GameScreen implements Screen {
         shapeRenderer.setProjectionMatrix(hudMatrix);
         effects.renderThrottleHud(shapeRenderer, player);
 
+        // hull + shield bars
+        float barW = 120f;
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0.22f, 0.08f, 0.08f, 1f);
+        shapeRenderer.rect(10, HUD_H - 86, barW, 7);
+        shapeRenderer.setColor(0.85f, 0.3f, 0.25f, 1f);
+        shapeRenderer.rect(10, HUD_H - 86, barW * state.hull / state.maxHull, 7);
+        shapeRenderer.setColor(0.05f, 0.1f, 0.18f, 1f);
+        shapeRenderer.rect(10, HUD_H - 98, barW, 7);
+        shapeRenderer.setColor(0.35f, 0.7f, 1f, 1f);
+        shapeRenderer.rect(10, HUD_H - 98, barW * state.shield / state.maxShield, 7);
+        shapeRenderer.end();
+
         batch.setProjectionMatrix(hudMatrix);
         batch.begin();
+        Fonts.scale(font, 0.9f);
+        font.setColor(Color.GRAY);
+        font.draw(batch, "HULL", 136, HUD_H - 78);
+        font.draw(batch, "SHLD", 136, HUD_H - 90);
+        Fonts.scale(font, 1.4f);
+        if (defeatT >= 0) {
+            font.setColor(Color.RED);
+            GlyphLayout lost = new GlyphLayout(font, "SHIP LOST");
+            font.draw(batch, lost, (HUD_W - lost.width) / 2f, HUD_H / 2f + 40);
+        }
         font.setColor(Color.YELLOW);
         font.draw(batch, "Credits: " + state.credits, 10, HUD_H - 10);
         font.setColor(enemies.size > 0 ? Color.RED : Color.GRAY);
@@ -272,6 +328,16 @@ public class GameScreen implements Screen {
                 projectiles.removeIndex(i);
                 continue;
             }
+            // the fighter takes hits from anything it didn't fire itself
+            if (defeatT < 0 && p.shooter != player) {
+                float pdx = p.x - (player.x + Player.WIDTH / 2f);
+                float pdy = p.y - (player.y + Player.HEIGHT / 2f);
+                if (pdx * pdx + pdy * pdy < SHIP_HIT_RADIUS * SHIP_HIT_RADIUS) {
+                    projectiles.removeIndex(i);
+                    damagePlayer(HIT_DAMAGE);
+                    continue;
+                }
+            }
             for (int j = enemies.size - 1; j >= 0; j--) {
                 Enemy e = enemies.get(j);
                 if (p.shooter == e.body) continue; // no self-hits
@@ -287,6 +353,29 @@ public class GameScreen implements Screen {
                     break;
                 }
             }
+        }
+    }
+
+    /** Shields soak damage first (with spill-over); 0 hull destroys the fighter and ends the run. */
+    private void damagePlayer(float dmg) {
+        shieldSince = 0f;
+        if (state.shield > 0) {
+            float soaked = Math.min(state.shield, dmg);
+            state.shield -= soaked;
+            dmg -= soaked;
+            shieldFlash = 0.4f;
+        }
+        if (dmg > 0) {
+            state.hull -= dmg;
+            game.sfx.playThud(0.4f);
+            if (state.hull <= 0) {
+                state.hull = 0;
+                spawnDeathEffect(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
+                    player.vx, player.vy);
+                defeatT = 0f;
+            }
+        } else {
+            game.sfx.playThud(0.2f);
         }
     }
 

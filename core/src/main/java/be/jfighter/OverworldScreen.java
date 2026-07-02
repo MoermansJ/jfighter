@@ -678,6 +678,11 @@ public class OverworldScreen implements Screen {
         state.fuel -= TRAVEL_FUEL_COST;
         if (!node.visited) state.nodesVisited++;
         state.map.setCurrentNode(node.id);
+        if (node.type == Node.Type.HOME) {
+            // home dock: full repairs
+            state.hull = state.maxHull;
+            state.shield = state.maxShield;
+        }
         return true;
     }
 

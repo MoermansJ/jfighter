@@ -16,6 +16,11 @@ public class GameState {
     public float fuel;
     public float maxFuel;
     public int sector = 1;
+    // ship integrity: shields absorb before hull; 0 hull = run lost
+    public float hull = 100f;
+    public float maxHull = 100f;
+    public float shield = 50f;
+    public float maxShield = 50f;
     // run stats for the end-of-run summary
     public int nodesVisited;
     public int instancesCompleted;
