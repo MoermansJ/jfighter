@@ -272,6 +272,18 @@ public class GameScreen implements Screen {
         drawEffects();
         drawThreatMarkers();
         drawCritToasts();
+        // active mount barrel: shows where the turret is actually pointing
+        if (defeatT < 0 && !weapons.isEmpty()) {
+            Weapon aw = weapons.get(activeWeapon);
+            float barrelRot = player.rotation + (aw.type.turretArc > 0 ? aw.turret : 0f);
+            float bx = player.x + Player.WIDTH / 2f;
+            float by = player.y + Player.HEIGHT / 2f;
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+            shapeRenderer.setColor(0.6f, 0.65f, 0.7f, 1f);
+            shapeRenderer.line(bx - MathUtils.sinDeg(barrelRot) * 14f, by + MathUtils.cosDeg(barrelRot) * 14f,
+                bx - MathUtils.sinDeg(barrelRot) * 30f, by + MathUtils.cosDeg(barrelRot) * 30f);
+            shapeRenderer.end();
+        }
         if (defeatT < 0) {
             effects.renderShip(shapeRenderer, player);
             float hullFrac = state.hull / state.maxHull;
@@ -667,13 +679,27 @@ public class GameScreen implements Screen {
         Weapon w = weapons.get(activeWeapon);
         Player body = controlledBody();
         boolean held = Gdx.input.isKeyPressed(Input.Keys.SPACE);
-        float fx = -MathUtils.sinDeg(body.rotation);
-        float fy = MathUtils.cosDeg(body.rotation);
+        // turreted mounts track the cursor within their arc; fixed mounts stay on the nose
+        float fireRotation = body.rotation;
+        if (w.type.turretArc > 0) {
+            Vector2 cursor = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+            float cdx = cursor.x - (body.x + Player.WIDTH / 2f);
+            float cdy = cursor.y - (body.y + Player.HEIGHT / 2f);
+            float desired = MathUtils.atan2(-cdx, cdy) * MathUtils.radiansToDegrees;
+            float offset = ((desired - body.rotation) % 360f + 540f) % 360f - 180f;
+            offset = MathUtils.clamp(offset, -w.type.turretArc, w.type.turretArc);
+            float slew = 240f * delta; // mount turn-rate limit
+            w.turret += MathUtils.clamp(offset - w.turret, -slew, slew);
+            w.turret = MathUtils.clamp(w.turret, -w.type.turretArc, w.type.turretArc);
+            fireRotation = body.rotation + w.turret;
+        }
+        float fx = -MathUtils.sinDeg(fireRotation);
+        float fy = MathUtils.cosDeg(fireRotation);
         float nx = body.x + Player.WIDTH / 2f + fx * 20f;
         float ny = body.y + Player.HEIGHT / 2f + fy * 20f;
         switch (w.type) {
             case BEAM_LASER:
-                if (held) fireBeam(body, nx, ny, body.rotation, w.type.damage * delta, true);
+                if (held) fireBeam(body, nx, ny, fireRotation, w.type.damage * delta, true);
                 break;
             case BURST_LASER:
                 if (held && w.ready()) {
@@ -683,7 +709,7 @@ public class GameScreen implements Screen {
                 if (w.burstLeft > 0 && w.burstTimer <= 0) {
                     w.burstLeft--;
                     w.burstTimer = 0.07f;
-                    fireBeam(body, nx, ny, body.rotation + MathUtils.random(-2f, 2f), w.type.damage, false);
+                    fireBeam(body, nx, ny, fireRotation + MathUtils.random(-2f, 2f), w.type.damage, false);
                     game.sfx.playLaser();
                 }
                 break;
@@ -692,7 +718,7 @@ public class GameScreen implements Screen {
                     w.fire();
                     // gunnery crew shortens the cycle
                     w.cooldown = w.type.reload / (1f + 0.08f * state.roomStats[4]);
-                    Projectile p = new Projectile(nx, ny, body.rotation, body,
+                    Projectile p = new Projectile(nx, ny, fireRotation, body,
                         w.type.speed, w.type.damage,
                         w.type.isRocket() ? 260f : 0f,
                         w.type == Weapon.Type.HOMING_ROCKET ? 160f : 0f,
