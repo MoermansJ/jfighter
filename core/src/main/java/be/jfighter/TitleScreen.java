@@ -14,7 +14,8 @@ import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 
 public class TitleScreen implements Screen {
-    private static final Rectangle BUTTON = new Rectangle(220, 80, 200, 40);
+    private static final Rectangle BUTTON =
+        new Rectangle((JFighter.WORLD_WIDTH - 200) / 2f, 90, 200, 40);
 
     private final JFighter game;
     private SpriteBatch batch;
@@ -30,7 +31,7 @@ public class TitleScreen implements Screen {
     @Override
     public void show() {
         batch = new SpriteBatch();
-        viewport = new FitViewport(640, 480);
+        viewport = new FitViewport(JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         background = new Texture(Gdx.files.internal("jfightertitle640.png"));
         font = new BitmapFont();
         font.getData().setScale(2f);
@@ -56,7 +57,8 @@ public class TitleScreen implements Screen {
         }
 
         batch.begin();
-        batch.draw(background, 0, 0, 640, 480);
+        // 4:3 title art stretched over the 16:9 world until it's re-exported
+        batch.draw(background, 0, 0, JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         batch.end();
 
         batch.begin();

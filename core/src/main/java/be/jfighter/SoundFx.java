@@ -1,0 +1,171 @@
+package be.jfighter;
+
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.audio.Sound;
+import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.math.MathUtils;
+
+/**
+ * Procedurally synthesised sound effects: a looping thruster rumble, a net-catch
+ * twang, and a muffled cargo thud. WAV files are generated on first run into
+ * ~/.jfighter/sfx/ and loaded from there. If anything fails (no audio device,
+ * unwritable disk) the game keeps running silently.
+ */
+public class SoundFx {
+    public static final float THRUSTER_VOLUME = 0.5f; // at full thrust
+    public static final float CATCH_VOLUME = 0.7f;
+    public static final float THUD_MAX_VOLUME = 0.9f;
+
+    private static final int RATE = 22050;
+
+    private Sound thruster;
+    private Sound twang;
+    private Sound thud;
+    private long thrusterId = -1;
+    private boolean ready;
+
+    public SoundFx() {
+        try {
+            FileHandle dir = Gdx.files.external(".jfighter/sfx/");
+            thruster = load(dir.child("thruster.wav"), synthThruster());
+            twang = load(dir.child("twang.wav"), synthTwang());
+            thud = load(dir.child("thud.wav"), synthThud());
+            ready = true;
+        } catch (Exception e) {
+            Gdx.app.error("SoundFx", "audio disabled: " + e.getMessage());
+        }
+    }
+
+    private static Sound load(FileHandle file, float[] samples) {
+        if (!file.exists()) writeWav(file, samples);
+        return Gdx.audio.newSound(file);
+    }
+
+    public void startThruster() {
+        if (ready && thrusterId == -1) thrusterId = thruster.loop(0f);
+    }
+
+    public void setThrusterLevel(float level) {
+        if (ready && thrusterId != -1) thruster.setVolume(thrusterId, level * THRUSTER_VOLUME);
+    }
+
+    public void stopThruster() {
+        if (ready && thrusterId != -1) {
+            thruster.stop(thrusterId);
+            thrusterId = -1;
+        }
+    }
+
+    public void playCatch() {
+        if (ready) twang.play(CATCH_VOLUME);
+    }
+
+    /** strength 0..1 scales the thud volume. */
+    public void playThud(float strength) {
+        if (ready) thud.play(MathUtils.clamp(strength, 0.15f, THUD_MAX_VOLUME));
+    }
+
+    public void dispose() {
+        if (!ready) return;
+        stopThruster();
+        thruster.dispose();
+        twang.dispose();
+        thud.dispose();
+    }
+
+    // --- synthesis ---
+
+    /** 1s loop of low-passed noise: an engine rumble with no tonal seam. */
+    private static float[] synthThruster() {
+        int n = RATE;
+        float[] s = new float[n];
+        float y = 0f;
+        for (int i = 0; i < n; i++) {
+            float white = MathUtils.random(-1f, 1f);
+            y += 0.08f * (white - y); // low-pass: keeps only the low rumble
+            s[i] = y;
+        }
+        // crossfade the tail into the head so the loop point doesn't click
+        int f = RATE / 20;
+        for (int i = 0; i < f; i++) {
+            float t = i / (float) f;
+            s[n - f + i] = s[n - f + i] * (1f - t) + s[i] * t;
+        }
+        return normalise(s, 0.9f);
+    }
+
+    /** Descending plucked tone for a successful net catch. */
+    private static float[] synthTwang() {
+        int n = (int) (RATE * 0.45f);
+        float[] s = new float[n];
+        double phase = 0;
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            double freq = 320 * Math.exp(-t * 2.2);
+            phase += 2 * Math.PI * freq / RATE;
+            s[i] = (float) ((Math.sin(phase) + 0.4 * Math.sin(2 * phase)) * Math.exp(-t * 8));
+        }
+        return normalise(s, 0.8f);
+    }
+
+    /** Low muffled boom for bumping heavy cargo — space thud, all bass. */
+    private static float[] synthThud() {
+        int n = (int) (RATE * 0.35f);
+        float[] s = new float[n];
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            float body = (float) (Math.sin(2 * Math.PI * 64 * t + 2 * Math.exp(-t * 30)) * Math.exp(-t * 12));
+            float knock = MathUtils.random(-1f, 1f) * (float) Math.exp(-t * 120) * 0.25f;
+            s[i] = body + knock;
+        }
+        return normalise(s, 0.9f);
+    }
+
+    private static float[] normalise(float[] s, float peak) {
+        float max = 0f;
+        for (float v : s) max = Math.max(max, Math.abs(v));
+        if (max == 0f) return s;
+        for (int i = 0; i < s.length; i++) s[i] = s[i] / max * peak;
+        return s;
+    }
+
+    /** Minimal 16-bit mono PCM WAV writer. */
+    private static void writeWav(FileHandle file, float[] samples) {
+        int dataLen = samples.length * 2;
+        byte[] b = new byte[44 + dataLen];
+        putAscii(b, 0, "RIFF");
+        putIntLE(b, 4, 36 + dataLen);
+        putAscii(b, 8, "WAVE");
+        putAscii(b, 12, "fmt ");
+        putIntLE(b, 16, 16);
+        putShortLE(b, 20, 1);  // PCM
+        putShortLE(b, 22, 1);  // mono
+        putIntLE(b, 24, RATE);
+        putIntLE(b, 28, RATE * 2);
+        putShortLE(b, 32, 2);  // block align
+        putShortLE(b, 34, 16); // bits per sample
+        putAscii(b, 36, "data");
+        putIntLE(b, 40, dataLen);
+        for (int i = 0; i < samples.length; i++) {
+            short v = (short) (MathUtils.clamp(samples[i], -1f, 1f) * Short.MAX_VALUE);
+            putShortLE(b, 44 + i * 2, v);
+        }
+        file.writeBytes(b, false);
+    }
+
+    private static void putAscii(byte[] b, int off, String s) {
+        for (int i = 0; i < s.length(); i++) b[off + i] = (byte) s.charAt(i);
+    }
+
+    private static void putIntLE(byte[] b, int off, int v) {
+        b[off] = (byte) v;
+        b[off + 1] = (byte) (v >> 8);
+        b[off + 2] = (byte) (v >> 16);
+        b[off + 3] = (byte) (v >> 24);
+    }
+
+    private static void putShortLE(byte[] b, int off, int v) {
+        b[off] = (byte) v;
+        b[off + 1] = (byte) (v >> 8);
+    }
+}
