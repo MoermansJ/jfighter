@@ -478,6 +478,77 @@ public class ShipDeckView {
         return ((v % span) + span) % span;
     }
 
+    /** Deck-space line on the floor (z = 0). */
+    private static void dl(ShapeRenderer shapes, float x1, float y1, float x2, float y2) {
+        shapes.line(px(x1), py(y1, 0), px(x2), py(y2, 0));
+    }
+
+    /** Deck-space circle on the floor: projected as a squashed ellipse. */
+    private static void deckCircle(ShapeRenderer shapes, float cx, float cy, float rad) {
+        shapes.ellipse(px(cx - rad), py(cy, 0) - rad * SQUASH * SCALE,
+            rad * 2 * SCALE, rad * 2 * SQUASH * SCALE);
+    }
+
+    /** Faint function glyph per room: gear, crate, chevron, bunk, crosshair, helm, cross, O2. */
+    private void drawRoomIcons(ShapeRenderer shapes) {
+        for (int i = 0; i < ROOMS.length; i++) {
+            float[] r = ROOMS[i];
+            float b = roomBrightness[i];
+            shapes.setColor(0.18f + 0.2f * b, 0.32f + 0.25f * b, 0.4f + 0.25f * b, 0.45f);
+            float cx = r[0] + r[2] / 2f;
+            float cy = r[1] + r[3] * 0.3f;
+            float s = 6f;
+            switch (i) {
+                case 0: // engine: gear
+                    deckCircle(shapes, cx, cy, s * 0.6f);
+                    dl(shapes, cx - s, cy, cx + s, cy);
+                    dl(shapes, cx, cy - s, cx, cy + s);
+                    break;
+                case 1: // cargo: crate with an X
+                    dl(shapes, cx - s, cy - s, cx + s, cy - s);
+                    dl(shapes, cx + s, cy - s, cx + s, cy + s);
+                    dl(shapes, cx + s, cy + s, cx - s, cy + s);
+                    dl(shapes, cx - s, cy + s, cx - s, cy - s);
+                    dl(shapes, cx - s, cy - s, cx + s, cy + s);
+                    dl(shapes, cx - s, cy + s, cx + s, cy - s);
+                    break;
+                case 2: // hangar: launch chevron
+                    dl(shapes, cx - s, cy - s, cx, cy + s);
+                    dl(shapes, cx, cy + s, cx + s, cy - s);
+                    break;
+                case 3: // quarters: bunk
+                    dl(shapes, cx - s, cy - s * 0.6f, cx + s, cy - s * 0.6f);
+                    dl(shapes, cx + s, cy - s * 0.6f, cx + s, cy + s * 0.6f);
+                    dl(shapes, cx + s, cy + s * 0.6f, cx - s, cy + s * 0.6f);
+                    dl(shapes, cx - s, cy + s * 0.6f, cx - s, cy - s * 0.6f);
+                    dl(shapes, cx - s * 0.4f, cy - s * 0.6f, cx - s * 0.4f, cy + s * 0.6f); // pillow
+                    break;
+                case 4: // weapons: crosshair
+                    deckCircle(shapes, cx, cy, s * 0.7f);
+                    dl(shapes, cx - s, cy, cx - s * 0.4f, cy);
+                    dl(shapes, cx + s * 0.4f, cy, cx + s, cy);
+                    dl(shapes, cx, cy - s, cx, cy - s * 0.4f);
+                    dl(shapes, cx, cy + s * 0.4f, cx, cy + s);
+                    break;
+                case 5: // bridge: helm wheel
+                    deckCircle(shapes, cx, cy, s * 0.8f);
+                    dl(shapes, cx - s * 0.6f, cy - s * 0.6f, cx + s * 0.6f, cy + s * 0.6f);
+                    dl(shapes, cx - s * 0.6f, cy + s * 0.6f, cx + s * 0.6f, cy - s * 0.6f);
+                    break;
+                case 6: // medbay: cross
+                    dl(shapes, cx - s, cy, cx + s, cy);
+                    dl(shapes, cx, cy - s, cx, cy + s);
+                    dl(shapes, cx - s * 0.5f, cy - s * 0.5f, cx - s * 0.5f, cy + s * 0.5f);
+                    dl(shapes, cx + s * 0.5f, cy - s * 0.5f, cx + s * 0.5f, cy + s * 0.5f);
+                    break;
+                default: // life support: O2 bubbles
+                    deckCircle(shapes, cx, cy - 2, s * 0.6f);
+                    deckCircle(shapes, cx + s * 0.6f, cy + s * 0.6f, s * 0.3f);
+                    break;
+            }
+        }
+    }
+
     private static float px(float x) {
         return OFFSET_X + x * SCALE;
     }
@@ -610,6 +681,8 @@ public class ShipDeckView {
             float wy = r[1] >= CORRIDOR_Y2 ? r[1] + r[3] - 3 : r[1] + 3;
             shapes.rect(px(cx - 8), py(wy, 4), 16 * SCALE, 3);
         }
+        // floor icons: a faint function glyph on each room's deck plating
+        drawRoomIcons(shapes);
         // parked fighters in the hangar
         shapes.setColor(0.2f + 0.3f * roomBrightness[2], 0.4f + 0.3f * roomBrightness[2], 0.5f + 0.3f * roomBrightness[2], 1f);
         drawChevron(shapes, 140, 92);
