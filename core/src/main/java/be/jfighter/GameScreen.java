@@ -14,8 +14,13 @@ import com.badlogic.gdx.utils.ScreenUtils;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 
 public class GameScreen implements Screen {
-    private static final float WORLD_WIDTH = JFighter.WORLD_WIDTH;
-    private static final float WORLD_HEIGHT = JFighter.WORLD_HEIGHT;
+    // combat arena matches the salvage arena, so both instances read as the same universe
+    // (same starfield/debris density and dressing via SpaceEffects area scaling)
+    private static final float ARENA_WIDTH = 1440f;
+    private static final float ARENA_HEIGHT = 810f;
+    // HUD renders through its own 960x540 ortho matrix, unaffected by camera zoom
+    private static final float HUD_W = JFighter.WORLD_WIDTH;
+    private static final float HUD_H = JFighter.WORLD_HEIGHT;
 
     private final JFighter game;
     private final GameState state;
@@ -41,10 +46,10 @@ public class GameScreen implements Screen {
         batch = new SpriteBatch();
         font = new BitmapFont();
         font.getData().setScale(1.4f);
-        viewport = new FitViewport(WORLD_WIDTH, WORLD_HEIGHT);
-        player = new Player(100f, (WORLD_HEIGHT - Player.HEIGHT) / 2f);
-        effects = new SpaceEffects(WORLD_WIDTH, WORLD_HEIGHT);
-        hudMatrix.setToOrtho2D(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        viewport = new FitViewport(ARENA_WIDTH, ARENA_HEIGHT);
+        player = new Player(120f, (ARENA_HEIGHT - Player.HEIGHT) / 2f);
+        effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
+        hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
     }
 
     @Override
@@ -53,7 +58,7 @@ public class GameScreen implements Screen {
         if (handleInput(delta)) return;
         effects.handleFlightInput(player, delta);
         player.updatePosition(delta);
-        player.wrapAround(WORLD_WIDTH, WORLD_HEIGHT);
+        player.wrapAround(ARENA_WIDTH, ARENA_HEIGHT);
         effects.update(player, delta);
         updateProjectiles(delta);
 
@@ -88,13 +93,13 @@ public class GameScreen implements Screen {
         batch.setProjectionMatrix(hudMatrix);
         batch.begin();
         font.setColor(Color.YELLOW);
-        font.draw(batch, "Credits: " + state.credits, 10, WORLD_HEIGHT - 10);
+        font.draw(batch, "Credits: " + state.credits, 10, HUD_H - 10);
         font.setColor(Color.WHITE);
         font.draw(batch, (player.throttle * 10) + "%",
-            WORLD_WIDTH - SpaceEffects.THROTTLE_HUD_MARGIN - SpaceEffects.THROTTLE_BLOCK_W,
+            HUD_W - SpaceEffects.THROTTLE_HUD_MARGIN - SpaceEffects.THROTTLE_BLOCK_W,
             SpaceEffects.THROTTLE_HUD_MARGIN
                 + Player.THROTTLE_STEPS * (SpaceEffects.THROTTLE_BLOCK_H + SpaceEffects.THROTTLE_BLOCK_GAP) + 20);
-        Dev.drawIndicator(batch, font, WORLD_WIDTH, WORLD_HEIGHT);
+        Dev.drawIndicator(batch, font, HUD_W, HUD_H);
         batch.end();
     }
 
@@ -124,7 +129,7 @@ public class GameScreen implements Screen {
         for (int i = projectiles.size - 1; i >= 0; i--) {
             Projectile p = projectiles.get(i);
             p.update(delta);
-            if (p.isOutOfBounds(WORLD_WIDTH, WORLD_HEIGHT)) {
+            if (p.isOutOfBounds(ARENA_WIDTH, ARENA_HEIGHT)) {
                 projectiles.removeIndex(i);
             }
         }
