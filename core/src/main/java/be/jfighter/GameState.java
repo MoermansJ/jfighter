@@ -40,6 +40,56 @@ public class GameState {
         map = new OverworldMap();
     }
 
+    // ship upgrades (#30): owned levels; effects read where the systems use their tuning
+    public final java.util.Map<ShipUpgrade, Integer> upgrades =
+        new java.util.EnumMap<>(ShipUpgrade.class);
+    // per-compartment tier (#34): 1 = stock; scales the room's station effect
+    public final int[] roomTier = {1, 1, 1, 1, 1, 1, 1, 1};
+
+    public int upgradeLevel(ShipUpgrade u) {
+        return upgrades.getOrDefault(u, 0);
+    }
+
+    public void buyUpgrade(ShipUpgrade u) {
+        upgrades.merge(u, 1, Integer::sum);
+        if (u == ShipUpgrade.HULL_PLATING) {
+            maxHull += 25;
+            hull += 25;
+        } else if (u == ShipUpgrade.SHIELD_CAPACITY) {
+            maxShield += 20;
+            shield += 20;
+        }
+    }
+
+    public float shieldRechargeBonus() {
+        return 3f * upgradeLevel(ShipUpgrade.SHIELD_RECHARGE);
+    }
+
+    public float netLengthMult() {
+        return 1f + 0.25f * upgradeLevel(ShipUpgrade.NET_LENGTH);
+    }
+
+    public int pincerCapacityBonus() {
+        return upgradeLevel(ShipUpgrade.PINCER_HOLD);
+    }
+
+    public float thrustMult() {
+        return 1f + 0.1f * upgradeLevel(ShipUpgrade.ENGINE_TUNING);
+    }
+
+    /** A new random deckhand, same generation rules as the starting crew. */
+    public void hireCrew() {
+        String surname = SURNAMES[MathUtils.random(SURNAMES.length - 1)];
+        String name = (char) ('A' + MathUtils.random(25)) + ". " + surname;
+        Skill[] skills = Skill.values();
+        Skill primary = skills[MathUtils.random(skills.length - 1)];
+        Skill secondary;
+        do {
+            secondary = skills[MathUtils.random(skills.length - 1)];
+        } while (secondary == primary);
+        crew.add(new CrewMember(name, primary, secondary));
+    }
+
     public int crewLost() {
         int lost = 0;
         for (CrewMember c : crew) {

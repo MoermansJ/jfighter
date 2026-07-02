@@ -282,7 +282,7 @@ public class ShipDeckView {
         if (holder == null) return 0;
         Sim sim = sims.get(holder);
         if (sim == null || roomAtDeck(sim.x, sim.y) != room) return 0; // still walking to the post
-        return 1 + holder.bonusFor(ROOM_SKILL[room]);
+        return state.roomTier[room] + holder.bonusFor(ROOM_SKILL[room]); // tier is the base (T1 = +1)
     }
 
     /** Where this crew member stands: the station holder at the console, the rest queue side by side. */
@@ -888,6 +888,7 @@ public class ShipDeckView {
             float[] r = ROOMS[i];
             float b = roomBrightness[i];
             String label = ROOM_NAMES[i];
+            if (state.roomTier[i] > 1) label += " T" + state.roomTier[i];
             int stat = roomStat(i);
             if (stat > 0) label += " +" + stat;
             if (stat > 0) Palette.set(font, 0.35f, 0.85f, 0.5f, 1f);

@@ -127,6 +127,7 @@ public class GameScreen implements Screen {
         Fonts.scale(font, 1.4f);
         viewport = new FitViewport(ARENA_WIDTH, ARENA_HEIGHT);
         player = new Player(120f, (ARENA_HEIGHT - Player.HEIGHT) / 2f);
+        player.thrustMult = state.thrustMult();
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
@@ -169,7 +170,8 @@ public class GameScreen implements Screen {
             if (defeatT < 0) effects.handleFlightInput(controlledBody(), delta);
             shieldSince += delta;
             if (shieldSince >= SHIELD_RECHARGE_DELAY && state.shield < state.maxShield) {
-                state.shield = Math.min(state.maxShield, state.shield + SHIELD_RECHARGE_RATE * delta);
+                state.shield = Math.min(state.maxShield,
+                    state.shield + (SHIELD_RECHARGE_RATE + state.shieldRechargeBonus()) * delta);
             }
             if (shieldFlash > 0) shieldFlash -= delta;
             player.updatePosition(delta);

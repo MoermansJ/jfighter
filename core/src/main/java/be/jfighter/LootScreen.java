@@ -241,6 +241,7 @@ public class LootScreen implements Screen {
         font = game.fonts.font;
         Fonts.scale(font, 1.4f);
         player = new Player(EXIT_X - Player.WIDTH / 2f, exitY - Player.HEIGHT / 2f);
+        player.thrustMult = state.thrustMult();
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         effects.setPincerHull(true);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
@@ -310,6 +311,16 @@ public class LootScreen implements Screen {
             burstSparks(crate.x, crate.y, 16);
             game.sfx.playThud(0.35f);
         }
+    }
+
+    /** Net spool upgrades extend how much line can be paid out. */
+    private int maxTrailPoints() {
+        return Math.round(MAX_TRAIL_POINTS * state.netLengthMult());
+    }
+
+    /** Hold extensions raise how many crates the pincer can stow. */
+    private int pincerCapacity() {
+        return PINCER_CAPACITY + state.pincerCapacityBonus();
     }
 
     private boolean nearAsteroid(float x, float y, float margin) {
@@ -474,7 +485,7 @@ public class LootScreen implements Screen {
 
     /** Free cargo drifting near the open jaws is captured automatically (netted cargo is left alone). */
     private void autoCapture() {
-        if (ejectCooldown > 0f || pincerHeld.size >= PINCER_CAPACITY) return;
+        if (ejectCooldown > 0f || pincerHeld.size >= pincerCapacity()) return;
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
         float fx = -MathUtils.sinDeg(player.rotation);
@@ -482,7 +493,7 @@ public class LootScreen implements Screen {
         float clawX = cx + fx * PINCER_CLAW_FORWARD;
         float clawY = cy + fy * PINCER_CLAW_FORWARD;
         for (Loot crate : lootItems) {
-            if (pincerHeld.size >= PINCER_CAPACITY) break;
+            if (pincerHeld.size >= pincerCapacity()) break;
             if (isHeld(crate) || isNetted(crate)) continue;
             float dx = crate.x - clawX;
             float dy = crate.y - clawY;
@@ -729,7 +740,7 @@ public class LootScreen implements Screen {
         }
         // jaw animation: base pinch from a full hold plus a snap pulse on capture/eject
         if (grabPulse > 0f) grabPulse = Math.max(0f, grabPulse - GRAB_PULSE_DECAY * delta);
-        effects.setPincerGrab(0.25f * pincerHeld.size / PINCER_CAPACITY + 0.75f * grabPulse);
+        effects.setPincerGrab(0.25f * pincerHeld.size / pincerCapacity() + 0.75f * grabPulse);
     }
 
     private void releaseHook() {
@@ -776,7 +787,7 @@ public class LootScreen implements Screen {
 
     /** New rope points appear at the ship's tail as it moves; stops when fully paid out. */
     private void payOutDeployedNet() {
-        if (deployed == null || deployed.pts.size >= MAX_TRAIL_POINTS) return;
+        if (deployed == null || deployed.pts.size >= maxTrailPoints()) return;
         float tx = tailX();
         float ty = tailY();
         if (deployed.pts.size == 0) {
@@ -1814,7 +1825,7 @@ public class LootScreen implements Screen {
         font.setColor(deployed != null ? Color.YELLOW : Color.GRAY);
         font.draw(batch, deployed != null ? "Net: DEPLOYED" : "Net: stowed", 10, HUD_H - 60);
         font.setColor(pincerHeld.size > 0 ? Color.YELLOW : Color.GRAY);
-        font.draw(batch, "Pincer: " + pincerHeld.size + "/" + PINCER_CAPACITY, 10, HUD_H - 85);
+        font.draw(batch, "Pincer: " + pincerHeld.size + "/" + pincerCapacity(), 10, HUD_H - 85);
 
         if (catchFlash > 0) {
             font.setColor(Color.GREEN);

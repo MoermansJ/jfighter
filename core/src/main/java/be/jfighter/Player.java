@@ -25,6 +25,7 @@ public class Player {
     public float vx;
     public float vy;
     public float rotation;
+    public float thrustMult = 1f; // engine tuning upgrades scale the burn
     public float angularVel;
     public int throttle;      // 0..THROTTLE_STEPS, set in 10% steps
     public float thrustLevel; // 0 to 1, ramps toward throttle setting
@@ -51,8 +52,8 @@ public class Player {
             thrustLevel = Math.max(target, thrustLevel - THRUST_SPINDOWN * delta);
         }
         if (thrustLevel > 0f) {
-            vx += -MathUtils.sinDeg(rotation) * MAX_THRUST * thrustLevel * delta;
-            vy +=  MathUtils.cosDeg(rotation) * MAX_THRUST * thrustLevel * delta;
+            vx += -MathUtils.sinDeg(rotation) * MAX_THRUST * thrustMult * thrustLevel * delta;
+            vy +=  MathUtils.cosDeg(rotation) * MAX_THRUST * thrustMult * thrustLevel * delta;
             clampSpeed();
         }
     }
