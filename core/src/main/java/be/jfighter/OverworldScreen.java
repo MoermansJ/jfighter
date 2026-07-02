@@ -365,9 +365,17 @@ public class OverworldScreen implements Screen {
         switch (node.type) {
             case LOOT:   return "2. Ignore the cluster.";
             case TRADER: return "2. Ignore the hail.";
-            case COMBAT: return "2. Burn hard and slip past them.";
+            case COMBAT: return "2. Burn hard and slip past them. ("
+                + Math.round(escapeChance() * 100) + "% success)";
             default:     return "2. Hold position.";
         }
+    }
+
+    // slipping past hostiles is a gamble; a failed roll forces the fight
+    private static final float COMBAT_ESCAPE_CHANCE = 0.6f; // placeholder tuning
+
+    private float escapeChance() {
+        return Dev.MODE ? 1f : COMBAT_ESCAPE_CHANCE;
     }
 
     private void drawDialog(Node node) {
@@ -476,7 +484,14 @@ public class OverworldScreen implements Screen {
                 // ignore the encounter: still travel to the node, just don't enter the instance
                 Node node = selectedNode;
                 selectedNode = null;
-                travelTo(node);
+                if (!travelTo(node)) return false; // out of fuel: stay put
+                if (node.type == Node.Type.COMBAT && !node.completed
+                        && MathUtils.random() >= escapeChance()) {
+                    // failed to slip past: hostiles force the fight
+                    node.completed = true; // trivial until enemies exist (#58)
+                    game.setScreen(new GameScreen(game, state));
+                    return true;
+                }
                 return false;
             }
             // click outside the dialog = dismiss it
