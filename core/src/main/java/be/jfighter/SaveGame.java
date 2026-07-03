@@ -70,6 +70,7 @@ public final class SaveGame {
             intArray(b, "power", s.power);
             intArray(b, "roomTier", s.roomTier);
             floatArray(b, "roomIntegrity", s.roomIntegrity);
+            floatArray(b, "stationHealth", s.stationHealth);
             floatArray(b, "oxygen", s.oxygen);
             b.append("\"doorHeldOpen\":[");
             for (int i = 0; i < s.doorHeldOpen.length; i++) {
@@ -244,6 +245,7 @@ public final class SaveGame {
             if (r.has("power")) readInts(r.get("power"), s.power);
             readInts(r.get("roomTier"), s.roomTier);
             readFloats(r.get("roomIntegrity"), s.roomIntegrity);
+            if (r.has("stationHealth")) readFloats(r.get("stationHealth"), s.stationHealth);
             readFloats(r.get("oxygen"), s.oxygen);
             JsonValue doors = r.get("doorHeldOpen");
             for (int i = 0; i < s.doorHeldOpen.length && i < doors.size; i++) {

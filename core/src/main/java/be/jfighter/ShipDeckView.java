@@ -130,6 +130,9 @@ public class ShipDeckView {
     private final Array<CrewMember> figureList = new Array<>();
     private final java.util.Set<CrewMember> engaged = new java.util.HashSet<>();
     private final Array<float[]> clashes = new Array<>(); // melee midpoints for impact flashes
+    // station destruction/repair theatre (#129/#130)
+    private final float[] destroyAnimT = new float[ROOMS.length]; // counts down through 3 phases
+    private final float[] repairFlashT = new float[ROOMS.length]; // restored confirmation flash
 
     /** Everyone walking the deck: the crew plus any boarder. */
     private Array<CrewMember> figures() {
@@ -552,10 +555,15 @@ public class ShipDeckView {
                     boarder.damageFlash = 0.4f;
                     if (wasAlive && boarder.isDead()) c.gainXp(10f); // the kill is worth learning from
                 }
-                // left alone in a manned-type room, the boarder wrecks its station
-                if (!engaged.contains(boarder) && broom != -1 && ROOM_SKILL[broom] != null) {
-                    state.roomIntegrity[broom] =
-                        Math.max(0f, state.roomIntegrity[broom] - 0.02f * delta);
+                // left alone in a manned-type room, the boarder tears the station apart (#127)
+                if (!engaged.contains(boarder) && broom != -1 && ROOM_SKILL[broom] != null
+                        && state.stationHealth[broom] > 0f) {
+                    boolean wasIntact = state.stationHealth[broom] > 0f;
+                    state.stationHealth[broom] =
+                        Math.max(0f, state.stationHealth[broom] - 0.12f * delta);
+                    if (wasIntact && state.stationHealth[broom] <= 0f) {
+                        destroyAnimT[broom] = 1.6f; // impact -> structural failure -> collapse
+                    }
                 }
             }
         }
@@ -625,6 +633,22 @@ public class ShipDeckView {
             }
         }
 
+        // wrecked stations get rebuilt by whoever comes to man them (#127/#130)
+        for (int i = 0; i < ROOMS.length; i++) {
+            if (destroyAnimT[i] > 0) destroyAnimT[i] -= delta;
+            if (repairFlashT[i] > 0) repairFlashT[i] -= delta;
+            if (state.stationHealth[i] >= 1f || ROOM_SKILL[i] == null) continue;
+            CrewMember holder = stationHolder(i);
+            if (holder == null) continue;
+            Sim hs = sims.get(holder);
+            Vector2 spot = stationSpot(i, holder);
+            if (hs == null || Vector2.dst(hs.x, hs.y, spot.x, spot.y) > 8f) continue;
+            float rate = 0.08f + 0.03f * holder.bonusFor(Skill.ENGINEERING);
+            if (holder.trait == CrewMember.Trait.STEADY) rate *= 1.5f;
+            boolean wasBroken = state.stationHealth[i] < 1f;
+            state.stationHealth[i] = Math.min(1f, state.stationHealth[i] + rate * delta);
+            if (wasBroken && state.stationHealth[i] >= 1f) repairFlashT[i] = 1.2f; // restored!
+        }
         // station time earns experience (#101)
         for (int i = 0; i < ROOMS.length; i++) {
             CrewMember holder = stationHolder(i);
@@ -1339,15 +1363,57 @@ public class ShipDeckView {
             float d = doorX(i);
             drawDoor(shapes, d - DOOR_HALF, d + DOOR_HALF, doorPosY(i), doorOpen[i], state.doorHeldOpen[i]);
         }
-        // consoles: a bright strip against each room's hull-side wall
+        // consoles: a segmented strip against each room's hull-side wall; health-lit (#128)
         for (int i = 0; i < ROOMS.length; i++) {
             float[] r = ROOMS[i];
             float b = roomBrightness[i];
-            if (ROOM_AMBER[i]) Palette.set(shapes, 0.9f * b, 0.6f * b, 0.2f * b, 1f);
-            else Palette.set(shapes, 0.25f * b, 0.7f * b, 0.9f * b, 1f);
             float cx = r[0] + r[2] / 2f;
             float wy = r[1] >= CORRIDOR_Y2 ? r[1] + r[3] - 3 : r[1] + 3;
-            shapes.rect(px(cx - 8), py(wy, 4), 16 * SCALE, 3);
+            float sh = ROOM_SKILL[i] == null ? 1f : state.stationHealth[i];
+            float sx0 = px(cx - 8);
+            float sy0 = py(wy, 4);
+            float segW = 16 * SCALE / 4f;
+            // destruction theatre (#129): impact flash / cascade / collapse pop
+            if (destroyAnimT[i] > 0) {
+                float t = destroyAnimT[i];
+                if (t > 1.1f) { // impact: white flash + sparks
+                    shapes.setColor(1f, 1f, 0.9f, 1f);
+                    shapes.rect(sx0 - 2, sy0 - 1, 16 * SCALE + 4, 5);
+                } else if (t > 0.4f && MathUtils.randomBoolean(0.5f)) { // structural failure cascade
+                    shapes.setColor(1f, 0.6f, 0.2f, 0.8f);
+                    shapes.rect(sx0 + MathUtils.random(3f) * segW, sy0, segW, 3);
+                } else if (t <= 0.4f && t > 0.32f) { // final collapse pop
+                    shapes.setColor(0.9f, 0.4f, 0.2f, 0.9f);
+                    shapes.circle(sx0 + 8 * SCALE, sy0 + 1.5f, 6f, 10);
+                }
+            }
+            for (int seg = 0; seg < 4; seg++) {
+                boolean lit = sh >= (seg + 1) / 4f;
+                boolean flicker = sh < 1f && sh > 0f && MathUtils.randomBoolean(0.06f);
+                if (lit && !flicker) {
+                    if (ROOM_AMBER[i]) Palette.set(shapes, 0.9f * b, 0.6f * b, 0.2f * b, 1f);
+                    else Palette.set(shapes, 0.25f * b, 0.7f * b, 0.9f * b, 1f);
+                } else {
+                    Palette.set(shapes, 0.12f, 0.14f, 0.16f, 1f); // dead segment
+                }
+                shapes.rect(sx0 + seg * segW + 0.5f, sy0, segW - 1f, 3);
+            }
+            // wreck marks under a destroyed console
+            if (sh <= 0f) {
+                shapes.setColor(0.35f, 0.2f, 0.12f, 1f);
+                shapes.rect(sx0 + 2, sy0 - 2, 4, 2);
+                shapes.rect(sx0 + 16 * SCALE - 7, sy0 - 2, 5, 2);
+            }
+            // repair work sparks (#130) while being rebuilt
+            if (sh > 0f && sh < 1f && stationHolder(i) != null && MathUtils.randomBoolean(0.12f)) {
+                shapes.setColor(1f, 0.85f, 0.4f, 0.9f);
+                shapes.circle(sx0 + sh * 16 * SCALE, sy0 + 2, 1.4f, 6);
+            }
+            // restored confirmation flash
+            if (repairFlashT[i] > 0) {
+                shapes.setColor(0.4f, 1f, 0.5f, repairFlashT[i] / 1.2f);
+                shapes.rect(sx0 - 1, sy0 - 1, 16 * SCALE + 2, 5);
+            }
         }
         // floor icons: a faint function glyph on each room's deck plating
         drawRoomIcons(shapes);
@@ -1491,6 +1557,10 @@ public class ShipDeckView {
             String label = ROOM_NAMES[i];
             if (state.roomTier[i] > 1) label += " T" + state.roomTier[i];
             if (state.roomIntegrity[i] < 1f) label += " [DMG]";
+            if (ROOM_SKILL[i] != null && state.stationHealth[i] <= 0f) label += " [STN DESTROYED]";
+            else if (ROOM_SKILL[i] != null && state.stationHealth[i] < 1f) {
+                label += " [REPAIR " + Math.round(state.stationHealth[i] * 100) + "%]";
+            }
             int stat = roomStat(i);
             if (stat > 0) label += " +" + stat;
             if (stat > 0) Palette.set(font, 0.35f, 0.85f, 0.5f, 1f);

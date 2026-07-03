@@ -263,6 +263,8 @@ public class GameState {
     }
     // set by combat when a hit sparks a blaze aboard; consumed by ShipDeckView (#110)
     public int pendingFireRoom = -1;
+    // station condition per room (#127): 1 = intact, 0 = destroyed (rebuilt by crew before manning)
+    public final float[] stationHealth = {1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f};
 
     private long stationSeq;
 
