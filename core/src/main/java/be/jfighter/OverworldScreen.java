@@ -165,23 +165,26 @@ public class OverworldScreen implements Screen {
 
         drawMapDecals();
 
-        // connection lines
-        Palette.set(shapes, 0.25f, 0.27f, 0.3f, 1f);
+        // connection lines: travel options from here stand out, the rest recede
+        Node here = state.map.getCurrentNode();
         for (Node n : state.map.allNodes()) {
             for (int cid : n.connections) {
                 if (cid > n.id) {
                     Node c = state.map.getNode(cid);
+                    boolean available = n == here || c == here;
+                    if (available) Palette.set(shapes, 0.3f, 0.7f, 0.8f, 1f);
+                    else Palette.set(shapes, 0.16f, 0.18f, 0.2f, 1f);
                     shapes.line(n.x, n.y, c.x, c.y);
                 }
             }
         }
         shapes.end();
 
-        // node fills + rings
+        // node glyphs: shape + colour identify the type at a glance
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (Node n : state.map.allNodes()) {
             shapes.setColor(nodeColor(n));
-            shapes.circle(n.x, n.y, NODE_RADIUS, 24);
+            drawNodeGlyph(n);
         }
         shapes.end();
 
@@ -252,6 +255,10 @@ public class OverworldScreen implements Screen {
             else if (c.isDead()) font.setColor(0.75f, 0.25f, 0.2f, 1f);
             else font.setColor(Color.WHITE);
             font.draw(batch, c.isDead() ? c.name + "  - KIA" : c.name, ROSTER_X + 26, baseline);
+            if (!c.isDead()) {
+                font.setColor(0.4f, 0.55f, 0.6f, 1f); // muted label next to the bright value
+                font.draw(batch, c.primary.name().substring(0, 3), ROSTER_X + ROSTER_W - 34, baseline);
+            }
         }
         // selected crew details + hint
         float detailY = ROSTER_TOP - state.crew.size() * ROSTER_ROW_H - 6;
@@ -380,24 +387,11 @@ public class OverworldScreen implements Screen {
             shapes.line(gx + 1, gy, gx - 1, gy);
             shapes.line(gx - 1, gy, gx + 3, gy - 4);
         }
+        // decoration stays quiet: only faint scan rings survive the clutter pass (#94)
         for (OverworldMap.Decal d : state.map.getDecals()) {
-            switch (d.kind) {
-                case RING:
-                    shapes.setColor(0.1f, 0.2f, 0.24f, 1f);
-                    shapes.circle(d.x, d.y, d.size, 32);
-                    break;
-                case CROSS:
-                    shapes.setColor(0.18f, 0.26f, 0.28f, 1f);
-                    shapes.line(d.x - d.size, d.y, d.x + d.size, d.y);
-                    shapes.line(d.x, d.y - d.size, d.x, d.y + d.size);
-                    break;
-                case HAZARD:
-                    shapes.setColor(0.32f, 0.2f, 0.05f, 1f);
-                    shapes.line(d.x - d.size, d.y - d.size * 0.7f, d.x + d.size, d.y - d.size * 0.7f);
-                    shapes.line(d.x - d.size, d.y - d.size * 0.7f, d.x, d.y + d.size);
-                    shapes.line(d.x + d.size, d.y - d.size * 0.7f, d.x, d.y + d.size);
-                    break;
-            }
+            if (d.kind != OverworldMap.Decal.Kind.RING) continue;
+            Palette.set(shapes, 0.07f, 0.13f, 0.16f, 1f);
+            shapes.circle(d.x, d.y, d.size, 32);
         }
     }
 
@@ -861,6 +855,29 @@ public class OverworldScreen implements Screen {
             case TRADER: game.setScreen(new TraderScreen(game, state)); return true; // traders never complete
             case LOOT:   game.setScreen(new LootScreen(game, state)); return true;
             default: return false; // HOME: stay on map
+        }
+    }
+
+    /** COMBAT = triangle, TRADER = diamond, LOOT = square, HOME/unknown = circle. */
+    private void drawNodeGlyph(Node n) {
+        float r = NODE_RADIUS;
+        if (!typeKnown(n)) {
+            shapes.circle(n.x, n.y, r * 0.8f, 20);
+            return;
+        }
+        switch (n.type) {
+            case COMBAT:
+                shapes.triangle(n.x, n.y + r, n.x - r * 0.9f, n.y - r * 0.7f, n.x + r * 0.9f, n.y - r * 0.7f);
+                break;
+            case TRADER:
+                shapes.triangle(n.x, n.y + r, n.x - r, n.y, n.x, n.y - r);
+                shapes.triangle(n.x, n.y + r, n.x + r, n.y, n.x, n.y - r);
+                break;
+            case LOOT:
+                shapes.rect(n.x - r * 0.75f, n.y - r * 0.75f, r * 1.5f, r * 1.5f);
+                break;
+            default:
+                shapes.circle(n.x, n.y, r, 24);
         }
     }
 
