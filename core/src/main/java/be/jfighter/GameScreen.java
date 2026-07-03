@@ -663,6 +663,7 @@ public class GameScreen implements Screen {
         drawRadarMonitor();
         drawPlotMonitor();
         drawCrewMonitor();
+        drawShieldGauge();
 
         drawHud();
 
@@ -909,6 +910,53 @@ public class GameScreen implements Screen {
         deckView.renderText(batch, font);
         batch.end();
         batch.setProjectionMatrix(hudMatrix);
+    }
+
+    /** Analog shield gauge on the desk: 240-degree dial, needle tracks the charge. */
+    private void drawShieldGauge() {
+        float gx = 845f;
+        float gy = 330f;
+        float gr = 58f;
+        float frac = state.maxShield > 0 ? state.shield / state.maxShield : 0f;
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0.012f, 0.025f, 0.032f, 1f);
+        shapeRenderer.circle(gx, gy, gr, 40);
+        shapeRenderer.end();
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Palette.set(shapeRenderer, 0.22f, 0.36f, 0.42f, 1f);
+        shapeRenderer.circle(gx, gy, gr, 40);        // bezel
+        shapeRenderer.circle(gx, gy, gr + 4f, 40);
+        // scale: 240 degrees, from 210 (empty) sweeping clockwise to -30 (full)
+        for (int t = 0; t <= 10; t++) {
+            float a = 210f - t * 24f;
+            float inner = t % 5 == 0 ? gr - 14f : gr - 9f;
+            if (t >= 8) shapeRenderer.setColor(0.35f, 0.7f, 1f, 1f);       // healthy zone
+            else if (t <= 2) shapeRenderer.setColor(0.85f, 0.3f, 0.25f, 1f); // danger zone
+            else Palette.set(shapeRenderer, 0.3f, 0.5f, 0.58f, 1f);
+            shapeRenderer.line(gx + MathUtils.cosDeg(a) * inner, gy + MathUtils.sinDeg(a) * inner,
+                gx + MathUtils.cosDeg(a) * (gr - 4f), gy + MathUtils.sinDeg(a) * (gr - 4f));
+        }
+        // needle, with a shiver while the shield is soaking hits
+        float needleA = 210f - frac * 240f;
+        if (shieldFlash > 0) needleA += MathUtils.random(-4f, 4f) * shieldFlash;
+        shapeRenderer.setColor(frac < 0.25f ? new Color(0.95f, 0.35f, 0.3f, 1f)
+            : new Color(0.5f, 0.8f, 1f, 1f));
+        shapeRenderer.line(gx - MathUtils.cosDeg(needleA) * 8f, gy - MathUtils.sinDeg(needleA) * 8f,
+            gx + MathUtils.cosDeg(needleA) * (gr - 16f), gy + MathUtils.sinDeg(needleA) * (gr - 16f));
+        shapeRenderer.circle(gx, gy, 3f, 8); // hub
+        shapeRenderer.end();
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        Fonts.scale(font, 0.95f);
+        Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
+        GlyphLayout sl = new GlyphLayout(font, "SHIELD");
+        font.draw(batch, sl, gx - sl.width / 2f, gy - gr - 10f);
+        font.setColor(frac < 0.25f ? Color.RED : Color.GRAY);
+        GlyphLayout pv = new GlyphLayout(font, Math.round(frac * 100) + "%");
+        font.draw(batch, pv, gx - pv.width / 2f, gy - 18f);
+        Fonts.scale(font, 1.4f);
+        batch.end();
     }
 
     /** Desk furniture: panel seams, monitor bezels and stands (#162). */
