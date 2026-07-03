@@ -87,6 +87,10 @@ public class TitleScreen implements Screen {
                     Meta.buyPerk(PERKS[i][0]);
                 }
             }
+            if (CHANGELOG_BTN.contains(mouse.x, mouse.y)) {
+                game.setScreen(new ChangelogScreen(game));
+                return;
+            }
         }
 
         batch.begin();
@@ -120,6 +124,8 @@ public class TitleScreen implements Screen {
             font.draw(batch, PERKS[i][1] + "  L" + Meta.perkLevel(PERKS[i][0])
                 + "  (" + Meta.PERK_COST + " salv)", r.x + 6, r.y + r.height - 6);
         }
+        font.setColor(Color.GRAY);
+        font.draw(batch, "WHAT'S NEW", CHANGELOG_BTN.x + 24, CHANGELOG_BTN.y + 19);
         Fonts.scale(font, 2f);
         Dev.drawIndicator(batch, font, JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         batch.end();
@@ -149,6 +155,8 @@ public class TitleScreen implements Screen {
     public void hide() {
         dispose();
     }
+
+    private static final Rectangle CHANGELOG_BTN = new Rectangle(770, 12, 178, 26);
 
     private static Rectangle perkRect(int i) {
         return new Rectangle(12, 156 - i * 30, 250, 26);

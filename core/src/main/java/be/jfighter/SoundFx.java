@@ -12,6 +12,8 @@ import com.badlogic.gdx.math.MathUtils;
  * unwritable disk) the game keeps running silently.
  */
 public class SoundFx {
+    /** Master volume 0..1, persisted from the options screen (#114). */
+    public static float masterVolume = 1f;
     public static final float THRUSTER_VOLUME = 0.5f; // at full thrust
     public static final float CATCH_VOLUME = 0.7f;
     public static final float THUD_MAX_VOLUME = 0.9f;
@@ -63,7 +65,7 @@ public class SoundFx {
     }
 
     public void setThrusterLevel(float level) {
-        if (ready && thrusterId != -1) thruster.setVolume(thrusterId, level * THRUSTER_VOLUME);
+        if (ready && thrusterId != -1) thruster.setVolume(thrusterId, level * THRUSTER_VOLUME * masterVolume);
     }
 
     public void stopThruster() {
@@ -74,41 +76,41 @@ public class SoundFx {
     }
 
     public void playCatch() {
-        if (ready) twang.play(CATCH_VOLUME);
+        if (ready) twang.play(CATCH_VOLUME * masterVolume);
     }
 
     /** strength 0..1 scales the thud volume. */
     public void playThud(float strength) {
-        if (ready) thud.play(MathUtils.clamp(strength, 0.15f, THUD_MAX_VOLUME));
+        if (ready) thud.play(MathUtils.clamp(strength, 0.15f, THUD_MAX_VOLUME) * masterVolume);
     }
 
     /** Snappy cannon report; caliber 0 = light, 2 = heavy. */
     public void playCannon(int caliber) {
-        if (ready) cannons[MathUtils.clamp(caliber, 0, 2)].play(0.4f + 0.2f * caliber);
+        if (ready) cannons[MathUtils.clamp(caliber, 0, 2)].play((0.4f + 0.2f * caliber) * masterVolume);
     }
 
     public void playLaser() {
-        if (ready) laser.play(0.4f);
+        if (ready) laser.play(0.4f * masterVolume);
     }
 
     public void playRocket() {
-        if (ready) rocket.play(0.55f);
+        if (ready) rocket.play(0.55f * masterVolume);
     }
 
     public void playClamp() {
-        if (ready) clamp.play(0.55f);
+        if (ready) clamp.play(0.55f * masterVolume);
     }
 
     public void playSnap() {
-        if (ready) snap.play(0.5f);
+        if (ready) snap.play(0.5f * masterVolume);
     }
 
     public void playPing() {
-        if (ready) ping.play(0.35f);
+        if (ready) ping.play(0.35f * masterVolume);
     }
 
     public void startBeam() {
-        if (ready && beamId == -1) beamId = beamLoop.loop(0.35f);
+        if (ready && beamId == -1) beamId = beamLoop.loop(0.35f * masterVolume);
     }
 
     public void stopBeam() {

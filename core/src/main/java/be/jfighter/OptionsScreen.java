@@ -37,7 +37,7 @@ public class OptionsScreen implements Screen {
         Fonts.scale(font, 1.5f);
 
         int n = JFighter.WINDOW_SIZES.length;
-        labels = new String[n + 2]; // presets + fullscreen + back
+        labels = new String[n + 3]; // presets + fullscreen + volume + back
         rows = new Rectangle[labels.length];
         float x = (JFighter.WORLD_WIDTH - ROW_WIDTH) / 2f;
         float top = 400;
@@ -47,8 +47,10 @@ public class OptionsScreen implements Screen {
         }
         labels[n] = "FULLSCREEN";
         rows[n] = new Rectangle(x, top - n * ROW_HEIGHT, ROW_WIDTH, ROW_HEIGHT);
-        labels[n + 1] = "BACK";
-        rows[n + 1] = new Rectangle(x, top - (n + 1) * ROW_HEIGHT - 20, ROW_WIDTH, ROW_HEIGHT);
+        labels[n + 1] = volumeLabel();
+        rows[n + 1] = new Rectangle(x, top - (n + 1) * ROW_HEIGHT, ROW_WIDTH, ROW_HEIGHT);
+        labels[n + 2] = "BACK";
+        rows[n + 2] = new Rectangle(x, top - (n + 2) * ROW_HEIGHT - 20, ROW_WIDTH, ROW_HEIGHT);
     }
 
     @Override
@@ -78,6 +80,11 @@ public class OptionsScreen implements Screen {
                 game.setWindowSize(JFighter.WINDOW_SIZES[hovered][0], JFighter.WINDOW_SIZES[hovered][1]);
             } else if (hovered == n) {
                 game.setFullscreen(true);
+            } else if (hovered == n + 1) {
+                // cycle master volume in 20% steps
+                SoundFx.masterVolume = (Math.round(SoundFx.masterVolume * 5) % 5 + 1) / 5f;
+                Gdx.app.getPreferences("jfighter").putFloat("volume", SoundFx.masterVolume).flush();
+                labels[n + 1] = volumeLabel();
             } else {
                 game.setScreen(new TitleScreen(this.game));
                 return;
@@ -110,6 +117,10 @@ public class OptionsScreen implements Screen {
         font.setColor(Color.GRAY);
         font.draw(batch, "F11 toggles fullscreen anywhere", 20, 30);
         batch.end();
+    }
+
+    private static String volumeLabel() {
+        return "VOLUME " + Math.round(SoundFx.masterVolume * 100) + "%";
     }
 
     @Override

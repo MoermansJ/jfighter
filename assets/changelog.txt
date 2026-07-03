@@ -1,0 +1,27 @@
+== WHAT'S NEW ==
+
+BATCH 3 — deck & combat systems
+- Reactor power: divert units between life support, shields, engines, weapons, medbay
+- Fire aboard: tile-level blazes, spread through open doors, starved by venting
+- Door cluster: OPEN INNER/OUTER escalation, CLOSE ALL, per-airlock VENT
+- Free crew movement: click anywhere walkable; struggle + idle animations
+- Enemy AI that flies and shoots back; sector difficulty scaling; boss at sector 3+
+- Combat objectives: eliminate / survive the waves / intercept the runner
+- 155mm ripple cannon (tiered barrels), 4 weapon slots, trader weapons shop
+- Player wings shear off; wreck salvage; shockwaves, screen shake, edge arrows
+- Setup screen: pick a hull, review crew, run modifiers (IRON / DARK / OVERLOAD)
+- Crew XP levels and personality traits (BRAVE / TIMID / STEADY)
+
+BATCH 2 — the big one
+- Weapons framework: cannons, rockets, homing, lasers with lock-on and weapon cards
+- Hull + recharging shields, game over, run summary, next-sector jumps
+- Save & continue across restarts; salvage meta-perks on the title screen
+- Trader menu: supplies, upgrades, compartment tiers, crew hire
+- Map obstacles: black holes, stars, solar storms, meteor showers, mines
+- Deck: tile grid pathing, boarder melee, tactical pause, room damage & repairs
+- Radar, FreeType console font, colour schemes, and much more
+
+BATCH 1 — foundations
+- Dev mode, map fog, one-time instances, escape rolls
+- Combat arena, idle enemies, death effects
+- Console bezels, map ambience, pincer salvage rework

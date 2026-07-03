@@ -26,6 +26,7 @@ public class JFighter extends Game {
 
     @Override
     public void create() {
+        SoundFx.masterVolume = Gdx.app.getPreferences("jfighter").getFloat("volume", 1f);
         sfx = new SoundFx();
         applySavedDisplayMode();
         fonts = new Fonts(); // after the display mode: sized to the real backbuffer
