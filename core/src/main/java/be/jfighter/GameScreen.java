@@ -765,8 +765,8 @@ public class GameScreen implements Screen {
             shapeRenderer.setColor(hostile ? 0.4f : 0.16f, hostile ? 0.14f : 0.3f,
                 hostile ? 0.12f : 0.34f, 1f);
             shapeRenderer.circle(plotPX(exw), plotPY(eyw), SPLASH_155 * kx, 12);
-            // incoming homing rockets: flashing corner brackets (#warning)
-            if (hostile && p.target == player && MathUtils.sin(scopeSweep * 0.5f) > -0.2f) {
+            // incoming ordnance warning: homing on us, or dumb-fired but on a collision course
+            if (hostile && ordnanceThreatensUs(p) && MathUtils.sin(scopeSweep * 0.5f) > -0.2f) {
                 shapeRenderer.setColor(1f, 0.9f, 0.2f, 1f);
                 float bx = plotPX(p.x);
                 float by = plotPY(p.y);
@@ -1676,6 +1676,27 @@ public class GameScreen implements Screen {
                 projectiles.removeIndex(i);
             }
         }
+    }
+
+    /**
+     * Collision-course test for hostile rockets/torpedoes: homing at us counts,
+     * and so does any dumb round whose closest point of approach clips the hull.
+     */
+    private boolean ordnanceThreatensUs(Projectile p) {
+        if (p.target == player) return true;
+        // relative geometry: does its track pass within the hull envelope soon?
+        float rx = (player.x + Player.WIDTH / 2f) - p.x;
+        float ry = (player.y + Player.HEIGHT / 2f) - p.y;
+        float vx = p.velX() - player.vx;
+        float vy = p.velY() - player.vy;
+        float v2 = vx * vx + vy * vy;
+        if (v2 < 1f) return false;
+        float tca = (rx * vx + ry * vy) / v2; // time of closest approach
+        if (tca < 0 || tca > 6f) return false; // receding, or too far out to sweat
+        float cx = rx - vx * tca;
+        float cy = ry - vy * tca;
+        float missR = CARRIER_HIT_RADIUS + 30f;
+        return cx * cx + cy * cy < missR * missR;
     }
 
     /** Shell dispersion radius: long shots scatter wider. */
