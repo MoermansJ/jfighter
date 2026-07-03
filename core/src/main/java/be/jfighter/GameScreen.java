@@ -56,6 +56,10 @@ public class GameScreen implements Screen {
     private int controlled = -1;
     private float shieldSince;   // time since the last hit (drives recharge)
     private float shieldFlash;   // shimmer ring on shield hits
+    // combat deck overlay (#121): the carrier's live deck monitor, mid-battle
+    private ShipDeckView deckView;
+    private boolean deckOpen;
+    private CrewMember deckSelected;
     private float cupolaCd;      // MG-46 cupolas share a cadence clock (#119)
     private float fireCritT;     // fighter ablaze: hull dot (#99)
     private float helmCritT;     // fighter helm crippled: poor turning
@@ -80,6 +84,7 @@ public class GameScreen implements Screen {
         {"RMB", "carrier waypoint / deselect"},
         {"TAB", "take a fighter's stick"},
         {"R", "fighter rocket pod (on the stick)"},
+        {"V", "deck monitor: crew, power, doors"},
         {"ESC", "pause menu"},
     });
 
@@ -248,6 +253,7 @@ public class GameScreen implements Screen {
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
         state.weaponEnergy = state.maxWeaponEnergy; // fresh capacitors each engagement
+        deckView = new ShipDeckView(state);
         // squadrons launch with the carrier on the field
         for (int s = 0; s < SQUADRON_COUNT; s++) {
             squadrons[s] = new Squadron();
@@ -391,6 +397,8 @@ public class GameScreen implements Screen {
             player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * 0.45f;
             effects.setCarrierHull(true);
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
+            deckView.update(delta); // the deck lives through the battle (#121)
+            deckView.setFocus(deckSelected, null);
             updateObjective(delta);
             updateWrecks();
             updateCupolas(delta);
@@ -516,6 +524,18 @@ public class GameScreen implements Screen {
 
         drawHud();
 
+        if (deckOpen) {
+            shapeRenderer.setProjectionMatrix(hudMatrix);
+            deckView.renderShapes(shapeRenderer);
+            batch.setProjectionMatrix(hudMatrix);
+            batch.begin();
+            deckView.renderText(batch, font);
+            Fonts.scale(font, 0.95f);
+            font.setColor(Color.GRAY);
+            font.draw(batch, "[V] close deck", 12, 286);
+            Fonts.scale(font, 1.4f);
+            batch.end();
+        }
         if (pause.isOpen()
                 && pause.render(shapeRenderer, batch, font, hudMatrix, viewport, objectiveDone)) {
             game.setScreen(new OverworldScreen(game, state));
@@ -644,6 +664,15 @@ public class GameScreen implements Screen {
             10, HUD_H - 60);
         // squadron tabs (#134): callsign + fraction health; wiped squadrons drop off
         Fonts.scale(font, 0.95f);
+        if (!deckOpen) {
+            font.setColor(Color.GRAY);
+            StringBuilder pw = new StringBuilder("PWR");
+            for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
+                pw.append(' ').append(GameState.POWER_SYSTEMS[i].charAt(0)).append(state.power[i]);
+            }
+            pw.append("   [V] deck");
+            font.draw(batch, pw.toString(), 10, HUD_H - 182);
+        }
         for (int s = 0; s < SQUADRON_COUNT; s++) {
             int alive = squadronAlive(s);
             if (alive == 0) continue;
@@ -696,6 +725,10 @@ public class GameScreen implements Screen {
         for (int k = 0; k < weapons.size && k < 9; k++) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1 + k)) activeWeapon = k;
         }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.V)) {
+            deckOpen = !deckOpen;
+            if (!deckOpen) deckSelected = null;
+        }
         if (Gdx.input.isKeyJustPressed(Input.Keys.TAB)) {
             // take the stick: carrier -> fighter 0 -> fighter 1 -> ... -> carrier
             controlled = controlled + 1 >= fighters.size ? -1 : controlled + 1;
@@ -704,6 +737,10 @@ public class GameScreen implements Screen {
             // squadron tabs double as selection buttons (#134)
             Vector2 hm = hudMouse();
             boolean tabHit = false;
+            if (deckOpen && hm.y >= 270) {
+                handleDeckClick(hm.x, hm.y);
+                tabHit = true;
+            }
             for (int s = 0; s < SQUADRON_COUNT; s++) {
                 if (squadronAlive(s) > 0 && squadronTabRect(s).contains(hm.x, hm.y)) {
                     selectedSquadron = s;
@@ -1067,6 +1104,34 @@ public class GameScreen implements Screen {
             }
         } else {
             game.sfx.playThud(0.2f);
+        }
+    }
+
+    /** Clicks on the mid-battle deck monitor: power, doors, crew selection and orders (#121/#122). */
+    private void handleDeckClick(float x, float y) {
+        int pwr = deckView.powerButtonAt(x, y);
+        if (pwr != -1) {
+            deckView.pressPowerButton(pwr);
+            return;
+        }
+        int door = deckView.doorButtonAt(x, y);
+        if (door != -1) {
+            deckView.pressDoorButton(door);
+            return;
+        }
+        CrewMember c = deckView.crewAt(x, y);
+        if (c != null && !c.hostile) {
+            deckSelected = c;
+            return;
+        }
+        int d = deckView.doorAt(x, y);
+        if (d != -1) {
+            state.doorHeldOpen[d] = !state.doorHeldOpen[d];
+            return;
+        }
+        if (deckSelected != null) {
+            deckView.orderAtScreen(deckSelected, x, y);
+            deckSelected = null;
         }
     }
 
