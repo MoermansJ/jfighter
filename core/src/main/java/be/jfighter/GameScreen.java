@@ -129,7 +129,7 @@ public class GameScreen implements Screen {
     private int wrecksCollected; // feeds the post-battle salvage bonus (#124)
     private String salvageToast;
     private float salvageToastT;
-    private enum Obj { ELIMINATE, SURVIVE, INTERCEPT }
+    private enum Obj { ELIMINATE, SURVIVE, INTERCEPT, MOTHERSHIP }
     private Obj objective = Obj.ELIMINATE;
     private boolean objectiveDone;
     private float surviveT;
@@ -239,11 +239,12 @@ public class GameScreen implements Screen {
         // destructible sections (#73): wings shear off before the core gives out
         float leftWingHp = 12f;
         float rightWingHp = 12f;
-        boolean boss;   // heavy multi-section flagship (#106)
-        boolean runner; // intercept objective: flees for the arena edge (#104)
+        boolean boss;       // heavy multi-section flagship (#106)
+        boolean mothership; // hostile carrier fielding its own fighters (#145)
+        boolean runner;     // intercept objective: flees for the arena edge (#104)
 
         float radius() {
-            return boss ? 40f : ENEMY_RADIUS;
+            return mothership ? 78f : boss ? 40f : ENEMY_RADIUS;
         }
         // AI (#95): simple approach/orbit/break-off state machine with a light cannon (#96)
         int ai; // 0 approach, 1 orbit, 2 break off
@@ -307,6 +308,17 @@ public class GameScreen implements Screen {
             && state.map.getCurrentNode().id == state.map.lastNodeId;
         if (bossFight) {
             spawnBoss();
+        } else if (state.sector >= 2 && MathUtils.randomBoolean(0.3f)) {
+            // capital engagement (#145): an enemy carrier launching fighters in waves
+            objective = Obj.MOTHERSHIP;
+            waveT = 4f;
+            Enemy ms = new Enemy(ARENA_WIDTH - 320f, ARENA_HEIGHT / 2f,
+                Difficulty.enemyHp(state.sector) * 8f);
+            ms.maxHp = ms.hp;
+            ms.mothership = true;
+            ms.leftWingHp = 80f;
+            ms.rightWingHp = 80f;
+            enemies.add(ms);
         } else {
             spawnEnemies();
             float roll = MathUtils.random();
@@ -732,6 +744,7 @@ public class GameScreen implements Screen {
         String objLine = "Hostiles: " + enemies.size;
         if (objective == Obj.SURVIVE && !objectiveDone) objLine = "SURVIVE " + (int) Math.ceil(surviveT) + "s";
         else if (objective == Obj.INTERCEPT && !objectiveDone) objLine = "INTERCEPT THE RUNNER";
+        else if (objective == Obj.MOTHERSHIP && !objectiveDone) objLine = "DESTROY THE MOTHERSHIP";
         font.draw(batch, objLine, 10, HUD_H - 35);
         font.setColor(controlled < 0 ? Color.GRAY : Color.ORANGE);
         font.draw(batch, "Helm: " + (controlled < 0 ? "MOTHERSHIP" : "FIGHTER " + (controlled + 1)),
@@ -1073,6 +1086,33 @@ public class GameScreen implements Screen {
                 }
             }
         }
+        if (objective == Obj.MOTHERSHIP && !objectiveDone) {
+            Enemy carrier = null;
+            for (Enemy e : enemies) {
+                if (e.mothership) carrier = e;
+            }
+            if (carrier == null) {
+                completeObjective("HOSTILE MOTHERSHIP DESTROYED", 150);
+                for (Enemy e : enemies) { // her escorts scatter
+                    e.ai = 2;
+                    e.aiT = 999f;
+                }
+            } else {
+                waveT -= delta;
+                if (waveT <= 0 && enemies.size < 7) {
+                    // the next launch round rolls out of her hangar
+                    waveT = 18f;
+                    for (int k = 0; k < 2 && enemies.size < 7; k++) {
+                        Enemy e = new Enemy(carrier.centerX() + MathUtils.random(-60f, -20f),
+                            carrier.centerY() + MathUtils.random(-70f, 70f),
+                            Difficulty.enemyHp(state.sector));
+                        e.maxHp = e.hp;
+                        enemies.add(e);
+                    }
+                    showHudToast("LAUNCH DETECTED — NEW WAVE INBOUND");
+                }
+            }
+        }
         if (objective == Obj.INTERCEPT && !objectiveDone) {
             for (int i = enemies.size - 1; i >= 0; i--) {
                 Enemy e = enemies.get(i);
@@ -1127,6 +1167,32 @@ public class GameScreen implements Screen {
         float dy = py - cy;
         float dist = Math.max(1f, (float) Math.sqrt(dx * dx + dy * dy));
 
+        if (e.mothership) {
+            float pxm = player.x + Player.WIDTH / 2f;
+            float pym = player.y + Player.HEIGHT / 2f;
+            float dxm = pxm - e.centerX();
+            float dym = pym - e.centerY();
+            float distM = Math.max(1f, (float) Math.sqrt(dxm * dxm + dym * dym));
+            float desiredM = MathUtils.atan2(-dxm, dym) * MathUtils.radiansToDegrees;
+            float errM = ((desiredM - e.body.rotation) % 360f + 540f) % 360f - 180f;
+            if (errM > 6f) e.body.rotateLeft(delta * 0.4f);
+            else if (errM < -6f) e.body.rotateRight(delta * 0.4f);
+            int wantM = distM > 700f ? 4 : 0; // closes to stand-off range, then holds
+            if (e.body.throttle < wantM) e.body.throttleUp();
+            else if (e.body.throttle > wantM) e.body.throttleDown();
+            e.body.updateThrust(delta, true);
+            // her forward guns speak when the carrier drifts into range
+            e.gun.update(delta);
+            if (e.gun.ready() && distM < 620f && Math.abs(errM) < 12f) {
+                e.gun.fire();
+                e.gun.cooldown = 1.4f;
+                projectiles.add(new Projectile(e.centerX() - MathUtils.sinDeg(desiredM) * 60f,
+                    e.centerY() + MathUtils.cosDeg(desiredM) * 60f, desiredM + MathUtils.random(-3f, 3f),
+                    e.body, 420f, 12f, 0f, 0f, false));
+                game.sfx.playCannon(1);
+            }
+            return;
+        }
         if (e.runner) {
             // intercept target: burn for the far edge, no fighting back
             float desiredR = 90f; // heading straight +x
@@ -1279,7 +1345,7 @@ public class GameScreen implements Screen {
         for (Fighter f : fighters) {
             if (latched(f)) continue;
             for (Enemy e : enemies) {
-                if (e.boss || latched(e)) continue;
+                if (e.boss || e.mothership || latched(e)) continue;
                 if (Vector2.dst(f.centerX(), f.centerY(), e.centerX(), e.centerY()) > 55f) continue;
                 Dogfight d = new Dogfight();
                 d.x = (f.centerX() + e.centerX()) / 2f;
@@ -1292,7 +1358,7 @@ public class GameScreen implements Screen {
                     }
                 }
                 for (Enemy o : enemies) {
-                    if (!o.boss && !latched(o)
+                    if (!o.boss && !o.mothership && !latched(o)
                             && Vector2.dst(d.x, d.y, o.centerX(), o.centerY()) < 130f) {
                         d.foes.add(o);
                     }
@@ -1964,7 +2030,7 @@ public class GameScreen implements Screen {
             dead.body.rotation, MathUtils.random(-40f, 40f),
             dead.boss ? 150f : MathUtils.random(18f, 40f)});
         enemies.removeIndex(index);
-        state.credits += Math.round((dead.boss ? 300 : CREDITS_PER_KILL)
+        state.credits += Math.round((dead.mothership ? 400 : dead.boss ? 300 : CREDITS_PER_KILL)
             * Difficulty.rewardFactor(state.sector));
         state.hostilesDestroyed++;
         game.sfx.playCatch();
@@ -2363,11 +2429,15 @@ public class GameScreen implements Screen {
             else shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
             transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
             if (e.boss) transform.scale(2.2f, 2.2f, 1f);
-            else transform.scale(0.7f, 0.7f, 1f); // fighter-class hostiles read small vs the carrier
+            else if (!e.mothership) transform.scale(0.7f, 0.7f, 1f); // fighters read small vs capitals
             shapeRenderer.setTransformMatrix(transform);
-            ShipRenderer.drawB2Core(shapeRenderer);
-            if (e.leftWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, true);
-            if (e.rightWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, false);
+            if (e.mothership) {
+                ShipRenderer.drawCarrier(shapeRenderer);
+            } else {
+                ShipRenderer.drawB2Core(shapeRenderer);
+                if (e.leftWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, true);
+                if (e.rightWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, false);
+            }
             drawDamageMarks(e);
             if (e.body.thrustLevel > 0.02f) {
                 float flick = 0.8f + 0.35f * MathUtils.random();
