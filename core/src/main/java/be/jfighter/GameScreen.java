@@ -626,7 +626,7 @@ public class GameScreen implements Screen {
             }
             // the mothership: ponderous, all reactor and crew (#117)
             player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0])
-                * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]) * 0.4f;
+                * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]) * 0.28f; // capital pace (#178)
             player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * 0.24f; // swinging a city block (#148)
             effects.setCarrierHull(true);
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
@@ -1212,7 +1212,7 @@ public class GameScreen implements Screen {
         Fonts.scale(font, 0.95f);
         Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
         font.draw(batch, "SONAR", RAD_CX - RAD_R - 10, RAD_CY + RAD_R + 26);
-        font.draw(batch, "PLOT / COMMAND", PLOT_X, PLOT_Y + PLOT_H + 20);
+        font.draw(batch, "PLOT", PLOT_X, PLOT_Y + PLOT_H + 20);
         font.draw(batch, "VITAL SIGNS", CREW_X, CREW_Y + 270 * CREW_S + 20);
         Fonts.scale(font, 1.4f);
         batch.end();
@@ -1238,12 +1238,6 @@ public class GameScreen implements Screen {
         }
         shapeRenderer.line(RAD_CX - RAD_R, RAD_CY, RAD_CX + RAD_R, RAD_CY);
         shapeRenderer.line(RAD_CX, RAD_CY - RAD_R, RAD_CX, RAD_CY + RAD_R);
-        // arena boundary as a clipped return
-        Palette.set(shapeRenderer, 0.14f, 0.2f, 0.22f, 1f);
-        radarSeg(-ox, -oy, ARENA_WIDTH - ox, -oy, k);
-        radarSeg(-ox, ARENA_HEIGHT - oy, ARENA_WIDTH - ox, ARENA_HEIGHT - oy, k);
-        radarSeg(-ox, -oy, -ox, ARENA_HEIGHT - oy, k);
-        radarSeg(ARENA_WIDTH - ox, -oy, ARENA_WIDTH - ox, ARENA_HEIGHT - oy, k);
         // sonar pulse: an expanding ring, bright at the wavefront with a fading wake
         float pulseR = sonarT / SONAR_PERIOD * RAD_R;
         Palette.set(shapeRenderer, 0.25f, 0.6f, 0.55f, 1f);
@@ -1252,10 +1246,9 @@ public class GameScreen implements Screen {
             Palette.set(shapeRenderer, 0.12f, 0.32f, 0.3f, 1f);
             shapeRenderer.circle(RAD_CX, RAD_CY, pulseR - 6f, 40);
         }
-        // own ship: heading tick at the centre
+        // own ship: a bare centre dot — the sonar is a pure contact instrument (#169)
         Palette.set(shapeRenderer, 0.4f, 0.95f, 0.6f, 1f);
-        shapeRenderer.line(RAD_CX, RAD_CY, RAD_CX - MathUtils.sinDeg(player.rotation) * 9f,
-            RAD_CY + MathUtils.cosDeg(player.rotation) * 9f);
+        shapeRenderer.circle(RAD_CX, RAD_CY, 2f, 8);
         shapeRenderer.end();
         // signatures, phosphor-decayed behind the sweep
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
@@ -1442,15 +1435,19 @@ public class GameScreen implements Screen {
         }
         font.setColor(Color.YELLOW);
         font.draw(batch, "Credits: " + state.credits, 10, HUD_H - 10);
-        font.setColor(enemies.size > 0 ? Color.RED : Color.GRAY);
-        String objLine = "Hostiles: " + enemies.size;
-        if (objective == Obj.SURVIVE && !objectiveDone) objLine = "SURVIVE " + (int) Math.ceil(surviveT) + "s";
-        else if (objective == Obj.INTERCEPT && !objectiveDone) objLine = "INTERCEPT THE RUNNER";
-        else if (objective == Obj.MOTHERSHIP && !objectiveDone) objLine = "DESTROY THE MOTHERSHIP";
-        font.draw(batch, objLine, 10, HUD_H - 35);
-        font.setColor(controlled < 0 ? Color.GRAY : Color.ORANGE);
-        font.draw(batch, "Helm: " + (controlled < 0 ? "MOTHERSHIP" : "FIGHTER " + (controlled + 1)),
-            10, HUD_H - 60);
+        // objective line only when there is something beyond the default to say (#168)
+        font.setColor(Color.RED);
+        if (objective == Obj.SURVIVE && !objectiveDone) {
+            font.draw(batch, "SURVIVE " + (int) Math.ceil(surviveT) + "s", 10, HUD_H - 35);
+        } else if (objective == Obj.INTERCEPT && !objectiveDone) {
+            font.draw(batch, "INTERCEPT THE RUNNER", 10, HUD_H - 35);
+        } else if (objective == Obj.MOTHERSHIP && !objectiveDone) {
+            font.draw(batch, "DESTROY THE MOTHERSHIP", 10, HUD_H - 35);
+        }
+        if (controlled >= 0) { // only flag the unusual state (#168)
+            font.setColor(Color.ORANGE);
+            font.draw(batch, "ON THE STICK: FIGHTER " + (controlled + 1), 10, HUD_H - 60);
+        }
         // squadron tabs (#134): callsign + fraction health; wiped squadrons drop off
         Fonts.scale(font, 0.95f);
         for (int s = 0; s < SQUADRON_COUNT; s++) {
@@ -1466,8 +1463,10 @@ public class GameScreen implements Screen {
             font.draw(batch, state.squadronNames[s] + " " + alive + "/" + FIGHTERS_PER_SQUADRON + mode,
                 tr.x + 5, tr.y + 29);
             CrewMember lead = state.squadronLeader(s);
-            font.setColor(lead != null ? new Color(0.4f, 0.8f, 0.9f, 1f) : Color.DARK_GRAY);
-            font.draw(batch, lead != null ? "LEAD: " + lead.name : "no leader", tr.x + 5, tr.y + 13);
+            if (lead != null) {
+                font.setColor(0.4f, 0.8f, 0.9f, 1f);
+                font.draw(batch, "LEAD: " + lead.name, tr.x + 5, tr.y + 13);
+            }
         }
         Fonts.scale(font, 1.4f);
         if (objectiveDone) {
@@ -1512,7 +1511,12 @@ public class GameScreen implements Screen {
             font.draw(batch, st, (HUD_W - st.width) / 2f, HUD_H - 118);
             Fonts.scale(font, 1.4f);
         }
-        Dev.drawIndicator(batch, font, HUD_W, HUD_H);
+        if (Dev.MODE) { // bottom-right on the combat desk (#168)
+            Fonts.scale(font, 0.95f);
+            font.setColor(1f, 0.25f, 0.2f, 1f);
+            font.draw(batch, "DEV", HUD_W - 42, 20);
+            Fonts.scale(font, 1.4f);
+        }
         batch.end();
 
         if (stormFlash > 0) {
@@ -1815,6 +1819,12 @@ public class GameScreen implements Screen {
         state.awardCrewXp(5f);
         if (bonus > 0) state.credits += Math.round(bonus * Difficulty.rewardFactor(state.sector));
         showHudToast(msg);
+        // every drifting wreck is swept up at battle's end (#163)
+        for (float[] wk : wrecks) {
+            state.credits += Math.round(wk[6] * Difficulty.rewardFactor(state.sector));
+            wrecksCollected++;
+        }
+        wrecks.clear();
         // battlefield sweep (#124): ammo comes back, parts patch the hull on the spot
         int lightBack = 30 + 15 * wrecksCollected;
         int heavyBack = 1 + wrecksCollected / 2;
@@ -1898,24 +1908,12 @@ public class GameScreen implements Screen {
         }
     }
 
-    /** Dead ships leave salvageable wreck sections; fly close to tractor them in (#105). */
+    /** Dead ships leave wreck returns; they drift until the end-of-battle sweep (#163). */
     private void updateWrecks() {
-        float cx = player.x + Player.WIDTH / 2f;
-        float cy = player.y + Player.HEIGHT / 2f;
-        for (int i = wrecks.size - 1; i >= 0; i--) {
-            float[] wk = wrecks.get(i);
+        for (float[] wk : wrecks) {
             wk[0] += wk[2] * Gdx.graphics.getDeltaTime();
             wk[1] += wk[3] * Gdx.graphics.getDeltaTime();
             wk[4] += wk[5] * Gdx.graphics.getDeltaTime();
-            if (defeatT < 0 && Vector2.dst(cx, cy, wk[0], wk[1]) < 70f) {
-                int paid = Math.round(wk[6] * Difficulty.rewardFactor(state.sector));
-                state.credits += paid;
-                wrecksCollected++;
-                showHudToast("+" + paid + " SALVAGE");
-                addSparks(wk[0], wk[1], 0, 0, 6);
-                wrecks.removeIndex(i);
-                game.sfx.playCatch();
-            }
         }
     }
 
@@ -2714,12 +2712,22 @@ public class GameScreen implements Screen {
         return weaponRange(t) * (t.ammoKind == Weapon.AmmoKind.LIGHT ? 3.5f : 1f);
     }
 
+    /** Traverse rate by mount class (#170): the heavies take real time to lay. */
+    private static float slewRate(Weapon.Type t) {
+        switch (t) {
+            case CANNON_155: return 40f;
+            case AUTOCANNON_20:
+            case MEDIUM_CANNON: return 90f;
+            default: return 240f;
+        }
+    }
+
     /** Slews the mount toward a desired bearing within its arc; returns the barrel rotation. */
     private float slewMount(Weapon w, Player body, float desired, float delta) {
         if (w.type.turretArc <= 0) return body.rotation;
         float offset = ((desired - body.rotation) % 360f + 540f) % 360f - 180f;
         offset = MathUtils.clamp(offset, -w.type.turretArc, w.type.turretArc);
-        float slew = 240f * delta; // mount turn-rate limit
+        float slew = slewRate(w.type) * delta; // mount turn-rate limit
         w.turret += MathUtils.clamp(offset - w.turret, -slew, slew);
         w.turret = MathUtils.clamp(w.turret, -w.type.turretArc, w.type.turretArc);
         return body.rotation + w.turret;
