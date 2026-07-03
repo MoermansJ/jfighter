@@ -720,7 +720,7 @@ public class GameScreen implements Screen {
             shapeRenderer.circle(plotPX(ox), plotPY(oy), r * kx, 40);
         }
         if (state.mothership.countMounts(Mothership.MOUNT_MG46) > 0) {
-            shapeRenderer.circle(plotPX(ox), plotPY(oy), 380f * 3.5f * kx, 40);
+            shapeRenderer.circle(plotPX(ox), plotPY(oy), 380f * 1.75f * kx, 40);
         }
         // shield status ring (#158)
         if (defeatT < 0 && state.shield > 0.5f) {
@@ -2416,7 +2416,7 @@ public class GameScreen implements Screen {
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
         Enemy target = null;
-        float best = 380f * 3.5f; // cupolas defend the full aureola too (#156)
+        float best = 380f * 1.75f; // cupola screen, halved to a close-in net
         for (Enemy e : enemies) {
             float d = Vector2.dst(cx, cy, e.centerX(), e.centerY());
             if (d < best) {
@@ -2493,8 +2493,9 @@ public class GameScreen implements Screen {
         return t.speed > 0 ? t.speed * 0.85f : 420f;
     }
 
-    /** AUTO engagement reach (#156): light/medium feeders defend a much larger bubble. */
+    /** AUTO engagement reach (#156): light/medium feeders defend a larger bubble. */
     private static float autoRange(Weapon.Type t) {
+        if (t == Weapon.Type.AUTOCANNON_20) return weaponRange(t) * 3.5f * 2f / 3f; // trimmed a third
         return weaponRange(t) * (t.ammoKind == Weapon.AmmoKind.LIGHT ? 3.5f : 1f);
     }
 
