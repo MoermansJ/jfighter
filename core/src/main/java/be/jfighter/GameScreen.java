@@ -121,6 +121,9 @@ public class GameScreen implements Screen {
     private final Array<WingDebris> wingDebris = new Array<>();
     private final Array<float[]> shockwaves = new Array<>(); // {x, y, age, maxR, jitterSeed}
     private final Array<float[]> wrecks = new Array<>(); // {x, y, vx, vy, rot, spin, value} (#105)
+    private int wrecksCollected; // feeds the post-battle salvage bonus (#124)
+    private String salvageToast;
+    private float salvageToastT;
     private enum Obj { ELIMINATE, SURVIVE, INTERCEPT }
     private Obj objective = Obj.ELIMINATE;
     private boolean objectiveDone;
@@ -705,6 +708,14 @@ public class GameScreen implements Screen {
             GlyphLayout ht = new GlyphLayout(font, hudToast);
             font.draw(batch, ht, (HUD_W - ht.width) / 2f, HUD_H - 95);
         }
+        if (salvageToastT > 0) {
+            salvageToastT -= Gdx.graphics.getDeltaTime();
+            font.setColor(0.8f, 0.85f, 0.5f, 1f);
+            Fonts.scale(font, 1.1f);
+            GlyphLayout st = new GlyphLayout(font, salvageToast);
+            font.draw(batch, st, (HUD_W - st.width) / 2f, HUD_H - 118);
+            Fonts.scale(font, 1.4f);
+        }
         Dev.drawIndicator(batch, font, HUD_W, HUD_H);
         batch.end();
 
@@ -890,6 +901,22 @@ public class GameScreen implements Screen {
         state.awardCrewXp(5f);
         if (bonus > 0) state.credits += Math.round(bonus * Difficulty.rewardFactor(state.sector));
         showHudToast(msg);
+        // battlefield sweep (#124): ammo comes back, parts patch the hull on the spot
+        int lightBack = 30 + 15 * wrecksCollected;
+        int heavyBack = 1 + wrecksCollected / 2;
+        int rocketsBack = wrecksCollected / 2;
+        int parts = 1 + wrecksCollected;
+        state.ammoLight += lightBack;
+        state.ammoHeavy += heavyBack;
+        state.ammoRockets += rocketsBack;
+        state.hull = Math.min(state.maxHull, state.hull + parts * 4f);
+        for (int i = 0; i < parts && !state.damageMarks.isEmpty(); i++) {
+            state.damageMarks.remove(state.damageMarks.size() - 1); // patched plates lose their scars
+        }
+        salvageToast = "SWEEP: +" + lightBack + " LIGHT  +" + heavyBack + " HEAVY"
+            + (rocketsBack > 0 ? "  +" + rocketsBack + " RKT" : "")
+            + "  +" + parts + " PARTS (hull +" + parts * 4 + ")";
+        salvageToastT = 6f;
     }
 
     private void updateObjective(float delta) {
@@ -936,6 +963,7 @@ public class GameScreen implements Screen {
             if (defeatT < 0 && Vector2.dst(cx, cy, wk[0], wk[1]) < 70f) {
                 int paid = Math.round(wk[6] * Difficulty.rewardFactor(state.sector));
                 state.credits += paid;
+                wrecksCollected++;
                 showHudToast("+" + paid + " SALVAGE");
                 addSparks(wk[0], wk[1], 0, 0, 6);
                 wrecks.removeIndex(i);
