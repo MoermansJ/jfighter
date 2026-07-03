@@ -60,13 +60,16 @@ public class GameScreen implements Screen {
     private ShipDeckView deckView;
     private boolean deckOpen;
     private CrewMember deckSelected;
+    private float tacticalZoom = 1.4f; // wide default; Z cycles 1.0 / 1.4 / 1.9 (#146)
     private float cupolaCd;      // MG-46 cupolas share a cadence clock (#119)
     private float fireCritT;     // fighter ablaze: hull dot (#99)
     private float helmCritT;     // fighter helm crippled: poor turning
     private String hudToast;
     private float hudToastT;
     private float defeatT = -1f; // >= 0 once the fighter is destroyed
-    private float stormTimer = MathUtils.random(6f, 11f); // stormy nodes: next radiation wave
+    private static final float STORM_INTERVAL = 60f;   // #147: a flare a minute
+    private static final float STORM_BUILDUP = 12f;    // long ramp before it hits
+    private float stormTimer = MathUtils.random(20f, 40f); // stormy nodes: next radiation wave
     private float stormFlash;
     private final Matrix4 transform = new Matrix4();
     private final Matrix4 hudMatrix = new Matrix4(); // HUD ignores camera zoom
@@ -85,6 +88,7 @@ public class GameScreen implements Screen {
         {"TAB", "take a fighter's stick"},
         {"R", "fighter rocket pod (on the stick)"},
         {"V", "deck monitor: crew, power, doors"},
+        {"Z", "cycle tactical zoom"},
         {"ESC", "pause menu"},
     });
 
@@ -397,7 +401,7 @@ public class GameScreen implements Screen {
             // the mothership: ponderous, all reactor and crew (#117)
             player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0])
                 * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]) * 0.4f;
-            player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * 0.45f;
+            player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * 0.24f; // swinging a city block (#148)
             effects.setCarrierHull(true);
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
             deckView.update(delta); // the deck lives through the battle (#121)
@@ -412,7 +416,7 @@ public class GameScreen implements Screen {
                 stormTimer -= delta;
                 if (stormTimer <= 0) {
                     // solar radiation event: a wave knocks a chunk off the shields
-                    stormTimer = MathUtils.random(7f, 12f);
+                    stormTimer = STORM_INTERVAL;
                     stormFlash = 0.7f;
                     damagePlayer(8f);
                 }
@@ -423,6 +427,7 @@ public class GameScreen implements Screen {
         ScreenUtils.clear(0, 0, 0, 1f);
         viewport.apply();
         effects.applyZoom(viewport, controlledBody(), delta);
+        ((com.badlogic.gdx.graphics.OrthographicCamera) viewport.getCamera()).zoom *= tacticalZoom;
         // follow camera, clamped inside the arena
         com.badlogic.gdx.graphics.OrthographicCamera cam =
             (com.badlogic.gdx.graphics.OrthographicCamera) viewport.getCamera();
@@ -572,7 +577,7 @@ public class GameScreen implements Screen {
         }
         shapeRenderer.setColor(0.35f, 0.85f, 0.5f, 1f);
         for (Fighter f : fighters) {
-            radar.dot(shapeRenderer, f.centerX(), f.centerY(), 1.4f);
+            radar.dot(shapeRenderer, f.centerX(), f.centerY(), 1.1f);
         }
         shapeRenderer.setColor(1f, 0.6f, 0.15f, 1f);
         for (Projectile p : projectiles) {
@@ -698,10 +703,12 @@ public class GameScreen implements Screen {
             HUD_W - SpaceEffects.THROTTLE_HUD_MARGIN - SpaceEffects.THROTTLE_BLOCK_W,
             SpaceEffects.THROTTLE_HUD_MARGIN
                 + Player.THROTTLE_STEPS * (SpaceEffects.THROTTLE_BLOCK_H + SpaceEffects.THROTTLE_BLOCK_GAP) + 20);
-        if (stormFlash > 0) {
-            font.setColor(1f, 0.6f, 0.2f, 1f);
-            GlyphLayout sr = new GlyphLayout(font, "SOLAR RADIATION");
-            font.draw(batch, sr, (HUD_W - sr.width) / 2f, HUD_H - 70);
+        // #147: one quiet line at the bottom, fading in through the long build-up
+        if (state.map.getCurrentNode().stormy && stormTimer < STORM_BUILDUP && defeatT < 0) {
+            float ramp = 1f - stormTimer / STORM_BUILDUP;
+            font.setColor(1f, 0.65f, 0.25f, 0.25f + 0.75f * ramp);
+            GlyphLayout sr = new GlyphLayout(font, "WARNING: Solar activity detected");
+            font.draw(batch, sr, (HUD_W - sr.width) / 2f, 46);
         }
         if (hudToastT > 0) {
             font.setColor(1f, 0.5f, 0.2f, 1f);
@@ -735,6 +742,9 @@ public class GameScreen implements Screen {
     private boolean handleInput(float delta) {
         for (int k = 0; k < weapons.size && k < 9; k++) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1 + k)) activeWeapon = k;
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.Z)) {
+            tacticalZoom = tacticalZoom > 1.7f ? 1f : tacticalZoom > 1.2f ? 1.9f : 1.4f;
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.V)) {
             deckOpen = !deckOpen;
@@ -1793,6 +1803,14 @@ public class GameScreen implements Screen {
         drawLockMarker();
         if (sparks.size == 0 && shards.size == 0 && blasts.size == 0 && beams.size == 0) return;
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        // solar build-up: the whole arena warms up as the flare charges (#147)
+        if (state.map.getCurrentNode().stormy && stormTimer < STORM_BUILDUP && defeatT < 0) {
+            float ramp = (1f - stormTimer / STORM_BUILDUP) * 0.5f + (stormFlash > 0 ? stormFlash : 0f);
+            shapeRenderer.setColor(0.5f * ramp, 0.25f * ramp, 0.05f * ramp, 1f);
+            float inset = 6f;
+            shapeRenderer.rect(inset, inset, ARENA_WIDTH - 2 * inset, ARENA_HEIGHT - 2 * inset);
+            shapeRenderer.rect(inset * 3, inset * 3, ARENA_WIDTH - 6 * inset, ARENA_HEIGHT - 6 * inset);
+        }
         // mini shockwaves: crisp leading edge + fading trail, slightly off-round
         for (float[] swv : shockwaves) {
             float t = swv[2] / 0.3f;
@@ -1990,7 +2008,7 @@ public class GameScreen implements Screen {
             else if (f.squadron == 0) shapeRenderer.setColor(0.25f, 0.85f, 0.4f, 1f);
             else shapeRenderer.setColor(0.3f, 0.8f, 0.75f, 1f);
             transform.setToTranslation(f.centerX(), f.centerY(), 0)
-                .rotate(0, 0, 1, f.body.rotation).scale(0.55f, 0.55f, 1f);
+                .rotate(0, 0, 1, f.body.rotation).scale(0.38f, 0.38f, 1f);
             shapeRenderer.setTransformMatrix(transform);
             ShipRenderer.drawB2(shapeRenderer);
             if (f.body.thrustLevel > 0.02f) {
@@ -2004,7 +2022,7 @@ public class GameScreen implements Screen {
             shapeRenderer.setColor(Color.WHITE);
             for (Fighter f : fighters) {
                 if (f.squadron == selectedSquadron) {
-                    shapeRenderer.circle(f.centerX(), f.centerY(), 20f, 16);
+                    shapeRenderer.circle(f.centerX(), f.centerY(), 14f, 16);
                 }
             }
             Squadron sq = squadrons[selectedSquadron];
@@ -2031,6 +2049,7 @@ public class GameScreen implements Screen {
             else shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
             transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
             if (e.boss) transform.scale(2.2f, 2.2f, 1f);
+            else transform.scale(0.7f, 0.7f, 1f); // fighter-class hostiles read small vs the carrier
             shapeRenderer.setTransformMatrix(transform);
             ShipRenderer.drawB2Core(shapeRenderer);
             if (e.leftWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, true);

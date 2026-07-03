@@ -177,19 +177,35 @@ public class OverworldMap {
         // and a quick-escape route (about half the nodes) always survives
         placeNebulasAndPrune(xs, ys, adj, id);
 
-        // types: HOME first, COMBAT last, at least one trader and one loot in between
+        // types (#149): traders are scarce — 2-4 total, one anchored near HOME, one near END
         Node.Type[] types = new Node.Type[id];
         types[0] = Node.Type.HOME;
         types[id - 1] = Node.Type.COMBAT;
         List<Integer> middle = new ArrayList<>();
         for (int i = 1; i < id - 1; i++) middle.add(i);
+        // sort by distance to HOME so the head is the way in and the tail the way out
+        List<Integer> byX = new ArrayList<>(middle);
+        byX.sort((a, b) -> Float.compare(xs.get(a), xs.get(b)));
+        int traderCount = MathUtils.random(2, 4);
+        List<Integer> traders = new ArrayList<>();
+        traders.add(byX.get(MathUtils.random(Math.min(2, byX.size() - 1))));           // near the start
+        int tail = byX.get(byX.size() - 1 - MathUtils.random(Math.min(2, byX.size() - 1)));
+        if (!traders.contains(tail)) traders.add(tail);                                 // near the gate
         Collections.shuffle(middle);
+        for (int i : middle) {
+            if (traders.size() >= traderCount) break;
+            if (!traders.contains(i)) traders.add(i);
+        }
+        boolean lootPlaced = false;
         for (int k = 0; k < middle.size(); k++) {
-            if (k == 0) types[middle.get(k)] = Node.Type.TRADER;
-            else if (k == 1) types[middle.get(k)] = Node.Type.LOOT;
-            else {
-                int roll = MathUtils.random(9);
-                types[middle.get(k)] = roll < 3 ? Node.Type.TRADER : roll < 6 ? Node.Type.LOOT : Node.Type.COMBAT;
+            int i = middle.get(k);
+            if (traders.contains(i)) {
+                types[i] = Node.Type.TRADER;
+            } else if (!lootPlaced) {
+                types[i] = Node.Type.LOOT;
+                lootPlaced = true;
+            } else {
+                types[i] = MathUtils.random(9) < 4 ? Node.Type.LOOT : Node.Type.COMBAT;
             }
         }
 

@@ -1068,10 +1068,14 @@ public class ShipDeckView {
     public static void drawScanline(ShapeRenderer shapes, float time,
                                     float x1, float x2, float yBottom, float yTop) {
         float scan = yTop - (time % SCAN_PERIOD) / SCAN_PERIOD * (yTop - yBottom);
+        // thicker band (#150): 3px bright core with a soft halo above and below
         Palette.set(shapes, 0.3f, 0.9f, 1f, 0.10f);
-        shapes.line(x1, scan + 2, x2, scan + 2);
+        shapes.line(x1, scan + 3, x2, scan + 3);
+        shapes.line(x1, scan - 2, x2, scan - 2);
         Palette.set(shapes, 0.3f, 0.9f, 1f, 0.22f);
+        shapes.line(x1, scan - 1, x2, scan - 1);
         shapes.line(x1, scan, x2, scan);
+        shapes.line(x1, scan + 1, x2, scan + 1);
     }
 
     /** Deck-space line on the floor (z = 0). */

@@ -1,17 +1,3 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/restart-game.sh",
-            "async": true,
-            "timeout": 120,
-            "statusMessage": "Rebuilding and restarting jfighter..."
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }
