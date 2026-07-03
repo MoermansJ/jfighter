@@ -91,6 +91,8 @@ public final class SaveGame {
         b.append(",\"hp\":").append(c.hp);
         b.append(",\"deckX\":").append(c.deckX);
         b.append(",\"deckY\":").append(c.deckY);
+        b.append(",\"freeX\":").append(c.freeX);
+        b.append(",\"freeY\":").append(c.freeY);
         b.append(",\"hostile\":").append(c.hostile);
         b.append('}');
     }
@@ -214,6 +216,8 @@ public final class SaveGame {
         m.hp = c.getFloat("hp");
         m.deckX = c.getFloat("deckX");
         m.deckY = c.getFloat("deckY");
+        m.freeX = c.getFloat("freeX", -1f);
+        m.freeY = c.getFloat("freeY", -1f);
         m.hostile = c.getBoolean("hostile");
         return m;
     }

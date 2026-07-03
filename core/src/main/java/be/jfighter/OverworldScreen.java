@@ -774,11 +774,9 @@ public class OverworldScreen implements Screen {
                 return false;
             }
             if (selectedCrew != null) {
-                if (hoveredRoom != -1) {
-                    selectedCrew.station = hoveredRoom;
-                    selectedCrew.assignedAt = state.nextStationSeq(); // back of the station queue
-                }
-                selectedCrew = null; // stationed, or clicked empty space = deselect
+                // console clicks man the station; any other walkable spot is a free-move order
+                deckView.orderAtScreen(selectedCrew, mouse.x, mouse.y);
+                selectedCrew = null; // ordered, or clicked empty space = deselect
             }
             return false;
         }

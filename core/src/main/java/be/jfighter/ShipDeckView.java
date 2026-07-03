@@ -312,6 +312,46 @@ public class ShipDeckView {
         state.doorHeldOpen[door] = !state.doorHeldOpen[door];
     }
 
+    /**
+     * Order for a selected figure at a screen point: clicking near a console mans the
+     * station (queue semantics), any other walkable spot is a free-move order (#88).
+     * Returns true when an order was issued.
+     */
+    public boolean orderAtScreen(CrewMember c, float screenX, float screenY) {
+        float x = (screenX - OFFSET_X) / SCALE;
+        float y = (screenY - OFFSET_Y) / (SQUASH * SCALE);
+        int room = roomAtDeck(x, y);
+        if (room != -1 && ROOM_SKILL[room] != null) {
+            float[] r = ROOMS[room];
+            boolean north = r[1] >= CORRIDOR_Y2;
+            float consX = r[0] + r[2] / 2f;
+            float consY = north ? r[1] + r[3] - 12 : r[1] + 12;
+            if (Vector2.dst(x, y, consX, consY) < 22f) {
+                c.freeX = -1;
+                c.station = room;
+                c.assignedAt = state.nextStationSeq();
+                return true;
+            }
+        }
+        if (compAtDeck(x, y) == -1) return false;
+        orderFreeMove(c, x, y);
+        return true;
+    }
+
+    /** Walk to an exact deck spot and hold there (clears any station assignment). */
+    public void orderFreeMove(CrewMember c, float dx, float dy) {
+        c.freeX = dx;
+        c.freeY = dy;
+        c.station = -1;
+        Sim sim = sims.get(c);
+        if (sim != null) {
+            sim.path.clear();
+            pathBetween(sim.x, sim.y, dx, dy, sim.path);
+            sim.path.add(new Vector2(dx, dy));
+            sim.plannedStation = -2; // free-move sentinel
+        }
+    }
+
     /** Which crew member's figure is under this screen position, or null. */
     public CrewMember crewAt(float screenX, float screenY) {
         for (CrewMember c : figures()) {
@@ -459,8 +499,11 @@ public class ShipDeckView {
                 sim.fallT = Math.min(1f, sim.fallT + delta / FALL_DURATION);
                 continue; // the dead don't walk, breathe, or run consoles
             }
+            if (c.station >= 0) c.freeX = -1; // a station assignment overrides a free order
             if (engaged.contains(c)) {
                 sim.moving = false; // locked in the melee
+            } else if (c.freeX >= 0) {
+                moveAlongPath(sim, delta); // free-move: no station re-path fights the order
             } else {
                 if (sim.plannedStation != effectiveStation(c)) planPath(c, sim);
                 moveAlongPath(sim, delta);
@@ -1024,6 +1067,15 @@ public class ShipDeckView {
         for (float[] c : new float[][] {{BEZ_X1 + 6, BEZ_Y1 + 6}, {BEZ_X2 - 6, BEZ_Y1 + 6},
                                         {BEZ_X1 + 6, BEZ_Y2 - 6}, {BEZ_X2 - 6, BEZ_Y2 - 6}}) {
             shapes.circle(c[0], c[1], 2.5f, 8); // corner screws
+        }
+        // free-move destination marker for the selected figure
+        if (selectedCrew != null && selectedCrew.freeX >= 0) {
+            float mxp = px(selectedCrew.freeX);
+            float myp = py(selectedCrew.freeY, 0);
+            float pulse = 3.5f + 1.2f * MathUtils.sin(time * 5f);
+            Palette.set(shapes, 0.4f, 0.9f, 1f, 0.8f);
+            shapes.line(mxp - pulse, myp, mxp + pulse, myp);
+            shapes.line(mxp, myp - pulse * SQUASH, mxp, myp + pulse * SQUASH);
         }
         // door control cluster
         for (int i = 0; i < 4; i++) {

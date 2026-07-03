@@ -22,6 +22,9 @@ public class CrewMember {
     // position on the carrier deck (ShipDeckView deck coordinates); -1 = not placed yet
     public float deckX = -1;
     public float deckY = -1;
+    // free-move order (#88): walk to this exact deck spot and hold; -1 = none
+    public float freeX = -1;
+    public float freeY = -1;
 
     public CrewMember(String name, Skill primary, Skill secondary) {
         this.name = name;
