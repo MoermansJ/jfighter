@@ -135,7 +135,7 @@ public class ShipDeckView {
     private Array<CrewMember> figures() {
         figureList.clear();
         for (CrewMember c : state.crew) figureList.add(c);
-        if (state.boarder != null) figureList.add(state.boarder);
+        figureList.addAll(state.boarders.toArray(new CrewMember[0]));
         return figureList;
     }
     private final float[] roomBrightness = new float[ROOMS.length];
@@ -521,8 +521,8 @@ public class ShipDeckView {
         // range (auto-initiation; personality traits could gate this later)
         engaged.clear();
         clashes.clear();
-        CrewMember boarder = state.boarder;
-        if (boarder != null && !boarder.isDead()) {
+        for (CrewMember boarder : state.boarders) {
+            if (boarder.isDead()) continue;
             Sim bs = sims.get(boarder);
             if (bs != null) {
                 int broom = roomAtDeck(bs.x, bs.y);

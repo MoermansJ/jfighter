@@ -732,6 +732,12 @@ public class OverworldScreen implements Screen {
                 if (node.type == Node.Type.COMBAT && !node.completed
                         && MathUtils.random() >= escapeChance()) {
                     // failed to slip past: hostiles force the fight (completes when they die)
+                    if (MathUtils.random() < 0.35f) {
+                        // and in the scramble, a boarding party forces an airlock (#97)
+                        state.spawnBoarders(MathUtils.random(1, 2));
+                        toast = "HULL BREACH — BOARDERS AT AIRLOCK A";
+                        toastT = 4f;
+                    }
                     snapshotRoomStats();
                     game.setScreen(new GameScreen(game, state));
                     return true;

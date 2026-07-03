@@ -99,11 +99,12 @@ public final class SaveGame {
                 crewJson(b, s.crew.get(i));
             }
             b.append("],");
-            if (s.boarder != null) {
-                b.append("\"boarder\":");
-                crewJson(b, s.boarder);
-                b.append(',');
+            b.append("\"boarders\":[");
+            for (int i = 0; i < s.boarders.size(); i++) {
+                if (i > 0) b.append(',');
+                crewJson(b, s.boarders.get(i));
             }
+            b.append("],");
             mapJson(b, s.map);
             b.append('}');
             file().writeString(b.toString(), false);
@@ -205,7 +206,7 @@ public final class SaveGame {
             JsonValue r = new JsonReader().parse(file());
             GameState s = new GameState();
             s.crew.clear();
-            s.boarder = null;
+            s.boarders.clear();
             s.credits = r.getInt("credits");
             s.fuel = r.getFloat("fuel");
             s.maxFuel = r.getFloat("maxFuel");
@@ -260,7 +261,13 @@ public final class SaveGame {
             for (JsonValue c = r.get("crew").child; c != null; c = c.next) {
                 s.crew.add(readCrew(c));
             }
-            if (r.has("boarder")) s.boarder = readCrew(r.get("boarder"));
+            if (r.has("boarders")) {
+                for (JsonValue bd = r.get("boarders").child; bd != null; bd = bd.next) {
+                    s.boarders.add(readCrew(bd));
+                }
+            } else if (r.has("boarder")) {
+                s.boarders.add(readCrew(r.get("boarder"))); // legacy single-boarder saves
+            }
             s.map = readMap(r.get("map"));
             return s;
         } catch (Exception e) {

@@ -227,17 +227,40 @@ public class GameState {
             crew.add(new CrewMember(name, primary, secondary));
         }
         if (Dev.MODE) {
-            boarder = new CrewMember("INTRUDER", Skill.COMBAT,
+            CrewMember intruder = new CrewMember("INTRUDER", Skill.COMBAT,
                 skills[MathUtils.random(skills.length - 2)]);
-            boarder.hostile = true;
-            boarder.station = 1; // stands in the (stationless) cargo hold
-            boarder.deckX = 90;
-            boarder.deckY = 22;
+            intruder.hostile = true;
+            intruder.station = 1; // stands in the (stationless) cargo hold
+            intruder.deckX = 90;
+            intruder.deckY = 22;
+            boarders.add(intruder);
         }
     }
 
-    // dev-mode boarder (#42): a hostile figure in the cargo hold, player-controllable
-    public CrewMember boarder;
+    // hostile boarders aboard the carrier (#42 dev intruder, #97 boarding events)
+    public final List<CrewMember> boarders = new ArrayList<>();
+
+    /** Legacy accessor: the first living boarder, or null. */
+    public CrewMember boarder() {
+        for (CrewMember b : boarders) {
+            if (!b.isDead()) return b;
+        }
+        return boarders.isEmpty() ? null : boarders.get(0);
+    }
+
+    /** A boarding party forces its way in through an airlock (#97). */
+    public void spawnBoarders(int count) {
+        Skill[] skills = Skill.values();
+        for (int i = 0; i < count; i++) {
+            CrewMember b = new CrewMember("BOARDER", Skill.COMBAT,
+                skills[MathUtils.random(skills.length - 2)]);
+            b.hostile = true;
+            b.station = MathUtils.random(7); // they head for a room to wreck
+            b.deckX = 388 + MathUtils.random(-6f, 6f); // airlock A chamber
+            b.deckY = 8 + i * 6;
+            boarders.add(b);
+        }
+    }
     // set by combat when a hit sparks a blaze aboard; consumed by ShipDeckView (#110)
     public int pendingFireRoom = -1;
 
