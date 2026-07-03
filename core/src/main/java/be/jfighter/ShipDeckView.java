@@ -609,8 +609,16 @@ public class ShipDeckView {
                 } else {
                     sim.idleT -= delta;
                     if (sim.idleT <= 0) {
-                        sim.idleKind = MathUtils.random(2);
-                        sim.idleAnimT = MathUtils.random(0.8f, 2f);
+                        int comp = compAtDeck(sim.x, sim.y);
+                        boolean breathable = comp != -1 && state.oxygen[comp] > 0.3f;
+                        // the cigarette break is rare, and only where there's air to smoke in
+                        if (breathable && MathUtils.randomBoolean(0.15f)) {
+                            sim.idleKind = 3;
+                            sim.idleAnimT = MathUtils.random(3f, 5f);
+                        } else {
+                            sim.idleKind = MathUtils.random(2);
+                            sim.idleAnimT = MathUtils.random(0.8f, 2f);
+                        }
                         sim.idleT = MathUtils.random(4f, 12f);
                     }
                 }
@@ -1521,7 +1529,10 @@ public class ShipDeckView {
         // arm endpoints: hip height normally, overhead when stretching
         float armEndH = FIGURE_H * 0.45f;
         boolean stretch = !fighting && sim.idleAnimT > 0 && sim.idleKind == 1;
-        boolean scratch = !fighting && sim.idleAnimT > 0 && sim.idleKind == 2;
+        boolean smoking = !fighting && sim.idleAnimT > 0 && sim.idleKind == 3;
+        // drags on the cigarette: the hand comes up periodically
+        boolean dragging = smoking && MathUtils.sin(time * 1.6f + sim.idleT) > 0.1f;
+        boolean scratch = (!fighting && sim.idleAnimT > 0 && sim.idleKind == 2) || dragging;
         if (stretch) armEndH = FIGURE_H + 2f;
         float aX = bodyX(sim, armEndH) + jx, aY = bodyY(sim, armEndH) + jy;
         float reach = stretch ? 1.5f : 3 + armSwing;
@@ -1530,8 +1541,21 @@ public class ShipDeckView {
             // one hand up to the head
             float hX = bodyX(sim, FIGURE_H - 1) + jx, hY = bodyY(sim, FIGURE_H - 1) + jy;
             shapes.line(neckX, neckY, hX + 1.5f * sideX, hY + 1.5f * sideY);
+            if (dragging) { // ember glow at the hand (#131)
+                shapes.setColor(1f, 0.45f, 0.1f, 0.9f);
+                shapes.circle(hX + 1.5f * sideX, hY + 1.5f * sideY, 0.8f, 6);
+            }
         } else {
             shapes.line(neckX, neckY, aX + reach * sideX, aY + reach * sideY);
+        }
+        if (smoking) { // drifting smoke puffs above the head
+            float hX = bodyX(sim, FIGURE_H + 1) + jx, hY = bodyY(sim, FIGURE_H + 1) + jy;
+            for (int k = 0; k < 3; k++) {
+                float ph = (time * 0.3f + k * 0.33f) % 1f;
+                shapes.setColor(0.6f, 0.62f, 0.65f, 0.35f * (1f - ph));
+                shapes.circle(hX + MathUtils.sin(time * 2f + k) * 1.5f,
+                    hY + ph * 9f, 0.8f + ph * 1.4f, 6);
+            }
         }
     }
 
