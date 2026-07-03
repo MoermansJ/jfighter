@@ -76,11 +76,12 @@ public class GameScreen implements Screen {
     private final PauseMenu pause = new PauseMenu();
     private final Radar radar = new Radar(ARENA_WIDTH, ARENA_HEIGHT);
     private final Array<Weapon> weapons = new Array<>();
-    private int activeWeapon;
     private Enemy lockTarget; // auto-aim target for homing rockets
     private final Array<float[]> beams = new Array<>(); // {x1,y1,x2,y2,life,maxLife} laser flashes
     private final ControlsHelp controlsHelp = new ControlsHelp(new String[][]{
-        {"SPACE", "fire"},
+        {"SPACE", "fire selected mounts"},
+        {"1-4", "toggle mount in the fire group"},
+        {"SHIFT+1-4", "toggle mount AUTO"},
         {"UP/DOWN", "throttle"},
         {"LEFT/RIGHT", "turn"},
         {"LMB", "select squadron / give order"},
@@ -258,7 +259,12 @@ public class GameScreen implements Screen {
             * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]); // engine crew + reactor power
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
-        for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
+        for (Weapon.Type t : state.loadout) {
+            Weapon wp = new Weapon(t);
+            wp.auto = t.ammoKind == Weapon.AmmoKind.LIGHT; // light/medium feeders mind themselves (#139)
+            wp.selected = !wp.auto;
+            weapons.add(wp);
+        }
         state.weaponEnergy = state.maxWeaponEnergy; // fresh capacitors each engagement
         deckView = new ShipDeckView(state);
         // squadrons launch with the carrier on the field
@@ -454,26 +460,51 @@ public class GameScreen implements Screen {
         drawThreatMarkers();
         drawEdgeArrows();
         drawCritToasts();
-        // active mount barrels: turret direction, and reciprocating 155mm barrels
+        // mount barrels + aiming aids (#140): every selected/auto mount shows its bearing;
+        // manual mounts get a range arc and an aim-line crosshair
         if (defeatT < 0 && !weapons.isEmpty()) {
-            Weapon aw = weapons.get(activeWeapon);
-            float barrelRot = player.rotation + (aw.type.turretArc > 0 ? aw.turret : 0f);
             float bx = player.x + Player.WIDTH / 2f;
             float by = player.y + Player.HEIGHT / 2f;
-            float fxv = -MathUtils.sinDeg(barrelRot);
-            float fyv = MathUtils.cosDeg(barrelRot);
-            float rxv = MathUtils.cosDeg(barrelRot);
-            float ryv = MathUtils.sinDeg(barrelRot);
             shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-            shapeRenderer.setColor(0.6f, 0.65f, 0.7f, 1f);
-            int barrels = aw.type == Weapon.Type.CANNON_155 ? state.cannon155Tier() : 1;
-            for (int bIdx = 0; bIdx < barrels; bIdx++) {
-                float lat = (bIdx - (barrels - 1) / 2f) * 7f;
-                float recoil = aw.type == Weapon.Type.CANNON_155 ? aw.barrelRecoil[bIdx] * 7f : 0f;
-                shapeRenderer.line(bx + rxv * lat + fxv * (14f - recoil),
-                    by + ryv * lat + fyv * (14f - recoil),
-                    bx + rxv * lat + fxv * (30f - recoil),
-                    by + ryv * lat + fyv * (30f - recoil));
+            for (Weapon aw : weapons) {
+                if (!aw.selected && !aw.auto) continue;
+                float barrelRot = player.rotation + (aw.type.turretArc > 0 ? aw.turret : 0f);
+                float fxv = -MathUtils.sinDeg(barrelRot);
+                float fyv = MathUtils.cosDeg(barrelRot);
+                float rxv = MathUtils.cosDeg(barrelRot);
+                float ryv = MathUtils.sinDeg(barrelRot);
+                shapeRenderer.setColor(0.6f, 0.65f, 0.7f, 1f);
+                int barrels = aw.type == Weapon.Type.CANNON_155 ? state.cannon155Tier() : 1;
+                for (int bIdx = 0; bIdx < barrels; bIdx++) {
+                    float lat = (bIdx - (barrels - 1) / 2f) * 7f;
+                    float recoil = aw.type == Weapon.Type.CANNON_155 ? aw.barrelRecoil[bIdx] * 7f : 0f;
+                    shapeRenderer.line(bx + rxv * lat + fxv * (14f - recoil),
+                        by + ryv * lat + fyv * (14f - recoil),
+                        bx + rxv * lat + fxv * (30f - recoil),
+                        by + ryv * lat + fyv * (30f - recoil));
+                }
+                if (!aw.selected) continue; // aids are for the manual group only
+                float range = weaponRange(aw.type);
+                shapeRenderer.setColor(0.25f, 0.65f, 0.75f, 1f);
+                float arcHalf = aw.type.turretArc > 0 ? aw.type.turretArc : 5f;
+                float a0 = player.rotation - arcHalf + 90f; // shape arc() is x-axis based
+                // reach arc at max range across the slew limits
+                shapeRenderer.arc(bx, by, range, a0, arcHalf * 2f, Math.max(8, (int) (arcHalf / 6f)));
+                if (aw.type.turretArc > 0 && aw.type.turretArc < 180f) {
+                    // arc limit spokes
+                    for (int sgn = -1; sgn <= 1; sgn += 2) {
+                        float lr = player.rotation + sgn * arcHalf;
+                        shapeRenderer.line(bx, by,
+                            bx - MathUtils.sinDeg(lr) * range, by + MathUtils.cosDeg(lr) * range);
+                    }
+                }
+                // aim line out to reach, capped with a crosshair where the round lands
+                float ex = bx + fxv * range;
+                float ey = by + fyv * range;
+                shapeRenderer.setColor(0.35f, 0.8f, 0.9f, 1f);
+                shapeRenderer.line(bx + fxv * 34f, by + fyv * 34f, ex, ey);
+                shapeRenderer.line(ex - 6, ey, ex + 6, ey);
+                shapeRenderer.line(ex, ey - 6, ex, ey + 6);
             }
             shapeRenderer.end();
         }
@@ -630,10 +661,15 @@ public class GameScreen implements Screen {
         shapeRenderer.end();
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < weapons.size; i++) {
+            Weapon cw = weapons.get(i);
             float x = cardsX + i * (cardW + 6f);
-            if (i == activeWeapon) shapeRenderer.setColor(Color.WHITE);
+            if (cw.selected) shapeRenderer.setColor(Color.WHITE);
             else shapeRenderer.setColor(0.3f, 0.32f, 0.35f, 1f);
             shapeRenderer.rect(x, 8, cardW, cardH);
+            // AUTO lamp, top-right corner of the card
+            if (cw.auto) shapeRenderer.setColor(0.3f, 0.9f, 0.4f, 1f);
+            else shapeRenderer.setColor(0.2f, 0.24f, 0.26f, 1f);
+            shapeRenderer.rect(x + cardW - 12, 8 + cardH - 8, 8, 4);
         }
         shapeRenderer.end();
 
@@ -643,8 +679,8 @@ public class GameScreen implements Screen {
         for (int i = 0; i < weapons.size; i++) {
             Weapon w = weapons.get(i);
             float x = cardsX + i * (cardW + 6f);
-            font.setColor(i == activeWeapon ? Color.WHITE : Color.GRAY);
-            String cardLabel = (i + 1) + " " + w.type.label;
+            font.setColor(w.selected ? Color.WHITE : w.auto ? new Color(0.4f, 0.8f, 0.5f, 1f) : Color.GRAY);
+            String cardLabel = (i + 1) + " " + w.type.label + (w.auto ? " A" : "");
             if (w.type == Weapon.Type.CANNON_155) cardLabel += " T" + state.cannon155Tier();
             font.draw(batch, cardLabel, x + 4, 38);
             String ammoText = ammoLabel(w.type);
@@ -740,8 +776,19 @@ public class GameScreen implements Screen {
 
     /** Returns true when the screen was switched and rendering must stop. */
     private boolean handleInput(float delta) {
+        boolean shift = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
+            || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
         for (int k = 0; k < weapons.size && k < 9; k++) {
-            if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1 + k)) activeWeapon = k;
+            if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1 + k)) {
+                Weapon wk = weapons.get(k);
+                if (shift) {
+                    wk.auto = !wk.auto; // SHIFT+key: hand the mount to the gunners or take it back
+                    if (wk.auto) wk.selected = false;
+                } else {
+                    wk.selected = !wk.selected; // multi-select manual fire group (#139)
+                    if (wk.selected) wk.auto = false;
+                }
+            }
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.Z)) {
             tacticalZoom = tacticalZoom > 1.7f ? 1f : tacticalZoom > 1.2f ? 1.9f : 1.4f;
@@ -1494,27 +1541,70 @@ public class GameScreen implements Screen {
             }
             return;
         }
-        Weapon w = weapons.get(activeWeapon);
-        if (beaming && w.type != Weapon.Type.BEAM_LASER) {
-            beaming = false; // switched weapons mid-beam
-            game.sfx.stopBeam();
-        }
         Player body = controlledBody();
         boolean held = Gdx.input.isKeyPressed(Input.Keys.SPACE);
-        // turreted mounts track the cursor within their arc; fixed mounts stay on the nose
-        float fireRotation = body.rotation;
-        if (w.type.turretArc > 0) {
-            Vector2 cursor = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
-            float cdx = cursor.x - (body.x + Player.WIDTH / 2f);
-            float cdy = cursor.y - (body.y + Player.HEIGHT / 2f);
-            float desired = MathUtils.atan2(-cdx, cdy) * MathUtils.radiansToDegrees;
-            float offset = ((desired - body.rotation) % 360f + 540f) % 360f - 180f;
-            offset = MathUtils.clamp(offset, -w.type.turretArc, w.type.turretArc);
-            float slew = 240f * delta; // mount turn-rate limit
-            w.turret += MathUtils.clamp(offset - w.turret, -slew, slew);
-            w.turret = MathUtils.clamp(w.turret, -w.type.turretArc, w.type.turretArc);
-            fireRotation = body.rotation + w.turret;
+        boolean anyBeam = false;
+        for (Weapon w : weapons) {
+            if (w.auto) {
+                anyBeam |= autoFireMount(w, body, delta);
+            } else if (w.selected) {
+                float rot = slewMount(w, body, cursorBearing(body), delta);
+                anyBeam |= fireMount(w, body, rot, held, delta);
+            }
         }
+        if (beaming && !anyBeam) {
+            beaming = false;
+            game.sfx.stopBeam();
+        }
+    }
+
+    /** Bearing from the ship to the cursor, in world degrees. */
+    private float cursorBearing(Player body) {
+        Vector2 cursor = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+        float cdx = cursor.x - (body.x + Player.WIDTH / 2f);
+        float cdy = cursor.y - (body.y + Player.HEIGHT / 2f);
+        return MathUtils.atan2(-cdx, cdy) * MathUtils.radiansToDegrees;
+    }
+
+    /** Effective reach of a mount, for auto acquisition and the range indicators (#140). */
+    private static float weaponRange(Weapon.Type t) {
+        return t.speed > 0 ? t.speed * 0.85f : 420f;
+    }
+
+    /** Slews the mount toward a desired bearing within its arc; returns the barrel rotation. */
+    private float slewMount(Weapon w, Player body, float desired, float delta) {
+        if (w.type.turretArc <= 0) return body.rotation;
+        float offset = ((desired - body.rotation) % 360f + 540f) % 360f - 180f;
+        offset = MathUtils.clamp(offset, -w.type.turretArc, w.type.turretArc);
+        float slew = 240f * delta; // mount turn-rate limit
+        w.turret += MathUtils.clamp(offset - w.turret, -slew, slew);
+        w.turret = MathUtils.clamp(w.turret, -w.type.turretArc, w.type.turretArc);
+        return body.rotation + w.turret;
+    }
+
+    /** AUTO mounts (#139): acquire the nearest hostile in range, slew, and fire when aligned. */
+    private boolean autoFireMount(Weapon w, Player body, float delta) {
+        float cx = body.x + Player.WIDTH / 2f;
+        float cy = body.y + Player.HEIGHT / 2f;
+        Enemy target = null;
+        float best = weaponRange(w.type);
+        for (Enemy e : enemies) {
+            float d = Vector2.dst(cx, cy, e.centerX(), e.centerY());
+            if (d < best) {
+                best = d;
+                target = e;
+            }
+        }
+        if (target == null) return false;
+        float desired = MathUtils.atan2(-(target.centerX() - cx), target.centerY() - cy)
+            * MathUtils.radiansToDegrees;
+        float rot = slewMount(w, body, desired, delta);
+        float aimErr = ((desired - rot) % 360f + 540f) % 360f - 180f;
+        return fireMount(w, body, rot, Math.abs(aimErr) < 6f, delta);
+    }
+
+    /** Runs one mount's firing logic; returns true when its beam burned this frame. */
+    private boolean fireMount(Weapon w, Player body, float fireRotation, boolean held, float delta) {
         float fx = -MathUtils.sinDeg(fireRotation);
         float fy = MathUtils.cosDeg(fireRotation);
         float nx = body.x + Player.WIDTH / 2f + fx * 20f;
@@ -1528,9 +1618,7 @@ public class GameScreen implements Screen {
                         beaming = true;
                         game.sfx.startBeam();
                     }
-                } else if (beaming) {
-                    beaming = false;
-                    game.sfx.stopBeam();
+                    return true;
                 }
                 break;
             case BURST_LASER:
@@ -1589,10 +1677,12 @@ public class GameScreen implements Screen {
                     // muzzle flash scaled by caliber
                     addBlast(nx, ny, 0f, 150f, 5f + w.type.damage * 0.35f);
                     if (w.type.isRocket()) game.sfx.playRocket();
-                    else game.sfx.playCannon(w.type == Weapon.Type.LIGHT_CANNON ? 0
+                    else game.sfx.playCannon(w.type == Weapon.Type.LIGHT_CANNON
+                        || w.type == Weapon.Type.AUTOCANNON_20 ? 0
                         : w.type == Weapon.Type.MEDIUM_CANNON ? 1 : 2);
                 }
         }
+        return false;
     }
 
     /** Hitscan laser: damages the first enemy along the ray and leaves a beam flash. */
@@ -1627,7 +1717,11 @@ public class GameScreen implements Screen {
     /** Homing rockets acquire the nearest enemy in a forward cone. */
     private void updateLockTarget() {
         lockTarget = null;
-        if (weapons.isEmpty() || weapons.get(activeWeapon).type != Weapon.Type.HOMING_ROCKET) return;
+        boolean homingSelected = false;
+        for (Weapon lw : weapons) {
+            if ((lw.selected || lw.auto) && lw.type == Weapon.Type.HOMING_ROCKET) homingSelected = true;
+        }
+        if (!homingSelected) return;
         Player body = controlledBody();
         float fx = -MathUtils.sinDeg(body.rotation);
         float fy = MathUtils.cosDeg(body.rotation);

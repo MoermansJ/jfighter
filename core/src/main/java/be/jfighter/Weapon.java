@@ -48,6 +48,8 @@ public class Weapon {
 
     public final Type type;
     public float cooldown;
+    public boolean selected; // part of the manual fire group (#139)
+    public boolean auto;     // aims and fires itself at enemies in range (#139)
     public int burstLeft;  // queued pulses for BURST_LASER
     public float burstTimer;
     public float turret;   // current mount offset from the nose, clamped to the arc
