@@ -148,6 +148,7 @@ public class ShipDeckView {
     private float time;
     private int highlightRoom = -1;
     private boolean lifesigns; // #159: combat overlay draws heartbeat pips, not figures
+    private boolean compact;   // vital-signs monitor: doors/power panels live elsewhere
     private CrewMember selectedCrew;
     private CrewMember hoveredCrew;
     private final boolean[] doorOpen = new boolean[DOOR_COUNT]; // effective state this frame
@@ -362,6 +363,21 @@ public class ShipDeckView {
     /** Combat overlay mode (#159): crew render as heartbeat pips instead of figures. */
     public void setLifesigns(boolean on) {
         this.lifesigns = on;
+    }
+
+    /** Compact mode: skip the door/power panels (the combat desk has its own). */
+    public void setCompact(boolean on) {
+        this.compact = on;
+    }
+
+    /** Exposed for the desk console (#162): current label of a door-cluster button. */
+    public String doorButtonLabel(int i) {
+        return doorBtnLabel(i);
+    }
+
+    /** Exposed for the desk console: whether a door button is in its hot/armed state. */
+    public boolean doorButtonHot(int i) {
+        return (i == 0 && openAllStage == 2) || (i >= 2 && ventArm == i - 2);
     }
 
     /** Crew focus for avatar highlighting: strong for selected, subtle for hovered. */
@@ -1293,7 +1309,7 @@ public class ShipDeckView {
         // burning tiles
         drawFires(shapes);
         // light pools over each room's console, flickering
-        for (int i = 0; i < ROOMS.length; i++) {
+        for (int i = 0; i < ROOMS.length && !compact; i++) {
             float[] r = ROOMS[i];
             float b = roomBrightness[i];
             float flicker = 0.85f + 0.15f * MathUtils.sin(time * 13f + i * 7f) * MathUtils.sin(time * 5.3f + i * 3f);
@@ -1355,10 +1371,9 @@ public class ShipDeckView {
             shapes.line(mxp - pulse, myp, mxp + pulse, myp);
             shapes.line(mxp, myp - pulse * SQUASH, mxp, myp + pulse * SQUASH);
         }
-        // reactor power panel
-        drawPowerPanel(shapes);
-        // door control cluster
-        for (int i = 0; i < 4; i++) {
+        // reactor power panel + door cluster (hidden on the compact vital-signs screen)
+        if (!compact) drawPowerPanel(shapes);
+        for (int i = 0; i < 4 && !compact; i++) {
             boolean hot = (i == 0 && openAllStage == 2) || (i >= 2 && ventArm == i - 2);
             if (hot) Palette.set(shapes, 0.9f, 0.25f, 0.2f, 1f);
             else Palette.set(shapes, 0.3f, 0.45f, 0.52f, 1f);
@@ -1388,7 +1403,7 @@ public class ShipDeckView {
             drawDoor(shapes, d - DOOR_HALF, d + DOOR_HALF, doorPosY(i), doorOpen[i], state.doorHeldOpen[i]);
         }
         // consoles: a segmented strip against each room's hull-side wall; health-lit (#128)
-        for (int i = 0; i < ROOMS.length; i++) {
+        for (int i = 0; i < ROOMS.length && !compact; i++) {
             float[] r = ROOMS[i];
             float b = roomBrightness[i];
             float cx = r[0] + r[2] / 2f;
@@ -1439,15 +1454,17 @@ public class ShipDeckView {
                 shapes.rect(sx0 - 1, sy0 - 1, 16 * SCALE + 2, 5);
             }
         }
-        // floor icons: a faint function glyph on each room's deck plating
-        drawRoomIcons(shapes);
-        // furniture, pipes and floor markings
-        drawDeckDetail(shapes);
-        // hangar bay: the carrier's two craft parked side by side (B-2 fighter + pincer pod)
-        float hb = 0.25f + 0.35f * roomBrightness[2];
-        Palette.set(shapes, hb * 0.8f, hb * 1.3f, hb * 1.6f, 1f);
-        drawParkedCraft(shapes, 150, 87, 0.38f, false);
-        drawParkedCraft(shapes, 205, 86, 0.32f, true);
+        if (!compact) { // the vital-signs screen keeps just outlines, pips and doors
+            // floor icons: a faint function glyph on each room's deck plating
+            drawRoomIcons(shapes);
+            // furniture, pipes and floor markings
+            drawDeckDetail(shapes);
+            // hangar bay: the carrier's two craft parked side by side (B-2 fighter + pincer pod)
+            float hb = 0.25f + 0.35f * roomBrightness[2];
+            Palette.set(shapes, hb * 0.8f, hb * 1.3f, hb * 1.6f, 1f);
+            drawParkedCraft(shapes, 150, 87, 0.38f, false);
+            drawParkedCraft(shapes, 205, 86, 0.32f, true);
+        }
         // crew figures (+ selection/hover rings at their feet)
         for (CrewMember c : figures()) {
             Sim sim = sims.get(c);
@@ -1473,10 +1490,12 @@ public class ShipDeckView {
             setFigureColor(shapes, c);
             shapes.circle(bodyX(sim, FIGURE_H - 3), bodyY(sim, FIGURE_H - 3), 2.6f, 10);
         }
-        Palette.set(shapes, 0.9f, 0.15f, 0.1f, 1f);
-        shapes.circle(896, SCR_Y1 + 8, 3.5f, 10); // record dot, left of the LIVE label
+        if (!compact) {
+            Palette.set(shapes, 0.9f, 0.15f, 0.1f, 1f);
+            shapes.circle(896, SCR_Y1 + 8, 3.5f, 10); // record dot, left of the LIVE label
+        }
         // console colour buttons on the bottom bezel strip (raw colours, never tinted)
-        for (int i = 0; i < SCHEME_BTN_X.length; i++) {
+        for (int i = 0; i < SCHEME_BTN_X.length && !compact; i++) {
             if (Palette.scheme().ordinal() == i) {
                 shapes.setColor(0.7f, 0.72f, 0.75f, 1f);
                 shapes.circle(SCHEME_BTN_X[i], SCHEME_BTN_Y, 6f, 12); // active ring
@@ -1639,6 +1658,7 @@ public class ShipDeckView {
 
     /** Room labels, crew nametags, and the camera-feed overlay. Caller has font at scale 1. */
     public void renderText(SpriteBatch batch, BitmapFont font) {
+        if (compact) return; // the vital-signs screen carries no text at all
         Fonts.scale(font, 0.8f); // room/airlock labels stay unobtrusive
         for (int i = 0; i < ROOMS.length; i++) {
             float[] r = ROOMS[i];
@@ -1669,15 +1689,17 @@ public class ShipDeckView {
 
         // power panel labels + reactor readout
         Palette.set(font, 0.5f, 0.7f, 0.78f, 1f);
-        for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
+        for (int i = 0; i < GameState.POWER_SYSTEMS.length && !compact; i++) {
             float ry = PWR_Y0 + (GameState.POWER_SYSTEMS.length - 1 - i) * PWR_ROW_H;
             font.draw(batch, GameState.POWER_SYSTEMS[i], PWR_X, ry + 11f);
         }
-        Palette.set(font, 0.75f, 0.85f, 0.9f, 1f);
-        font.draw(batch, "REACTOR " + (state.reactorUnits - state.unallocatedPower())
-            + "/" + state.reactorUnits, PWR_X, PWR_Y0 + GameState.POWER_SYSTEMS.length * PWR_ROW_H + 12f);
+        if (!compact) {
+            Palette.set(font, 0.75f, 0.85f, 0.9f, 1f);
+            font.draw(batch, "REACTOR " + (state.reactorUnits - state.unallocatedPower())
+                + "/" + state.reactorUnits, PWR_X, PWR_Y0 + GameState.POWER_SYSTEMS.length * PWR_ROW_H + 12f);
+        }
         // door control cluster labels
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 4 && !compact; i++) {
             boolean hot = (i == 0 && openAllStage == 2) || (i >= 2 && ventArm == i - 2);
             if (hot) Palette.set(font, 0.95f, 0.35f, 0.3f, 1f);
             else Palette.set(font, 0.5f, 0.7f, 0.78f, 1f);

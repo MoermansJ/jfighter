@@ -665,6 +665,7 @@ public class GameScreen implements Screen {
         drawCrewMonitor();
         drawShieldGauge();
         drawThrustLever();
+        drawDeckConsole();
 
         drawHud();
 
@@ -747,21 +748,34 @@ public class GameScreen implements Screen {
                 shapeRenderer.circle(plotPX(exw), plotPY(eyw), SPLASH_155 * kx, 12);
                 continue;
             }
+            if (!p.rocket) continue; // small/medium gunfire stays off the plot
             float reach = spd * Math.min(p.life, 3.5f);
             float exw = p.x + vx / spd * reach;
             float eyw = p.y + vy / spd * reach;
             if (hostile) shapeRenderer.setColor(0.4f, 0.14f, 0.12f, 1f);
             else shapeRenderer.setColor(0.16f, 0.3f, 0.34f, 1f);
             shapeRenderer.line(plotPX(p.x), plotPY(p.y), plotPX(exw), plotPY(eyw));
-            // the round itself: a visible tracer dot, small/medium calibers included
-            float dotR = p.rocket ? 2.2f : p.damage >= 10f ? 1.6f : 1.1f;
             if (hostile) shapeRenderer.setColor(1f, 0.45f, 0.35f, 1f);
             else shapeRenderer.setColor(0.65f, 0.9f, 0.75f, 1f);
-            shapeRenderer.circle(plotPX(p.x), plotPY(p.y), dotR, 6);
-            if (p.rocket) {
-                shapeRenderer.setColor(hostile ? 0.4f : 0.16f, hostile ? 0.14f : 0.3f,
-                    hostile ? 0.12f : 0.34f, 1f);
-                shapeRenderer.circle(plotPX(exw), plotPY(eyw), SPLASH_155 * kx, 12);
+            shapeRenderer.circle(plotPX(p.x), plotPY(p.y), 2.2f, 6);
+            shapeRenderer.setColor(hostile ? 0.4f : 0.16f, hostile ? 0.14f : 0.3f,
+                hostile ? 0.12f : 0.34f, 1f);
+            shapeRenderer.circle(plotPX(exw), plotPY(eyw), SPLASH_155 * kx, 12);
+            // incoming homing rockets: flashing corner brackets (#warning)
+            if (hostile && p.target == player && MathUtils.sin(scopeSweep * 0.5f) > -0.2f) {
+                shapeRenderer.setColor(1f, 0.9f, 0.2f, 1f);
+                float bx = plotPX(p.x);
+                float by = plotPY(p.y);
+                float s2 = 7f;
+                float leg = 3f;
+                for (int cx2 = -1; cx2 <= 1; cx2 += 2) {
+                    for (int cy2 = -1; cy2 <= 1; cy2 += 2) {
+                        shapeRenderer.line(bx + cx2 * s2, by + cy2 * s2,
+                            bx + cx2 * (s2 - leg), by + cy2 * s2);
+                        shapeRenderer.line(bx + cx2 * s2, by + cy2 * s2,
+                            bx + cx2 * s2, by + cy2 * (s2 - leg));
+                    }
+                }
             }
         }
         // 155 fire control (#157): the LANDING ZONE the salvo could scatter into
@@ -906,8 +920,9 @@ public class GameScreen implements Screen {
         batch.end();
     }
 
-    /** The lifesigns monitor (#162): the deck view scaled onto its own desk screen. */
+    /** The vital-signs monitor (#162): the deck view scaled onto its own desk screen. */
     private void drawCrewMonitor() {
+        deckView.setCompact(true); // doors/power stay off this little screen
         // map the deck monitor's native region (0..960 x 270..540) into the desk screen
         Matrix4 m = hudMatrix.cpy()
             .translate(CREW_X, CREW_Y, 0)
@@ -921,6 +936,92 @@ public class GameScreen implements Screen {
         deckView.renderText(batch, font);
         batch.end();
         batch.setProjectionMatrix(hudMatrix);
+        deckView.setCompact(false);
+    }
+
+    // desk deck-console geometry: power rows + door buttons on the desk surface
+    private static final float PWRD_X = 15f;
+    private static final float PWRD_Y0 = 106f; // top row, stepping down 16px
+    private static final float[] DOOR_BTN_XS = {195f, 266f, 195f, 266f};
+    private static final float[] DOOR_BTN_YS = {88f, 88f, 58f, 58f};
+    private static final float DOOR_BTN_W2 = 63f;
+    private static final float DOOR_BTN_H2 = 22f;
+
+    /** Power distribution + door cluster as desk hardware (moved off the vital-signs screen). */
+    private void drawDeckConsole() {
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
+            float ry = PWRD_Y0 - i * 16f;
+            Palette.set(shapeRenderer, 0.3f, 0.45f, 0.52f, 1f);
+            shapeRenderer.rect(PWRD_X + 58f, ry, 10f, 10f);   // [-]
+            shapeRenderer.rect(PWRD_X + 130f, ry, 10f, 10f);  // [+]
+            shapeRenderer.line(PWRD_X + 60.5f, ry + 5f, PWRD_X + 65.5f, ry + 5f);
+            shapeRenderer.line(PWRD_X + 132.5f, ry + 5f, PWRD_X + 137.5f, ry + 5f);
+            shapeRenderer.line(PWRD_X + 135f, ry + 2.5f, PWRD_X + 135f, ry + 7.5f);
+            for (int p = 0; p < GameState.POWER_CAP[i]; p++) {
+                float pxp = PWRD_X + 72f + p * 18f;
+                if (p < state.power[i]) {
+                    Palette.set(shapeRenderer, 0.35f, 0.85f, 0.5f, 1f);
+                    shapeRenderer.rect(pxp, ry + 2f, 14f, 6f);
+                    shapeRenderer.rect(pxp + 1, ry + 3f, 12f, 4f);
+                } else {
+                    Palette.set(shapeRenderer, 0.2f, 0.3f, 0.35f, 1f);
+                    shapeRenderer.rect(pxp, ry + 2f, 14f, 6f);
+                }
+            }
+        }
+        for (int i = 0; i < 4; i++) {
+            if (deckView.doorButtonHot(i)) shapeRenderer.setColor(0.9f, 0.25f, 0.2f, 1f);
+            else Palette.set(shapeRenderer, 0.3f, 0.45f, 0.52f, 1f);
+            shapeRenderer.rect(DOOR_BTN_XS[i], DOOR_BTN_YS[i], DOOR_BTN_W2, DOOR_BTN_H2);
+        }
+        shapeRenderer.end();
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        Fonts.scale(font, 0.8f);
+        for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
+            float ry = PWRD_Y0 - i * 16f;
+            Palette.set(font, 0.5f, 0.7f, 0.78f, 1f);
+            font.draw(batch, GameState.POWER_SYSTEMS[i], PWRD_X, ry + 9f);
+        }
+        Palette.set(font, 0.75f, 0.85f, 0.9f, 1f);
+        font.draw(batch, "REACTOR " + (state.reactorUnits - state.unallocatedPower())
+            + "/" + state.reactorUnits, PWRD_X, PWRD_Y0 + 24f);
+        for (int i = 0; i < 4; i++) {
+            if (deckView.doorButtonHot(i)) Palette.set(font, 0.95f, 0.35f, 0.3f, 1f);
+            else Palette.set(font, 0.5f, 0.7f, 0.78f, 1f);
+            GlyphLayout dl = new GlyphLayout(font, deckView.doorButtonLabel(i));
+            font.draw(batch, dl, DOOR_BTN_XS[i] + (DOOR_BTN_W2 - dl.width) / 2f, DOOR_BTN_YS[i] + 15f);
+        }
+        Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
+        font.draw(batch, "DOORS", DOOR_BTN_XS[0], DOOR_BTN_YS[0] + 42f);
+        Fonts.scale(font, 1.4f);
+        batch.end();
+    }
+
+    /** Clicks on the desk deck-console: power +/- and the door cluster. */
+    private boolean handleDeckConsoleClick(float hx, float hy) {
+        for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
+            float ry = PWRD_Y0 - i * 16f;
+            if (hy < ry - 2f || hy > ry + 12f) continue;
+            if (hx >= PWRD_X + 56f && hx <= PWRD_X + 70f) {
+                deckView.pressPowerButton(i * 2);
+                return true;
+            }
+            if (hx >= PWRD_X + 128f && hx <= PWRD_X + 142f) {
+                deckView.pressPowerButton(i * 2 + 1);
+                return true;
+            }
+        }
+        for (int i = 0; i < 4; i++) {
+            if (hx >= DOOR_BTN_XS[i] && hx <= DOOR_BTN_XS[i] + DOOR_BTN_W2
+                    && hy >= DOOR_BTN_YS[i] && hy <= DOOR_BTN_YS[i] + DOOR_BTN_H2) {
+                deckView.pressDoorButton(i);
+                return true;
+            }
+        }
+        return false;
     }
 
     // thrust lever geometry (#desk): a real handle you grab and set
@@ -1073,7 +1174,7 @@ public class GameScreen implements Screen {
         Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
         font.draw(batch, "SONAR", RAD_CX - RAD_R - 10, RAD_CY + RAD_R + 26);
         font.draw(batch, "PLOT / COMMAND", PLOT_X, PLOT_Y + PLOT_H + 20);
-        font.draw(batch, "LIFESIGNS", CREW_X, CREW_Y + 270 * CREW_S + 20);
+        font.draw(batch, "VITAL SIGNS", CREW_X, CREW_Y + 270 * CREW_S + 20);
         Fonts.scale(font, 1.4f);
         batch.end();
     }
@@ -1184,25 +1285,7 @@ public class GameScreen implements Screen {
         shapeRenderer.setProjectionMatrix(hudMatrix);
 
         // radar: arena at a glance
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        radar.frame(shapeRenderer);
-        if (defeatT < 0) {
-            shapeRenderer.setColor(Color.GREEN);
-            radar.dot(shapeRenderer, player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f, 2.5f);
-        }
-        shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
-        for (Enemy e : enemies) {
-            radar.dot(shapeRenderer, e.centerX(), e.centerY(), 2f);
-        }
-        shapeRenderer.setColor(0.35f, 0.85f, 0.5f, 1f);
-        for (Fighter f : fighters) {
-            radar.dot(shapeRenderer, f.centerX(), f.centerY(), 1.1f);
-        }
-        shapeRenderer.setColor(1f, 0.6f, 0.15f, 1f);
-        for (Projectile p : projectiles) {
-            if (p.rocket) radar.dot(shapeRenderer, p.x, p.y, 1.3f);
-        }
-        shapeRenderer.end();
+
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         for (int s = 0; s < SQUADRON_COUNT; s++) {
             if (squadronAlive(s) == 0) continue;
@@ -1292,15 +1375,6 @@ public class GameScreen implements Screen {
             10, HUD_H - 60);
         // squadron tabs (#134): callsign + fraction health; wiped squadrons drop off
         Fonts.scale(font, 0.95f);
-        if (!deckOpen) {
-            font.setColor(Color.GRAY);
-            StringBuilder pw = new StringBuilder("PWR");
-            for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
-                pw.append(' ').append(GameState.POWER_SYSTEMS[i].charAt(0)).append(state.power[i]);
-            }
-            pw.append("   [V] deck");
-            font.draw(batch, pw.toString(), 10, HUD_H - 226);
-        }
         for (int s = 0; s < SQUADRON_COUNT; s++) {
             int alive = squadronAlive(s);
             if (alive == 0) continue;
@@ -1414,9 +1488,12 @@ public class GameScreen implements Screen {
                     tabHit = true;
                 }
             }
+            if (!tabHit && handleDeckConsoleClick(hm.x, hm.y)) {
+                tabHit = true;
+            }
             if (!tabHit && inCrew(hm.x, hm.y)) {
-                // lifesigns monitor click: map into deck coordinates
-                handleDeckClick((hm.x - CREW_X) / CREW_S, (hm.y - CREW_Y) / CREW_S + 270f);
+                // vital-signs monitor click: crew selection/orders only
+                handleCrewMonitorClick((hm.x - CREW_X) / CREW_S, (hm.y - CREW_Y) / CREW_S + 270f);
                 tabHit = true;
             }
             if (!tabHit && inPlot(hm.x, hm.y)) {
@@ -2082,6 +2159,24 @@ public class GameScreen implements Screen {
                     showHudToast(lead.name + " LOST WITH " + state.squadronNames[loss.squadron]);
                 }
             }
+        }
+    }
+
+    /** Crew-only clicks for the little vital-signs screen: select figures, order them, toggle doors. */
+    private void handleCrewMonitorClick(float x, float y) {
+        CrewMember c = deckView.crewAt(x, y);
+        if (c != null && !c.hostile) {
+            deckSelected = c;
+            return;
+        }
+        int d = deckView.doorAt(x, y);
+        if (d != -1) {
+            state.doorHeldOpen[d] = !state.doorHeldOpen[d];
+            return;
+        }
+        if (deckSelected != null) {
+            deckView.orderAtScreen(deckSelected, x, y);
+            deckSelected = null;
         }
     }
 
