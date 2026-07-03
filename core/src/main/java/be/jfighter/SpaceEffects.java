@@ -85,6 +85,7 @@ public class SpaceEffects {
     private float pincerGrab;   // 0..1 jaw pinch, set by the screen each frame
     private boolean leftWing = true;  // sheared player sections stop rendering (#99)
     private boolean rightWing = true;
+    private boolean carrierHull;      // the mothership takes the field (#117)
 
     private static class Fragment {
         float x, y, vx, vy, rotation, spin;
@@ -202,6 +203,10 @@ public class SpaceEffects {
 
     public void setPincerHull(boolean pincerHull) {
         this.pincerHull = pincerHull;
+    }
+
+    public void setCarrierHull(boolean carrier) {
+        this.carrierHull = carrier;
     }
 
     public void setWings(boolean left, boolean right) {
@@ -438,6 +443,8 @@ public class SpaceEffects {
                 shapes.setTransformMatrix(transform);
                 if (pincerHull) {
                     ShipRenderer.drawPincer(shapes, pincerGrab);
+                } else if (carrierHull) {
+                    ShipRenderer.drawCarrier(shapes);
                 } else {
                     ShipRenderer.drawB2Core(shapes);
                     if (leftWing) ShipRenderer.drawB2Wing(shapes, true);

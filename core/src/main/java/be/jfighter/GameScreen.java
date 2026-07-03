@@ -76,9 +76,9 @@ public class GameScreen implements Screen {
         {"SPACE", "fire"},
         {"UP/DOWN", "throttle"},
         {"LEFT/RIGHT", "turn"},
-        {"LMB", "set autopilot"},
-        {"RMB", "cancel autopilot"},
-        {"TAB", "switch controlled ship (dev)"},
+        {"LMB", "select squadron / give order"},
+        {"RMB", "carrier waypoint / deselect"},
+        {"TAB", "take a fighter's stick"},
         {"ESC", "pause menu"},
     });
 
@@ -123,6 +123,44 @@ public class GameScreen implements Screen {
     private boolean beaming;
     private final Array<Shard> shards = new Array<>();
     private final Array<Blast> blasts = new Array<>();
+
+    // carrier ops (#117): friendly fighters flying in squadrons, dispatched by mouse
+    private static final int SQUADRON_COUNT = 2;
+    private static final int FIGHTERS_PER_SQUADRON = 3;
+    private static final float FIGHTER_HP = 24f;
+    private static final float CARRIER_HIT_RADIUS = 48f;
+
+    private static class Fighter {
+        final Player body;
+        float hp = FIGHTER_HP;
+        final int squadron;
+        final Weapon gun = new Weapon(Weapon.Type.LIGHT_CANNON);
+        Enemy engaging; // current dogfight target
+
+        Fighter(float x, float y, int squadron) {
+            body = new Player(x, y);
+            body.rotation = MathUtils.random(360f);
+            this.squadron = squadron;
+        }
+
+        float centerX() {
+            return body.x + Player.WIDTH / 2f;
+        }
+
+        float centerY() {
+            return body.y + Player.HEIGHT / 2f;
+        }
+    }
+
+    private static class Squadron {
+        int mode; // 0 escort carrier, 1 move to point, 2 attack target
+        float ox, oy;
+        Enemy target;
+    }
+
+    private final Array<Fighter> fighters = new Array<>();
+    private final Squadron[] squadrons = new Squadron[SQUADRON_COUNT];
+    private int selectedSquadron = -1;
 
     private static class Enemy {
         final Player body; // reuses ship physics: drag keeps them slowly adrift
@@ -185,6 +223,14 @@ public class GameScreen implements Screen {
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
         state.weaponEnergy = state.maxWeaponEnergy; // fresh capacitors each engagement
+        // squadrons launch with the carrier on the field
+        for (int s = 0; s < SQUADRON_COUNT; s++) {
+            squadrons[s] = new Squadron();
+            for (int f = 0; f < FIGHTERS_PER_SQUADRON; f++) {
+                fighters.add(new Fighter(player.x + MathUtils.random(-90f, 90f),
+                    player.y + MathUtils.random(-90f, 90f), s));
+            }
+        }
         boolean bossFight = state.sector >= 3
             && state.map.getCurrentNode().id == state.map.lastNodeId;
         if (bossFight) {
@@ -261,9 +307,10 @@ public class GameScreen implements Screen {
             if (shieldFlash > 0) shieldFlash -= delta;
             player.updatePosition(delta);
             bounceOffWalls(player);
+            updateFighters(delta);
             for (int i = enemies.size - 1; i >= 0; i--) {
                 Enemy e = enemies.get(i);
-                if (i != controlled) updateEnemyAi(e, delta); // TAB override skips the AI
+                updateEnemyAi(e, delta);
                 e.body.updatePosition(delta);
                 bounceOffWalls(e.body);
                 if (e.onFire) {
@@ -313,11 +360,11 @@ public class GameScreen implements Screen {
                 state.ammoHeavy = Math.max(state.ammoHeavy, 24);
                 state.ammoRockets = Math.max(state.ammoRockets, 12);
             }
-            float wingMult = (state.leftWingHp > 0 ? 1f : 0.75f) * (state.rightWingHp > 0 ? 1f : 0.75f);
+            // the mothership: ponderous, all reactor and crew (#117)
             player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0])
-                * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]) * wingMult;
-            player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * wingMult;
-            effects.setWings(state.leftWingHp > 0, state.rightWingHp > 0);
+                * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]) * 0.4f;
+            player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * 0.45f;
+            effects.setCarrierHull(true);
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
             updateObjective(delta);
             updateWrecks();
@@ -361,6 +408,7 @@ public class GameScreen implements Screen {
         drawArenaBounds();
         effects.renderAutopilot(shapeRenderer);
         drawEnemies();
+        drawFighters();
         drawEffects();
         drawThreatMarkers();
         drawEdgeArrows();
@@ -415,7 +463,7 @@ public class GameScreen implements Screen {
                 float a = shieldFlash / 0.4f;
                 shapeRenderer.setColor(0.4f * a, 0.8f * a, a, 1f);
                 shapeRenderer.circle(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
-                    26f + 6f * (1f - a), 24);
+                    56f + 8f * (1f - a), 28);
                 shapeRenderer.end();
             }
         }
@@ -473,6 +521,10 @@ public class GameScreen implements Screen {
         shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
         for (Enemy e : enemies) {
             radar.dot(shapeRenderer, e.centerX(), e.centerY(), 2f);
+        }
+        shapeRenderer.setColor(0.35f, 0.85f, 0.5f, 1f);
+        for (Fighter f : fighters) {
+            radar.dot(shapeRenderer, f.centerX(), f.centerY(), 1.4f);
         }
         shapeRenderer.setColor(1f, 0.6f, 0.15f, 1f);
         for (Projectile p : projectiles) {
@@ -556,8 +608,22 @@ public class GameScreen implements Screen {
         else if (objective == Obj.INTERCEPT && !objectiveDone) objLine = "INTERCEPT THE RUNNER";
         font.draw(batch, objLine, 10, HUD_H - 35);
         font.setColor(controlled < 0 ? Color.GRAY : Color.ORANGE);
-        font.draw(batch, "Controlling: " + (controlled < 0 ? "FIGHTER" : "ENEMY " + (controlled + 1)),
+        font.draw(batch, "Helm: " + (controlled < 0 ? "MOTHERSHIP" : "FIGHTER " + (controlled + 1)),
             10, HUD_H - 60);
+        // squadron chips
+        Fonts.scale(font, 0.95f);
+        for (int s = 0; s < SQUADRON_COUNT; s++) {
+            int alive = 0;
+            for (Fighter f : fighters) {
+                if (f.squadron == s) alive++;
+            }
+            String mode = squadrons[s] == null ? "" : squadrons[s].mode == 2 ? "ATK"
+                : squadrons[s].mode == 1 ? "MOV" : "ESC";
+            font.setColor(s == selectedSquadron ? Color.WHITE
+                : alive == 0 ? Color.DARK_GRAY : Color.GRAY);
+            font.draw(batch, "SQ" + (s + 1) + " x" + alive + " " + mode, 10, HUD_H - 108 - s * 16);
+        }
+        Fonts.scale(font, 1.4f);
         if (objectiveDone) {
             font.setColor(Color.GREEN);
             String msg = "OBJECTIVE COMPLETE — ESC to return";
@@ -600,16 +666,22 @@ public class GameScreen implements Screen {
             if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1 + k)) activeWeapon = k;
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.TAB)) {
-            // cycle control: fighter -> enemy 0 -> enemy 1 -> ... -> fighter
-            controlled = controlled + 1 >= enemies.size ? -1 : controlled + 1;
+            // take the stick: carrier -> fighter 0 -> fighter 1 -> ... -> carrier
+            controlled = controlled + 1 >= fighters.size ? -1 : controlled + 1;
         }
         if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
-            Vector2 target = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
-            effects.setAutopilotTarget(target.x, target.y);
-            game.sfx.playPing();
+            Vector2 at = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+            handleCommandClick(at.x, at.y);
         }
         if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT)) {
-            effects.clearAutopilot();
+            if (selectedSquadron != -1) {
+                selectedSquadron = -1; // stand down the selection
+            } else {
+                // carrier helm: waypoint for the mothership
+                Vector2 at = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+                effects.setAutopilotTarget(at.x, at.y);
+                game.sfx.playPing();
+            }
         }
         controlsHelp.handleInput();
         return false;
@@ -746,8 +818,18 @@ public class GameScreen implements Screen {
         if (defeatT >= 0) return; // nothing left to fight
         float cx = e.centerX();
         float cy = e.centerY();
+        // hunt the nearest friendly: a fighter close by beats the distant carrier
         float px = player.x + Player.WIDTH / 2f;
         float py = player.y + Player.HEIGHT / 2f;
+        float best = Vector2.dst(cx, cy, px, py);
+        for (Fighter f : fighters) {
+            float d = Vector2.dst(cx, cy, f.centerX(), f.centerY());
+            if (d < best) {
+                best = d;
+                px = f.centerX();
+                py = f.centerY();
+            }
+        }
         float dx = px - cx;
         float dy = py - cy;
         float dist = Math.max(1f, (float) Math.sqrt(dx * dx + dy * dy));
@@ -816,7 +898,7 @@ public class GameScreen implements Screen {
         }
     }
 
-    /** Positional damage: side hits chew the fighter's wings before the hull (#99). */
+    /** Positional damage: side hits chew the carrier's armor sections before the hull (#99/#117). */
     private void damagePlayerAt(float dmg, float hx, float hy) {
         float dx = hx - (player.x + Player.WIDTH / 2f);
         float dy = hy - (player.y + Player.HEIGHT / 2f);
@@ -847,7 +929,7 @@ public class GameScreen implements Screen {
         wingDebris.add(wd);
         addShockwave(wd.x, wd.y, 40f);
         addShake(0.4f);
-        showHudToast(left ? "LEFT WING SHEARED" : "RIGHT WING SHEARED");
+        showHudToast(left ? "PORT ARMOR SECTION LOST" : "STARBOARD ARMOR SECTION LOST");
         game.sfx.playThud(0.5f);
     }
 
@@ -893,8 +975,140 @@ public class GameScreen implements Screen {
         }
     }
 
+    /** LMB: select a squadron, then order it — hostiles = attack, the carrier = escort, space = move. */
+    private void handleCommandClick(float x, float y) {
+        // clicking a friendly fighter selects its squadron
+        for (Fighter f : fighters) {
+            if (Vector2.dst(x, y, f.centerX(), f.centerY()) < 26f) {
+                selectedSquadron = f.squadron;
+                game.sfx.playPing();
+                return;
+            }
+        }
+        if (selectedSquadron == -1) return;
+        Squadron sq = squadrons[selectedSquadron];
+        for (Enemy e : enemies) {
+            if (Vector2.dst(x, y, e.centerX(), e.centerY()) < e.radius() + 14f) {
+                sq.mode = 2;
+                sq.target = e;
+                game.sfx.playPing();
+                return;
+            }
+        }
+        if (Vector2.dst(x, y, player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f)
+                < CARRIER_HIT_RADIUS + 16f) {
+            sq.mode = 0; // return to the carrier: escort + repair
+            game.sfx.playPing();
+            return;
+        }
+        sq.mode = 1;
+        sq.ox = x;
+        sq.oy = y;
+        game.sfx.playPing();
+    }
+
+    /** Squadron AI: follow orders, pick fights nearby, heal alongside the carrier. */
+    private void updateFighters(float delta) {
+        for (int i = fighters.size - 1; i >= 0; i--) {
+            Fighter f = fighters.get(i);
+            f.gun.update(delta);
+            if (i != controlled) flyFighter(f, delta);
+            f.body.updatePosition(delta);
+            bounceOffWalls(f.body);
+            effects.spawnExhaust(f.body, delta);
+        }
+    }
+
+    private void flyFighter(Fighter f, float delta) {
+        Squadron sq = squadrons[f.squadron];
+        if (sq.target != null && !enemies.contains(sq.target, true)) {
+            sq.target = null;
+            if (sq.mode == 2) sq.mode = 0; // target destroyed: fall back to the carrier
+        }
+        float cx = f.centerX();
+        float cy = f.centerY();
+        // pick an engagement: ordered target first, otherwise anything close
+        Enemy fight = sq.mode == 2 ? sq.target : null;
+        if (fight == null) {
+            float best = 350f;
+            for (Enemy e : enemies) {
+                float d = Vector2.dst(cx, cy, e.centerX(), e.centerY());
+                if (d < best) {
+                    best = d;
+                    fight = e;
+                }
+            }
+        }
+        f.engaging = fight;
+        float gx;
+        float gy;
+        int wantThrottle;
+        if (fight != null) {
+            float dx = fight.centerX() - cx;
+            float dy = fight.centerY() - cy;
+            float dist = Math.max(1f, (float) Math.sqrt(dx * dx + dy * dy));
+            if (dist > 260f) {
+                gx = dx / dist;
+                gy = dy / dist;
+                wantThrottle = 9;
+            } else { // orbit and shoot
+                gx = -dy / dist + dx / dist * 0.2f;
+                gy = dx / dist + dy / dist * 0.2f;
+                wantThrottle = 6;
+            }
+            // gunnery
+            float aimErr = (((MathUtils.atan2(-dx, dy) * MathUtils.radiansToDegrees)
+                - f.body.rotation) % 360f + 540f) % 360f - 180f;
+            if (f.gun.ready() && dist < 480f && Math.abs(aimErr) < 8f) {
+                f.gun.fire();
+                f.gun.cooldown = f.gun.type.reload * 1.6f; // wingmen shoot calmer than you do
+                float fxv = -MathUtils.sinDeg(f.body.rotation);
+                float fyv = MathUtils.cosDeg(f.body.rotation);
+                projectiles.add(new Projectile(cx + fxv * 20f, cy + fyv * 20f,
+                    f.body.rotation + MathUtils.random(-3f, 3f), f.body,
+                    f.gun.type.speed, f.gun.type.damage, 0f, 0f, false));
+            }
+        } else {
+            float tx = sq.mode == 1 ? sq.ox : player.x + Player.WIDTH / 2f;
+            float ty = sq.mode == 1 ? sq.oy : player.y + Player.HEIGHT / 2f;
+            // small per-fighter spread so the squadron doesn't stack
+            int slot = fighterSlot(f);
+            tx += MathUtils.cosDeg(slot * 120f) * 46f;
+            ty += MathUtils.sinDeg(slot * 120f) * 46f;
+            float dx = tx - cx;
+            float dy = ty - cy;
+            float dist = (float) Math.sqrt(dx * dx + dy * dy);
+            if (dist < 30f) {
+                wantThrottle = 0;
+                gx = -MathUtils.sinDeg(f.body.rotation);
+                gy = MathUtils.cosDeg(f.body.rotation);
+                if (sq.mode == 0) f.hp = Math.min(FIGHTER_HP, f.hp + 2.5f * delta); // deck crews patch them up
+            } else {
+                gx = dx / dist;
+                gy = dy / dist;
+                wantThrottle = dist > 400f ? 9 : 6;
+            }
+        }
+        float desired = MathUtils.atan2(-gx, gy) * MathUtils.radiansToDegrees;
+        float err = ((desired - f.body.rotation) % 360f + 540f) % 360f - 180f;
+        if (err > 4f) f.body.rotateLeft(delta);
+        else if (err < -4f) f.body.rotateRight(delta);
+        if (f.body.throttle < wantThrottle) f.body.throttleUp();
+        else if (f.body.throttle > wantThrottle) f.body.throttleDown();
+        f.body.updateThrust(delta, true);
+    }
+
+    private int fighterSlot(Fighter f) {
+        int slot = 0;
+        for (Fighter o : fighters) {
+            if (o == f) break;
+            if (o.squadron == f.squadron) slot++;
+        }
+        return slot;
+    }
+
     private Player controlledBody() {
-        return controlled < 0 || controlled >= enemies.size ? player : enemies.get(controlled).body;
+        return controlled < 0 || controlled >= fighters.size ? player : fighters.get(controlled).body;
     }
 
     /** Damage routed by hit position: outer hits shear wings off before the core takes it. */
@@ -1026,6 +1240,23 @@ public class GameScreen implements Screen {
         for (Weapon w : weapons) w.update(delta);
         updateLockTarget();
         if (defeatT >= 0 || weapons.isEmpty()) return;
+        if (controlled >= 0 && controlled < fighters.size) {
+            // on the stick of a fighter: fly and shoot its own cannon
+            Fighter f = fighters.get(controlled);
+            if (Gdx.input.isKeyPressed(Input.Keys.SPACE) && f.gun.ready()) {
+                f.gun.fire();
+                float fxv = -MathUtils.sinDeg(f.body.rotation);
+                float fyv = MathUtils.cosDeg(f.body.rotation);
+                projectiles.add(new Projectile(f.centerX() + fxv * 20f, f.centerY() + fyv * 20f,
+                    f.body.rotation, f.body, f.gun.type.speed, f.gun.type.damage, 0f, 0f, false));
+                game.sfx.playCannon(0);
+            }
+            if (beaming) {
+                beaming = false;
+                game.sfx.stopBeam();
+            }
+            return;
+        }
         Weapon w = weapons.get(activeWeapon);
         if (beaming && w.type != Weapon.Type.BEAM_LASER) {
             beaming = false; // switched weapons mid-beam
@@ -1450,7 +1681,7 @@ public class GameScreen implements Screen {
             if (tca < 0 || tca > 1.2f) continue;
             float qx = rx + vx * tca;
             float qy = ry + vy * tca;
-            if (qx * qx + qy * qy > 36f * 36f) continue;
+            if (qx * qx + qy * qy > 64f * 64f) continue;
             if (!began) {
                 shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
                 began = true;
@@ -1518,6 +1749,46 @@ public class GameScreen implements Screen {
             float sy = (q < 2) ? -1 : 1;
             shapeRenderer.line(cx + sx * r, cy + sy * r, cx + sx * (r - 7), cy + sy * r);
             shapeRenderer.line(cx + sx * r, cy + sy * r, cx + sx * r, cy + sy * (r - 7));
+        }
+        shapeRenderer.end();
+    }
+
+    /** Friendly squadrons: green hulls, squadron tint, selection rings and order markers. */
+    private void drawFighters() {
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < fighters.size; i++) {
+            Fighter f = fighters.get(i);
+            if (i == controlled) shapeRenderer.setColor(Color.WHITE);
+            else if (f.squadron == 0) shapeRenderer.setColor(0.25f, 0.85f, 0.4f, 1f);
+            else shapeRenderer.setColor(0.3f, 0.8f, 0.75f, 1f);
+            transform.setToTranslation(f.centerX(), f.centerY(), 0)
+                .rotate(0, 0, 1, f.body.rotation).scale(0.8f, 0.8f, 1f);
+            shapeRenderer.setTransformMatrix(transform);
+            ShipRenderer.drawB2(shapeRenderer);
+            if (f.body.thrustLevel > 0.02f) {
+                shapeRenderer.setColor(1f, 0.55f, 0.15f, 1f);
+                ShipRenderer.drawExhaust(shapeRenderer, f.body.thrustLevel);
+            }
+        }
+        shapeRenderer.setTransformMatrix(transform.idt());
+        // selection rings + the selected squadron's order marker
+        if (selectedSquadron != -1) {
+            shapeRenderer.setColor(Color.WHITE);
+            for (Fighter f : fighters) {
+                if (f.squadron == selectedSquadron) {
+                    shapeRenderer.circle(f.centerX(), f.centerY(), 20f, 16);
+                }
+            }
+            Squadron sq = squadrons[selectedSquadron];
+            if (sq.mode == 1) {
+                shapeRenderer.setColor(0.4f, 0.9f, 1f, 1f);
+                shapeRenderer.line(sq.ox - 8, sq.oy - 8, sq.ox + 8, sq.oy + 8);
+                shapeRenderer.line(sq.ox - 8, sq.oy + 8, sq.ox + 8, sq.oy - 8);
+            } else if (sq.mode == 2 && sq.target != null) {
+                shapeRenderer.setColor(1f, 0.4f, 0.3f, 1f);
+                shapeRenderer.circle(sq.target.centerX(), sq.target.centerY(),
+                    sq.target.radius() + 14f, 20);
+            }
         }
         shapeRenderer.end();
     }

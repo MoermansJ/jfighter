@@ -92,6 +92,40 @@ public final class ShipRenderer {
         }
     }
 
+    /** The mothership, top-down (#117): long wedge hull, bridge, engine blocks, hangar notch. */
+    public static void drawCarrier(ShapeRenderer shapes) {
+        // hull outline (nose +y)
+        shapes.line(0, 68, 22, 40);
+        shapes.line(22, 40, 28, -10);
+        shapes.line(28, -10, 20, -48);
+        shapes.line(20, -48, -20, -48);
+        shapes.line(-20, -48, -28, -10);
+        shapes.line(-28, -10, -22, 40);
+        shapes.line(-22, 40, 0, 68);
+        // bridge
+        shapes.line(-8, 26, 8, 26);
+        shapes.line(8, 26, 6, 12);
+        shapes.line(6, 12, -6, 12);
+        shapes.line(-6, 12, -8, 26);
+        shapes.circle(0, 20, 2.5f, 8);
+        // spine
+        shapes.line(0, 60, 0, -40);
+        // hangar notch, portside
+        shapes.line(-28, -2, -18, -2);
+        shapes.line(-18, -2, -18, -22);
+        shapes.line(-18, -22, -28, -22);
+        // engine blocks
+        shapes.line(-16, -48, -16, -56);
+        shapes.line(-6, -48, -6, -58);
+        shapes.line(6, -48, 6, -58);
+        shapes.line(16, -48, 16, -56);
+        // cupola mounts
+        shapes.circle(-20, 18, 3f, 8);
+        shapes.circle(20, 18, 3f, 8);
+        // heavy mount ring, forward
+        shapes.circle(0, 44, 4.5f, 10);
+    }
+
     public static void drawExhaust(ShapeRenderer shapes, float thrustLevel) {
         float sz = thrustLevel * 14f;
         shapes.line(-14, -10, -10, -10 - sz);
