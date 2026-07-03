@@ -130,6 +130,8 @@ public class ShipDeckView {
     private final Array<CrewMember> figureList = new Array<>();
     private final java.util.Set<CrewMember> engaged = new java.util.HashSet<>();
     private final Array<float[]> clashes = new Array<>(); // melee midpoints for impact flashes
+    // duel bookkeeping for the lifesign pips (#159): opponent hp fraction per engaged figure
+    private final java.util.Map<CrewMember, Float> duelOpponent = new java.util.HashMap<>();
     // station destruction/repair theatre (#129/#130)
     private final float[] destroyAnimT = new float[ROOMS.length]; // counts down through 3 phases
     private final float[] repairFlashT = new float[ROOMS.length]; // restored confirmation flash
@@ -531,6 +533,7 @@ public class ShipDeckView {
         // range (auto-initiation; personality traits could gate this later)
         engaged.clear();
         clashes.clear();
+        duelOpponent.clear();
         for (CrewMember boarder : state.boarders) {
             if (boarder.isDead()) continue;
             Sim bs = sims.get(boarder);
@@ -561,6 +564,8 @@ public class ShipDeckView {
                     boarder.hp = Math.max(0f, boarder.hp - crewDps * delta);
                     boarder.damageFlash = 0.4f;
                     if (wasAlive && boarder.isDead()) c.gainXp(10f); // the kill is worth learning from
+                    duelOpponent.put(c, boarder.hp / CrewMember.MAX_HP);
+                    duelOpponent.put(boarder, c.hp / CrewMember.MAX_HP);
                 }
                 // left alone in a manned-type room, the boarder tears the station apart (#127)
                 if (!engaged.contains(boarder) && broom != -1 && ROOM_SKILL[broom] != null
@@ -1532,10 +1537,17 @@ public class ShipDeckView {
             return;
         }
         float bpm;
-        boolean fighting = engaged.contains(c) || c.damageFlash > 0;
-        if (c.hp < CrewMember.MAX_HP * 0.25f) bpm = 180f;
-        else if (fighting) bpm = 100f + 20f * MathUtils.sin(time * 0.9f + c.name.hashCode() % 7);
-        else bpm = 60f;
+        Float oppHp = duelOpponent.get(c);
+        if (c.hp < CrewMember.MAX_HP * 0.25f) {
+            bpm = 180f; // near death
+        } else if (oppHp != null) {
+            // in a duel: composure follows the scoreboard
+            bpm = c.hp / CrewMember.MAX_HP >= oppHp ? 120f : 180f;
+        } else if (c.damageFlash > 0) {
+            bpm = 100f + 20f * MathUtils.sin(time * 0.9f + c.name.hashCode() % 7); // rattled
+        } else {
+            bpm = 60f;
+        }
         float phase = (time * bpm / 60f + (c.name.hashCode() & 15) * 0.06f) % 1f;
         float beat = phase < 0.16f ? 1f - phase / 0.16f : 0f; // sharp systole
         if (c.hostile) Palette.setInverted(shapes, 0.3f, 0.9f, 0.5f, 1f);
