@@ -790,8 +790,16 @@ public class OverworldScreen implements Screen {
 
         if (hoveredNode != null && state.map.isReachable(hoveredNode.id)) {
             if (hoveredNode.id == state.map.lastNodeId) {
-                // reaching END wins the run
-                if (travelTo(hoveredNode)) victory = true;
+                if (state.sector >= 3 && !hoveredNode.completed) {
+                    // deep sectors: a flagship guards the gate — clear it first (#106)
+                    if (travelTo(hoveredNode)) {
+                        snapshotRoomStats();
+                        game.setScreen(new GameScreen(game, state));
+                        return true;
+                    }
+                } else if (travelTo(hoveredNode)) {
+                    victory = true; // reaching END wins the sector
+                }
             } else if (hoveredNode.type == Node.Type.HOME) {
                 // HOME has nothing to enter: travel there directly, no dialog
                 travelTo(hoveredNode);

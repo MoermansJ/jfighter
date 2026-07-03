@@ -112,6 +112,12 @@ public class GameScreen implements Screen {
     private final Array<CritToast> critToasts = new Array<>();
     private final Array<WingDebris> wingDebris = new Array<>();
     private final Array<float[]> shockwaves = new Array<>(); // {x, y, age, maxR, jitterSeed}
+    private final Array<float[]> wrecks = new Array<>(); // {x, y, vx, vy, rot, spin, value} (#105)
+    private enum Obj { ELIMINATE, SURVIVE, INTERCEPT }
+    private Obj objective = Obj.ELIMINATE;
+    private boolean objectiveDone;
+    private float surviveT;
+    private float waveT;
     private float shake;   // camera trauma, decays fast
     private boolean beaming;
     private final Array<Shard> shards = new Array<>();
@@ -128,7 +134,12 @@ public class GameScreen implements Screen {
         // destructible sections (#73): wings shear off before the core gives out
         float leftWingHp = 12f;
         float rightWingHp = 12f;
-        boolean boss; // heavy multi-section flagship (#106)
+        boolean boss;   // heavy multi-section flagship (#106)
+        boolean runner; // intercept objective: flees for the arena edge (#104)
+
+        float radius() {
+            return boss ? 40f : ENEMY_RADIUS;
+        }
         // AI (#95): simple approach/orbit/break-off state machine with a light cannon (#96)
         int ai; // 0 approach, 1 orbit, 2 break off
         float aiT = MathUtils.random(1f, 3f);
@@ -172,8 +183,34 @@ public class GameScreen implements Screen {
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
-        spawnEnemies();
+        boolean bossFight = state.sector >= 3
+            && state.map.getCurrentNode().id == state.map.lastNodeId;
+        if (bossFight) {
+            spawnBoss();
+        } else {
+            spawnEnemies();
+            float roll = MathUtils.random();
+            if (roll < 0.25f) {
+                objective = Obj.SURVIVE;
+                surviveT = 60f;
+                waveT = 12f;
+            } else if (roll < 0.5f && enemies.size > 1) {
+                objective = Obj.INTERCEPT;
+                enemies.get(MathUtils.random(enemies.size - 1)).runner = true;
+            }
+        }
         game.sfx.startThruster();
+    }
+
+    /** Sector 3+: the jump gate is guarded by a heavy flagship (#106). */
+    private void spawnBoss() {
+        Enemy boss = new Enemy(ARENA_WIDTH - 300f, ARENA_HEIGHT / 2f,
+            Difficulty.enemyHp(state.sector) * 6f);
+        boss.maxHp = boss.hp;
+        boss.boss = true;
+        boss.leftWingHp = 60f;
+        boss.rightWingHp = 60f;
+        enemies.add(boss);
     }
 
     private void spawnEnemies() {
@@ -273,6 +310,8 @@ public class GameScreen implements Screen {
             player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * wingMult;
             effects.setWings(state.leftWingHp > 0, state.rightWingHp > 0);
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
+            updateObjective(delta);
+            updateWrecks();
             fireWeapons(delta);
             updateProjectiles(delta);
             updateEffects(delta);
@@ -395,7 +434,7 @@ public class GameScreen implements Screen {
         drawHud();
 
         if (pause.isOpen()
-                && pause.render(shapeRenderer, batch, font, hudMatrix, viewport, enemies.isEmpty())) {
+                && pause.render(shapeRenderer, batch, font, hudMatrix, viewport, objectiveDone)) {
             game.setScreen(new OverworldScreen(game, state));
         }
     }
@@ -487,13 +526,16 @@ public class GameScreen implements Screen {
         font.setColor(Color.YELLOW);
         font.draw(batch, "Credits: " + state.credits, 10, HUD_H - 10);
         font.setColor(enemies.size > 0 ? Color.RED : Color.GRAY);
-        font.draw(batch, "Hostiles: " + enemies.size, 10, HUD_H - 35);
+        String objLine = "Hostiles: " + enemies.size;
+        if (objective == Obj.SURVIVE && !objectiveDone) objLine = "SURVIVE " + (int) Math.ceil(surviveT) + "s";
+        else if (objective == Obj.INTERCEPT && !objectiveDone) objLine = "INTERCEPT THE RUNNER";
+        font.draw(batch, objLine, 10, HUD_H - 35);
         font.setColor(controlled < 0 ? Color.GRAY : Color.ORANGE);
         font.draw(batch, "Controlling: " + (controlled < 0 ? "FIGHTER" : "ENEMY " + (controlled + 1)),
             10, HUD_H - 60);
-        if (enemies.isEmpty()) {
+        if (objectiveDone) {
             font.setColor(Color.GREEN);
-            String msg = "HOSTILES ELIMINATED — press ESC to return";
+            String msg = "OBJECTIVE COMPLETE — ESC to return";
             GlyphLayout gl = new GlyphLayout(font, msg);
             font.draw(batch, msg, (HUD_W - gl.width) / 2f, HUD_H / 2f);
         }
@@ -601,12 +643,73 @@ public class GameScreen implements Screen {
                 if (p.shooter == e.body) continue; // no self-hits
                 float dx = p.x - e.centerX();
                 float dy = p.y - e.centerY();
-                if (dx * dx + dy * dy < ENEMY_RADIUS * ENEMY_RADIUS) {
+                if (dx * dx + dy * dy < e.radius() * e.radius()) {
                     projectiles.removeIndex(i);
                     impact(p);
                     if (!p.rocket) damageEnemyAt(e, p.damage, p.x, p.y); // rockets damage via their splash
                     break;
                 }
+            }
+        }
+    }
+
+    private void completeObjective(String msg, int bonus) {
+        if (objectiveDone) return;
+        objectiveDone = true;
+        state.map.getCurrentNode().completed = true;
+        state.instancesCompleted++;
+        if (bonus > 0) state.credits += Math.round(bonus * Difficulty.rewardFactor(state.sector));
+        showHudToast(msg);
+    }
+
+    private void updateObjective(float delta) {
+        if (objective == Obj.SURVIVE && !objectiveDone) {
+            surviveT -= delta;
+            waveT -= delta;
+            if (waveT <= 0 && enemies.size < 6) {
+                waveT = 12f;
+                Enemy e = new Enemy(MathUtils.randomBoolean() ? 60f : ARENA_WIDTH - 60f,
+                    MathUtils.random(100f, ARENA_HEIGHT - 100f), Difficulty.enemyHp(state.sector));
+                e.maxHp = e.hp;
+                enemies.add(e);
+            }
+            if (surviveT <= 0) {
+                completeObjective("SIGNAL SENT — HOSTILES WITHDRAWING", 60);
+                for (Enemy e : enemies) {
+                    e.ai = 2;
+                    e.aiT = 999f; // they run for good
+                }
+            }
+        }
+        if (objective == Obj.INTERCEPT && !objectiveDone) {
+            for (int i = enemies.size - 1; i >= 0; i--) {
+                Enemy e = enemies.get(i);
+                if (e.runner && e.body.x > ARENA_WIDTH - 80f) {
+                    enemies.removeIndex(i);
+                    if (controlled == i) controlled = -1;
+                    else if (controlled > i) controlled--;
+                    completeObjective("TARGET ESCAPED — NO BOUNTY", 0);
+                }
+            }
+        }
+    }
+
+    /** Dead ships leave salvageable wreck sections; fly close to tractor them in (#105). */
+    private void updateWrecks() {
+        float cx = player.x + Player.WIDTH / 2f;
+        float cy = player.y + Player.HEIGHT / 2f;
+        for (int i = wrecks.size - 1; i >= 0; i--) {
+            float[] wk = wrecks.get(i);
+            wk[0] += wk[2] * Gdx.graphics.getDeltaTime();
+            wk[1] += wk[3] * Gdx.graphics.getDeltaTime();
+            wk[4] += wk[5] * Gdx.graphics.getDeltaTime();
+            if (defeatT < 0 && Vector2.dst(cx, cy, wk[0], wk[1]) < 70f) {
+                int paid = Math.round(wk[6] * Difficulty.rewardFactor(state.sector));
+                state.credits += paid;
+                showHudToast("+" + paid + " SALVAGE");
+                addSparks(wk[0], wk[1], 0, 0, 6);
+                wrecks.removeIndex(i);
+                game.sfx.playCatch();
             }
         }
     }
@@ -623,8 +726,19 @@ public class GameScreen implements Screen {
         float dy = py - cy;
         float dist = Math.max(1f, (float) Math.sqrt(dx * dx + dy * dy));
 
+        if (e.runner) {
+            // intercept target: burn for the far edge, no fighting back
+            float desiredR = 90f; // heading straight +x
+            float errR = ((desiredR - e.body.rotation) % 360f + 540f) % 360f - 180f;
+            if (errR > 4f) e.body.rotateLeft(delta);
+            else if (errR < -4f) e.body.rotateRight(delta);
+            if (e.body.throttle < 10) e.body.throttleUp();
+            e.body.updateThrust(delta, true);
+            return;
+        }
         e.aiT -= delta;
-        boolean mauled = e.hp < e.maxHp * 0.3f || e.leftWingHp <= 0 || e.rightWingHp <= 0;
+        boolean mauled = !e.boss
+            && (e.hp < e.maxHp * 0.3f || e.leftWingHp <= 0 || e.rightWingHp <= 0);
         if (e.ai != 2 && mauled && MathUtils.random() < 0.5f * delta) {
             e.ai = 2;
             e.aiT = MathUtils.random(3f, 5f);
@@ -972,7 +1086,7 @@ public class GameScreen implements Screen {
             if (t < 0 || t > hitT) continue;
             float px = ox + fx * t - e.centerX();
             float py = oy + fy * t - e.centerY();
-            if (px * px + py * py < ENEMY_RADIUS * ENEMY_RADIUS) {
+            if (px * px + py * py < e.radius() * e.radius()) {
                 hit = e;
                 hitT = t;
             }
@@ -1021,14 +1135,23 @@ public class GameScreen implements Screen {
         else if (controlled > index) controlled--;
         Enemy e = enemies.get(index);
         spawnDeathEffect(e.centerX(), e.centerY(), e.body.vx, e.body.vy);
+        Enemy dead = enemies.get(index);
+        wrecks.add(new float[]{dead.centerX(), dead.centerY(),
+            dead.body.vx * 0.4f, dead.body.vy * 0.4f,
+            dead.body.rotation, MathUtils.random(-40f, 40f),
+            dead.boss ? 150f : MathUtils.random(18f, 40f)});
         enemies.removeIndex(index);
-        state.credits += Math.round(CREDITS_PER_KILL * Difficulty.rewardFactor(state.sector));
+        state.credits += Math.round((dead.boss ? 300 : CREDITS_PER_KILL)
+            * Difficulty.rewardFactor(state.sector));
         state.hostilesDestroyed++;
         game.sfx.playCatch();
-        if (enemies.isEmpty()) {
-            // combat resolved: all hostiles destroyed
-            state.map.getCurrentNode().completed = true;
-            state.instancesCompleted++;
+        if (dead.runner) {
+            completeObjective("RUNNER DESTROYED — BOUNTY PAID", 100);
+        } else if (objective == Obj.ELIMINATE && enemies.isEmpty()) {
+            completeObjective(dead.boss ? "FLAGSHIP DESTROYED — THE GATE IS CLEAR"
+                : "HOSTILES ELIMINATED", 0);
+        } else if (objective == Obj.INTERCEPT && enemies.isEmpty()) {
+            completeObjective("HOSTILES ELIMINATED", 0);
         }
     }
 
@@ -1331,7 +1454,7 @@ public class GameScreen implements Screen {
         if (lockTarget == null) return;
         float cx = lockTarget.centerX();
         float cy = lockTarget.centerY();
-        float r = ENEMY_RADIUS + 8f;
+        float r = lockTarget.radius() + 8f;
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         shapeRenderer.setColor(1f, 0.65f, 0.15f, 1f);
         for (int q = 0; q < 4; q++) {
@@ -1348,8 +1471,11 @@ public class GameScreen implements Screen {
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < enemies.size; i++) {
             Enemy e = enemies.get(i);
-            shapeRenderer.setColor(i == controlled ? Color.ORANGE : new Color(0.95f, 0.25f, 0.2f, 1f));
+            if (i == controlled) shapeRenderer.setColor(Color.ORANGE);
+            else if (e.runner) shapeRenderer.setColor(1f, 0.75f, 0.2f, 1f);
+            else shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
             transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
+            if (e.boss) transform.scale(2.2f, 2.2f, 1f);
             shapeRenderer.setTransformMatrix(transform);
             ShipRenderer.drawB2Core(shapeRenderer);
             if (e.leftWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, true);
