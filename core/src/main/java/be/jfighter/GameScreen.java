@@ -284,16 +284,27 @@ public class GameScreen implements Screen {
         drawEffects();
         drawThreatMarkers();
         drawCritToasts();
-        // active mount barrel: shows where the turret is actually pointing
+        // active mount barrels: turret direction, and reciprocating 155mm barrels
         if (defeatT < 0 && !weapons.isEmpty()) {
             Weapon aw = weapons.get(activeWeapon);
             float barrelRot = player.rotation + (aw.type.turretArc > 0 ? aw.turret : 0f);
             float bx = player.x + Player.WIDTH / 2f;
             float by = player.y + Player.HEIGHT / 2f;
+            float fxv = -MathUtils.sinDeg(barrelRot);
+            float fyv = MathUtils.cosDeg(barrelRot);
+            float rxv = MathUtils.cosDeg(barrelRot);
+            float ryv = MathUtils.sinDeg(barrelRot);
             shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
             shapeRenderer.setColor(0.6f, 0.65f, 0.7f, 1f);
-            shapeRenderer.line(bx - MathUtils.sinDeg(barrelRot) * 14f, by + MathUtils.cosDeg(barrelRot) * 14f,
-                bx - MathUtils.sinDeg(barrelRot) * 30f, by + MathUtils.cosDeg(barrelRot) * 30f);
+            int barrels = aw.type == Weapon.Type.CANNON_155 ? state.cannon155Tier() : 1;
+            for (int bIdx = 0; bIdx < barrels; bIdx++) {
+                float lat = (bIdx - (barrels - 1) / 2f) * 7f;
+                float recoil = aw.type == Weapon.Type.CANNON_155 ? aw.barrelRecoil[bIdx] * 7f : 0f;
+                shapeRenderer.line(bx + rxv * lat + fxv * (14f - recoil),
+                    by + ryv * lat + fyv * (14f - recoil),
+                    bx + rxv * lat + fxv * (30f - recoil),
+                    by + ryv * lat + fyv * (30f - recoil));
+            }
             shapeRenderer.end();
         }
         if (defeatT < 0) {
@@ -426,7 +437,9 @@ public class GameScreen implements Screen {
             Weapon w = weapons.get(i);
             float x = cardsX + i * (cardW + 6f);
             font.setColor(i == activeWeapon ? Color.WHITE : Color.GRAY);
-            font.draw(batch, (i + 1) + " " + w.type.label, x + 4, 38);
+            String cardLabel = (i + 1) + " " + w.type.label;
+            if (w.type == Weapon.Type.CANNON_155) cardLabel += " T" + state.cannon155Tier();
+            font.draw(batch, cardLabel, x + 4, 38);
             font.setColor(w.ammo == 0 ? Color.RED : Color.GRAY);
             font.draw(batch, w.ammo < 0 ? "\u221E" : String.valueOf(w.ammo), x + 4, 26);
         }
@@ -791,6 +804,32 @@ public class GameScreen implements Screen {
                     game.sfx.playLaser();
                 }
                 break;
+            case CANNON_155: {
+                int tier = state.cannon155Tier();
+                if (held && w.ready()) {
+                    w.fire();
+                    w.cooldown = w.type.reload / ((1f + 0.08f * state.roomStats[4])
+                        * (0.7f + 0.15f * state.power[GameState.PWR_WEAPONS]));
+                    w.burstLeft = tier;
+                }
+                if (w.burstLeft > 0 && w.burstTimer <= 0) {
+                    // ripple fire: one round per barrel, left to right
+                    int barrel = tier - w.burstLeft;
+                    w.burstLeft--;
+                    w.burstTimer = 0.09f;
+                    w.barrelRecoil[barrel] = 1f;
+                    float lat = (barrel - (tier - 1) / 2f) * 7f;
+                    float rxv = MathUtils.cosDeg(fireRotation);
+                    float ryv = MathUtils.sinDeg(fireRotation);
+                    float bx2 = nx + rxv * lat;
+                    float by2 = ny + ryv * lat;
+                    projectiles.add(new Projectile(bx2, by2, fireRotation, body,
+                        w.type.speed, w.type.damage, 0f, 0f, false));
+                    addBlast(bx2, by2, 0f, 150f, 16f);
+                    game.sfx.playCannon(2);
+                }
+                break;
+            }
             default:
                 if (held && w.ready()) {
                     w.fire();

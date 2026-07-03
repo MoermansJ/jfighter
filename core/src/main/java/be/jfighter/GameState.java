@@ -16,11 +16,15 @@ public class GameState {
     public float fuel;
     public float maxFuel;
     public int sector = 1;
-    // fighter weapon loadout: fired in combat, selectable 1..n (all types for now — trader swaps later)
+    // fighter weapon loadout (#98): 4 slots max, bought/sold at the trader
+    public static final int LOADOUT_SLOTS = 4;
     public final List<Weapon.Type> loadout = new ArrayList<>(List.of(
-        Weapon.Type.LIGHT_CANNON, Weapon.Type.MEDIUM_CANNON, Weapon.Type.HEAVY_CANNON,
-        Weapon.Type.ROCKET, Weapon.Type.HOMING_ROCKET,
-        Weapon.Type.BEAM_LASER, Weapon.Type.BURST_LASER));
+        Weapon.Type.LIGHT_CANNON, Weapon.Type.ROCKET));
+
+    /** 155mm barrel count: 1 stock, up to 3 via trader barrel upgrades (#91). */
+    public int cannon155Tier() {
+        return 1 + Math.min(2, upgradeLevel(ShipUpgrade.M155_BARRELS));
+    }
     // ship integrity: shields absorb before hull; 0 hull = run lost
     public float hull = 100f;
     public float maxHull = 100f;

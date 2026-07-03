@@ -33,7 +33,7 @@ public class TraderScreen implements Screen {
     private static final float LIST_W = 720f;
     private static final float LIST_TOP = 380f;
 
-    private static final String[] TABS = {"SUPPLIES", "UPGRADES", "COMPARTMENTS", "CREW"};
+    private static final String[] TABS = {"SUPPLIES", "WEAPONS", "UPGRADES", "COMPARTMENTS", "CREW"};
 
     private final JFighter game;
     private final GameState state;
@@ -103,7 +103,23 @@ public class TraderScreen implements Screen {
         float w = MathUtils.random(); // base shuffle noise
         w += state.upgradeLevel(u) * 0.8f;              // owned drifts out of stock
         if (state.sector <= 1 && u.basePrice > 110) w += 0.6f; // early game: mostly cheap tiers
+        if (u == ShipUpgrade.M155_BARRELS
+                && (!state.loadout.contains(Weapon.Type.CANNON_155) || state.upgradeLevel(u) >= 2)) {
+            w += 10f; // barrel upgrades only make sense with the gun aboard and below max tier
+        }
         return w;
+    }
+
+    private static int weaponPrice(Weapon.Type t) {
+        switch (t) {
+            case LIGHT_CANNON: return 60;
+            case MEDIUM_CANNON: return 120;
+            case CANNON_155: return 200;
+            case ROCKET: return 140;
+            case HOMING_ROCKET: return 220;
+            case BEAM_LASER: return 260;
+            default: return 160; // burst laser
+        }
     }
 
     private List<Item> items() {
@@ -119,7 +135,24 @@ public class TraderScreen implements Screen {
                     missing > 0, () -> state.hull = state.maxHull));
                 break;
             }
-            case 1: { // ship upgrades
+            case 1: { // weapons: buy into free slots, sell what you carry
+                for (Weapon.Type t : Weapon.Type.values()) {
+                    boolean owned = state.loadout.contains(t);
+                    int price = weaponPrice(t);
+                    if (owned) {
+                        boolean canSell = state.loadout.size() > 1;
+                        list.add(new Item("SELL " + t.label, "free the slot, half price back", -price / 2,
+                            canSell, () -> state.loadout.remove(t)));
+                    } else {
+                        boolean slotFree = state.loadout.size() < GameState.LOADOUT_SLOTS;
+                        list.add(new Item("BUY " + t.label,
+                            slotFree ? "mounts in a free slot" : "no free slots (" + GameState.LOADOUT_SLOTS + " max)",
+                            price, slotFree, () -> state.loadout.add(t)));
+                    }
+                }
+                break;
+            }
+            case 2: { // ship upgrades
                 for (ShipUpgrade u : upgradeStock) {
                     int level = state.upgradeLevel(u);
                     list.add(new Item(u.label + " L" + (level + 1), u.effect, u.priceAt(level),
@@ -127,7 +160,7 @@ public class TraderScreen implements Screen {
                 }
                 break;
             }
-            case 2: { // compartment tiers
+            case 3: { // compartment tiers
                 for (int room : compartmentStock) {
                     int tier = state.roomTier[room];
                     int price = 80 * tier;
@@ -176,8 +209,8 @@ public class TraderScreen implements Screen {
         }
         if (click && hoveredItem != -1) {
             Item it = list.get(hoveredItem);
-            if (it.available && state.credits >= it.price) {
-                state.credits -= it.price;
+            if (it.available && (it.price <= 0 || state.credits >= it.price)) {
+                state.credits -= it.price; // negative price = a sale pays out
                 it.buy.run();
                 game.sfx.playCatch();
                 list = items(); // refresh rows after the purchase
@@ -236,7 +269,8 @@ public class TraderScreen implements Screen {
             font.draw(batch, it.available ? it.detail : "(unavailable)", r.x + 12, r.y + 16);
             Fonts.scale(font, 1.4f);
             font.setColor(can ? Color.YELLOW : Color.DARK_GRAY);
-            GlyphLayout pg = new GlyphLayout(font, it.price + " cr");
+            GlyphLayout pg = new GlyphLayout(font,
+                (it.price < 0 ? "+" + (-it.price) : String.valueOf(it.price)) + " cr");
             font.draw(batch, pg, r.x + r.width - pg.width - 12, r.y + (r.height + pg.height) / 2f);
         }
         font.setColor(Color.GRAY);
@@ -248,7 +282,7 @@ public class TraderScreen implements Screen {
     }
 
     private Rectangle tabRect(int i) {
-        float w = 180f;
+        float w = 142f;
         return new Rectangle(LIST_X + i * (w + 6f), 410, w, 34);
     }
 

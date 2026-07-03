@@ -7,7 +7,8 @@ public enum ShipUpgrade {
     SHIELD_RECHARGE("Shield recycler", "+3/s shield recharge", 100),
     NET_LENGTH("Net spool", "+25% net length", 90),
     PINCER_HOLD("Hold extension", "+1 pincer capacity", 90),
-    ENGINE_TUNING("Engine tuning", "+10% thrust", 130);
+    ENGINE_TUNING("Engine tuning", "+10% thrust", 130),
+    M155_BARRELS("155mm barrel", "+1 barrel: bigger ripple salvo", 250);
 
     public final String label;
     public final String effect;

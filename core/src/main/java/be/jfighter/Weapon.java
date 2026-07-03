@@ -8,7 +8,7 @@ public class Weapon {
     public enum Type {
         LIGHT_CANNON("20MM", 5f, 520f, 0.15f, -1, 60f),
         MEDIUM_CANNON("57MM", 12f, 440f, 0.55f, -1, 45f),
-        HEAVY_CANNON("130MM", 30f, 380f, 1.6f, -1, 0f),
+        CANNON_155("155MM", 34f, 380f, 2.2f, -1, 0f), // tiered multi-barrel (#91)
         ROCKET("RKT", 40f, 240f, 2.2f, 12, 0f),
         HOMING_ROCKET("H-RKT", 35f, 220f, 3.0f, 8, 0f),
         BEAM_LASER("BEAM", 25f, 0f, 0f, -1, 40f),    // damage = dps while held on target
@@ -45,6 +45,7 @@ public class Weapon {
     public int burstLeft;  // queued pulses for BURST_LASER
     public float burstTimer;
     public float turret;   // current mount offset from the nose, clamped to the arc
+    public final float[] barrelRecoil = new float[3]; // 155mm barrels slide back on firing
 
     public Weapon(Type type) {
         this.type = type;
@@ -58,6 +59,9 @@ public class Weapon {
     public void update(float delta) {
         if (cooldown > 0) cooldown -= delta;
         if (burstTimer > 0) burstTimer -= delta;
+        for (int i = 0; i < barrelRecoil.length; i++) {
+            if (barrelRecoil[i] > 0) barrelRecoil[i] = Math.max(0f, barrelRecoil[i] - 4f * delta);
+        }
     }
 
     public void fire() {

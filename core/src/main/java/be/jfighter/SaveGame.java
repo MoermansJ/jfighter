@@ -66,6 +66,12 @@ public final class SaveGame {
                 first = false;
             }
             b.append("},");
+            b.append("\"loadout\":[");
+            for (int i = 0; i < s.loadout.size(); i++) {
+                if (i > 0) b.append(',');
+                b.append('"').append(s.loadout.get(i).name()).append('"');
+            }
+            b.append("],");
             b.append("\"crew\":[");
             for (int i = 0; i < s.crew.size(); i++) {
                 if (i > 0) b.append(',');
@@ -200,6 +206,12 @@ public final class SaveGame {
             }
             for (JsonValue u = r.get("upgrades").child; u != null; u = u.next) {
                 s.upgrades.put(ShipUpgrade.valueOf(u.name), u.asInt());
+            }
+            if (r.has("loadout")) {
+                s.loadout.clear();
+                for (JsonValue lw = r.get("loadout").child; lw != null; lw = lw.next) {
+                    s.loadout.add(Weapon.Type.valueOf(lw.asString()));
+                }
             }
             for (JsonValue c = r.get("crew").child; c != null; c = c.next) {
                 s.crew.add(readCrew(c));
