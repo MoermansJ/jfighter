@@ -107,7 +107,7 @@ public class SetupScreen implements Screen {
         shapes.rect(SHIP_CARD.x, SHIP_CARD.y, SHIP_CARD.width, SHIP_CARD.height);
         // ship portrait: the same carrier silhouette that fights on the combat screen (#137)
         transform.setToTranslation(SHIP_CARD.x + 90, SHIP_CARD.y + SHIP_CARD.height / 2f, 0)
-            .rotate(0, 0, 1, -90f).scale(1.0f, 1.0f, 1f);
+            .rotate(0, 0, 1, -90f).scale(0.62f, 0.62f, 1f);
         shapes.setTransformMatrix(transform);
         shapes.setColor(Color.GREEN);
         ShipRenderer.drawCarrier(shapes);

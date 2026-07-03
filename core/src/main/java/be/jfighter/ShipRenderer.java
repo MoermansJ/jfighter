@@ -92,38 +92,56 @@ public final class ShipRenderer {
         }
     }
 
-    /** The mothership, top-down (#117): long wedge hull, bridge, engine blocks, hangar notch. */
+    /** The mothership, top-down (#117/#132): an elongated dagger with layered plates. */
     public static void drawCarrier(ShapeRenderer shapes) {
-        // hull outline (nose +y)
-        shapes.line(0, 68, 22, 40);
-        shapes.line(22, 40, 28, -10);
-        shapes.line(28, -10, 20, -48);
-        shapes.line(20, -48, -20, -48);
-        shapes.line(-20, -48, -28, -10);
-        shapes.line(-28, -10, -22, 40);
-        shapes.line(-22, 40, 0, 68);
-        // bridge
-        shapes.line(-8, 26, 8, 26);
-        shapes.line(8, 26, 6, 12);
-        shapes.line(6, 12, -6, 12);
-        shapes.line(-6, 12, -8, 26);
-        shapes.circle(0, 20, 2.5f, 8);
+        // dagger hull outline (nose +y): long taper to a point
+        shapes.line(0, 120, 14, 60);
+        shapes.line(14, 60, 30, -20);
+        shapes.line(30, -20, 36, -70);
+        shapes.line(36, -70, -36, -70);
+        shapes.line(-36, -70, -30, -20);
+        shapes.line(-30, -20, -14, 60);
+        shapes.line(-14, 60, 0, 120);
+        // layered hull plates: inner terrace lines echoing the taper
+        shapes.line(0, 104, 10, 52);
+        shapes.line(10, 52, 22, -18);
+        shapes.line(22, -18, 26, -62);
+        shapes.line(0, 104, -10, 52);
+        shapes.line(-10, 52, -22, -18);
+        shapes.line(-22, -18, -26, -62);
+        shapes.line(0, 88, 6, 44);
+        shapes.line(6, 44, 14, -16);
+        shapes.line(0, 88, -6, 44);
+        shapes.line(-6, 44, -14, -16);
         // spine
-        shapes.line(0, 60, 0, -40);
-        // hangar notch, portside
-        shapes.line(-28, -2, -18, -2);
-        shapes.line(-18, -2, -18, -22);
-        shapes.line(-18, -22, -28, -22);
-        // engine blocks
-        shapes.line(-16, -48, -16, -56);
-        shapes.line(-6, -48, -6, -58);
-        shapes.line(6, -48, 6, -58);
-        shapes.line(16, -48, 16, -56);
-        // cupola mounts
-        shapes.circle(-20, 18, 3f, 8);
-        shapes.circle(20, 18, 3f, 8);
-        // heavy mount ring, forward
-        shapes.circle(0, 44, 4.5f, 10);
+        shapes.line(0, 112, 0, -60);
+        // superstructure terraces + bridge tower, aft
+        shapes.line(-16, -30, 16, -30);
+        shapes.line(-12, -30, -12, -44);
+        shapes.line(12, -30, 12, -44);
+        shapes.line(-12, -44, 12, -44);
+        shapes.line(-6, -44, -6, -54);
+        shapes.line(6, -44, 6, -54);
+        shapes.line(-6, -54, 6, -54);
+        shapes.circle(0, -49, 2.5f, 8); // bridge globe
+        // hangar notch, portside midships
+        shapes.line(-30, -8, -20, -8);
+        shapes.line(-20, -8, -20, -32);
+        shapes.line(-20, -32, -32, -32);
+        // engine array
+        shapes.line(-26, -70, -26, -80);
+        shapes.line(-14, -70, -14, -84);
+        shapes.line(0, -70, 0, -86);
+        shapes.line(14, -70, 14, -84);
+        shapes.line(26, -70, 26, -80);
+        // cupola mounts on the flanks
+        shapes.circle(-24, 8, 3f, 8);
+        shapes.circle(24, 8, 3f, 8);
+        // heavy mount ring, forward third
+        shapes.circle(0, 56, 5f, 10);
+        // medium sockets, midships
+        shapes.circle(-16, 22, 3.2f, 8);
+        shapes.circle(16, 22, 3.2f, 8);
     }
 
     public static void drawExhaust(ShapeRenderer shapes, float thrustLevel) {

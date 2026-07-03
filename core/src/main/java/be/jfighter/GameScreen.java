@@ -130,7 +130,7 @@ public class GameScreen implements Screen {
     private static final int SQUADRON_COUNT = 2;
     private static final int FIGHTERS_PER_SQUADRON = 3;
     private static final float FIGHTER_HP = 24f;
-    private static final float CARRIER_HIT_RADIUS = 48f;
+    private static final float CARRIER_HIT_RADIUS = 80f;
 
     private static class Fighter {
         final Player body;
@@ -144,6 +144,8 @@ public class GameScreen implements Screen {
         Fighter(float x, float y, int squadron) {
             body = new Player(x, y);
             body.rotation = MathUtils.random(360f);
+            body.thrustMult = 1.5f; // interceptors: quick and twitchy (#132)
+            body.turnMult = 1.8f;
             this.squadron = squadron;
         }
 
@@ -159,6 +161,7 @@ public class GameScreen implements Screen {
     private static class Squadron {
         int mode; // 0 escort carrier, 1 move to point, 2 attack target
         float ox, oy;
+        float orderDir; // heading of the last move order; idlers keep pointing this way (#132)
         Enemy target;
     }
 
@@ -467,7 +470,7 @@ public class GameScreen implements Screen {
                 float a = shieldFlash / 0.4f;
                 shapeRenderer.setColor(0.4f * a, 0.8f * a, a, 1f);
                 shapeRenderer.circle(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
-                    56f + 8f * (1f - a), 28);
+                    88f + 8f * (1f - a), 32);
                 shapeRenderer.end();
             }
         }
@@ -1058,6 +1061,18 @@ public class GameScreen implements Screen {
             return;
         }
         sq.mode = 1;
+        // remember the direction of travel so the squadron holds it after arriving
+        float scx = 0f;
+        float scy = 0f;
+        int n = 0;
+        for (Fighter f : fighters) {
+            if (f.squadron == selectedSquadron) {
+                scx += f.centerX();
+                scy += f.centerY();
+                n++;
+            }
+        }
+        if (n > 0) sq.orderDir = MathUtils.atan2(-(x - scx / n), y - scy / n) * MathUtils.radiansToDegrees;
         sq.ox = x;
         sq.oy = y;
         game.sfx.playPing();
@@ -1142,15 +1157,16 @@ public class GameScreen implements Screen {
             float ty = sq.mode == 1 ? sq.oy : player.y + Player.HEIGHT / 2f;
             // small per-fighter spread so the squadron doesn't stack
             int slot = fighterSlot(f);
-            tx += MathUtils.cosDeg(slot * 120f) * 46f;
-            ty += MathUtils.sinDeg(slot * 120f) * 46f;
+            tx += MathUtils.cosDeg(slot * 120f) * 30f;
+            ty += MathUtils.sinDeg(slot * 120f) * 30f;
             float dx = tx - cx;
             float dy = ty - cy;
             float dist = (float) Math.sqrt(dx * dx + dy * dy);
-            if (dist < 30f) {
+            if (dist < 24f) {
                 wantThrottle = 0;
-                gx = -MathUtils.sinDeg(f.body.rotation);
-                gy = MathUtils.cosDeg(f.body.rotation);
+                // hold the move-order heading instead of drifting around (#132)
+                gx = -MathUtils.sinDeg(sq.mode == 1 ? sq.orderDir : f.body.rotation);
+                gy = MathUtils.cosDeg(sq.mode == 1 ? sq.orderDir : f.body.rotation);
                 if (sq.mode == 0) {
                     f.hp = Math.min(FIGHTER_HP, f.hp + 2.5f * delta); // deck crews patch them up
                     f.rockets = 2; // and rearm the pods
@@ -1844,7 +1860,7 @@ public class GameScreen implements Screen {
             else if (f.squadron == 0) shapeRenderer.setColor(0.25f, 0.85f, 0.4f, 1f);
             else shapeRenderer.setColor(0.3f, 0.8f, 0.75f, 1f);
             transform.setToTranslation(f.centerX(), f.centerY(), 0)
-                .rotate(0, 0, 1, f.body.rotation).scale(0.8f, 0.8f, 1f);
+                .rotate(0, 0, 1, f.body.rotation).scale(0.55f, 0.55f, 1f);
             shapeRenderer.setTransformMatrix(transform);
             ShipRenderer.drawB2(shapeRenderer);
             if (f.body.thrustLevel > 0.02f) {
