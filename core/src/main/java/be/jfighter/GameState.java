@@ -27,7 +27,7 @@ public class GameState {
     // fighter weapon loadout (#98): 4 slots max, bought/sold at the trader
     public static final int LOADOUT_SLOTS = 4;
     public final List<Weapon.Type> loadout = new ArrayList<>(List.of(
-        Weapon.Type.CANNON_155)); // the heavy socket's gun; mediums come from the trader (#119)
+        Weapon.Type.CANNON_155, Weapon.Type.AUTOCANNON_20)); // Model A's default sockets (#119/#135)
 
     // ammunition pools (#120): ballistic weapons burn these, bought at the trader
     public int ammoLight = 600;

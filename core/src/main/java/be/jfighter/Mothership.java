@@ -13,6 +13,7 @@ public class Mothership {
 
     public static final String MOUNT_155 = "155MM CANNON";
     public static final String MOUNT_MG46 = "MG-46 CUPOLA";
+    public static final String MOUNT_AC20 = "20MM AUTOCANNON";
 
     public static class Socket {
         public final SocketSize size;
@@ -31,13 +32,13 @@ public class Mothership {
         this.model = model;
     }
 
-    /** Model A: 1x heavy (155mm T1), 2x light (MG-46 cupolas), 2x empty medium. */
+    /** Model A: 1x heavy (155mm T1), 2x light (MG-46), a 20mm autocannon + 1 empty medium. */
     public static Mothership modelA() {
         Mothership m = new Mothership("MODEL A");
         m.sockets.add(new Socket(SocketSize.HEAVY, MOUNT_155));
         m.sockets.add(new Socket(SocketSize.LIGHT, MOUNT_MG46));
         m.sockets.add(new Socket(SocketSize.LIGHT, MOUNT_MG46));
-        m.sockets.add(new Socket(SocketSize.MEDIUM, null));
+        m.sockets.add(new Socket(SocketSize.MEDIUM, MOUNT_AC20));
         m.sockets.add(new Socket(SocketSize.MEDIUM, null));
         return m;
     }

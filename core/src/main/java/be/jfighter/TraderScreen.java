@@ -113,6 +113,7 @@ public class TraderScreen implements Screen {
     private static int weaponPrice(Weapon.Type t) {
         switch (t) {
             case LIGHT_CANNON: return 60;
+            case AUTOCANNON_20: return 110;
             case MEDIUM_CANNON: return 120;
             case CANNON_155: return 200;
             case ROCKET: return 140;

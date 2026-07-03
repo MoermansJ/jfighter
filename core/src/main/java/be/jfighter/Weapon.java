@@ -10,6 +10,7 @@ public class Weapon {
 
     public enum Type {
         LIGHT_CANNON("20MM", 5f, 520f, 0.15f, 60f, AmmoKind.LIGHT, 1),
+        AUTOCANNON_20("20MM AC", 6f, 540f, 0.09f, 60f, AmmoKind.LIGHT, 1), // medium-socket autocannon (#135)
         MEDIUM_CANNON("57MM", 12f, 440f, 0.55f, 45f, AmmoKind.LIGHT, 2),
         CANNON_155("155MM", 34f, 380f, 2.2f, 180f, AmmoKind.HEAVY, 1), // tiered multi-barrel (#91)
         ROCKET("RKT", 40f, 240f, 2.2f, 0f, AmmoKind.ROCKET, 1),

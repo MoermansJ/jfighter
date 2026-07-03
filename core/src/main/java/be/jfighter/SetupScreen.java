@@ -30,9 +30,11 @@ public class SetupScreen implements Screen {
     private BitmapFont font;
     private final Matrix4 transform = new Matrix4();
 
-    private static final Rectangle LAUNCH_BTN = new Rectangle(700, 60, 200, 44);
-    private static final Rectangle REROLL_BTN = new Rectangle(480, 60, 200, 44);
-    private static final Rectangle BACK_BTN = new Rectangle(60, 60, 160, 44);
+    private static final Rectangle LAUNCH_BTN = new Rectangle(700, 40, 200, 44);
+    private static final Rectangle REROLL_BTN = new Rectangle(480, 40, 200, 44);
+    private static final Rectangle BACK_BTN = new Rectangle(60, 40, 160, 44);
+    // one ship for now (#136): SCOUT/FREIGHTER stay behind the curtain until they earn their cards
+    private static final Rectangle SHIP_CARD = new Rectangle(60, 330, 400, 160);
     private static final String[][] MODS = {
         {GameState.MOD_IRON, "IRON — no free HOME repairs, +2 salvage"},
         {GameState.MOD_DARK, "DARK — the fog never lifts, loot +30%"},
@@ -59,12 +61,8 @@ public class SetupScreen implements Screen {
         draft.modifiers.addAll(keep);
     }
 
-    private Rectangle hullRect(int i) {
-        return new Rectangle(60 + i * 290, 360, 270, 130);
-    }
-
     private Rectangle modRect(int i) {
-        return new Rectangle(480, 196 - i * 34, 430, 28);
+        return new Rectangle(500, 300 - i * 34, 410, 28);
     }
 
     @Override
@@ -80,13 +78,6 @@ public class SetupScreen implements Screen {
         boolean click = Gdx.input.isButtonJustPressed(Input.Buttons.LEFT);
 
         if (click) {
-            ShipHull[] hulls = ShipHull.values();
-            for (int i = 0; i < hulls.length; i++) {
-                if (hullRect(i).contains(mouse.x, mouse.y) && hull != hulls[i]) {
-                    hull = hulls[i];
-                    reroll(); // crew count follows the hull
-                }
-            }
             for (int i = 0; i < MODS.length; i++) {
                 if (modRect(i).contains(mouse.x, mouse.y)) {
                     String key = MODS[i][0];
@@ -111,20 +102,16 @@ public class SetupScreen implements Screen {
         shapes.setProjectionMatrix(viewport.getCamera().combined);
         batch.setProjectionMatrix(viewport.getCamera().combined);
 
-        ShipHull[] hulls = ShipHull.values();
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        for (int i = 0; i < hulls.length; i++) {
-            Rectangle r = hullRect(i);
-            shapes.setColor(hulls[i] == hull ? Color.CYAN : new Color(0.25f, 0.35f, 0.4f, 1f));
-            shapes.rect(r.x, r.y, r.width, r.height);
-            // hull portrait: the shared wireframe, scaled into the card
-            transform.setToTranslation(r.x + 60, r.y + r.height / 2f, 0)
-                .scale(1.4f, 1.4f, 1f);
-            shapes.setTransformMatrix(transform);
-            shapes.setColor(Color.GREEN);
-            ShipRenderer.drawB2(shapes);
-            shapes.setTransformMatrix(transform.idt());
-        }
+        shapes.setColor(Color.CYAN);
+        shapes.rect(SHIP_CARD.x, SHIP_CARD.y, SHIP_CARD.width, SHIP_CARD.height);
+        // ship portrait: the same carrier silhouette that fights on the combat screen (#137)
+        transform.setToTranslation(SHIP_CARD.x + 90, SHIP_CARD.y + SHIP_CARD.height / 2f, 0)
+            .rotate(0, 0, 1, -90f).scale(1.0f, 1.0f, 1f);
+        shapes.setTransformMatrix(transform);
+        shapes.setColor(Color.GREEN);
+        ShipRenderer.drawCarrier(shapes);
+        shapes.setTransformMatrix(transform.idt());
         for (int i = 0; i < MODS.length; i++) {
             Rectangle r = modRect(i);
             boolean on = draft.modifiers.contains(MODS[i][0]);
@@ -142,50 +129,49 @@ public class SetupScreen implements Screen {
         Fonts.scale(font, 2f);
         font.setColor(Color.WHITE);
         font.draw(batch, "OUTFITTING", 60, 525);
+        // ship card text, clear of the portrait (#138: measured columns, no stacking)
         Fonts.scale(font, 1.4f);
-        for (int i = 0; i < hulls.length; i++) {
-            Rectangle r = hullRect(i);
-            font.setColor(hulls[i] == hull ? Color.CYAN : Color.GRAY);
-            font.draw(batch, hulls[i].label, r.x + 112, r.y + r.height - 12);
-            Fonts.scale(font, 0.95f);
-            font.setColor(Color.GRAY);
-            font.draw(batch, hulls[i].blurb, r.x + 112, r.y + r.height - 38);
-            font.draw(batch, "HULL " + (int) hulls[i].maxHull
-                + "  THRUST " + Math.round(hulls[i].thrustMult * 100)
-                + "%  CREW " + hulls[i].crewCount, r.x + 112, r.y + r.height - 62);
-            Fonts.scale(font, 1.4f);
-        }
-        // mothership armament: the selected hull's socket diagram (#119)
-        Mothership fit = Mothership.forHull(hull);
-        font.setColor(Color.GRAY);
-        font.draw(batch, "ARMAMENT — " + fit.model, 480, 348);
+        font.setColor(Color.CYAN);
+        font.draw(batch, hull.label, SHIP_CARD.x + 180, SHIP_CARD.y + SHIP_CARD.height - 16);
         Fonts.scale(font, 0.95f);
-        float sy = 326;
+        font.setColor(Color.GRAY);
+        font.draw(batch, hull.blurb, SHIP_CARD.x + 180, SHIP_CARD.y + SHIP_CARD.height - 44);
+        font.draw(batch, "HULL " + (int) hull.maxHull, SHIP_CARD.x + 180, SHIP_CARD.y + SHIP_CARD.height - 72);
+        font.draw(batch, "THRUST " + Math.round(hull.thrustMult * 100) + "%",
+            SHIP_CARD.x + 180, SHIP_CARD.y + SHIP_CARD.height - 92);
+        font.draw(batch, "CREW " + hull.crewCount, SHIP_CARD.x + 180, SHIP_CARD.y + SHIP_CARD.height - 112);
+        // right column, top: the mothership's socket diagram (#119)
+        Mothership fit = Mothership.forHull(hull);
+        Fonts.scale(font, 1.4f);
+        font.setColor(Color.GRAY);
+        font.draw(batch, "ARMAMENT — " + fit.model, 500, 490);
+        Fonts.scale(font, 0.95f);
+        float sy = 464;
         for (Mothership.Socket s : fit.sockets) {
             font.setColor(s.mount != null ? Color.WHITE : Color.DARK_GRAY);
             font.draw(batch, "[" + s.size.name().charAt(0) + "] "
-                + (s.mount != null ? s.mount : "— EMPTY —"), 480, sy);
-            sy -= 20;
+                + (s.mount != null ? s.mount : "— EMPTY —"), 500, sy);
+            sy -= 22;
         }
+        // left column, below the card: crew review
         Fonts.scale(font, 1.4f);
-        // crew review
         font.setColor(Color.GRAY);
-        font.draw(batch, "CREW MANIFEST", 60, 320);
+        font.draw(batch, "CREW MANIFEST", 60, 300);
         Fonts.scale(font, 1.1f);
-        float y = 292;
+        float y = 272;
         for (CrewMember c : draft.crew) {
             font.setColor(Color.WHITE);
             font.draw(batch, c.name, 60, y);
             font.setColor(Color.GRAY);
             font.draw(batch, c.primary + " +" + CrewMember.PRIMARY_BONUS
                 + "  " + c.secondary + " +" + CrewMember.SECONDARY_BONUS
-                + "  " + c.trait, 200, y);
+                + "  " + c.trait, 210, y);
             y -= 26;
         }
         Fonts.scale(font, 1.4f);
-        // modifiers
+        // right column, bottom: modifiers
         font.setColor(Color.GRAY);
-        font.draw(batch, "RUN MODIFIERS", 480, 252);
+        font.draw(batch, "RUN MODIFIERS", 500, 356);
         Fonts.scale(font, 0.95f);
         for (int i = 0; i < MODS.length; i++) {
             Rectangle r = modRect(i);
