@@ -129,6 +129,7 @@ public class ShipDeckView {
     private final Map<CrewMember, Sim> sims = new HashMap<>();
     private final Array<CrewMember> figureList = new Array<>();
     private final java.util.Set<CrewMember> engaged = new java.util.HashSet<>();
+    private final Array<float[]> clashes = new Array<>(); // melee midpoints for impact flashes
 
     /** Everyone walking the deck: the crew plus any boarder. */
     private Array<CrewMember> figures() {
@@ -247,6 +248,13 @@ public class ShipDeckView {
         boolean moving;
         float fallT;                                     // 0 upright .. 1 flat on the floor
         final int fallDir = MathUtils.randomSign();      // which way the body keels over
+        // struggle animation (#87)
+        float struggle;
+        float lungeX, lungeY; // toward the melee opponent
+        // idle animations (#89): randomized scheduler per figure
+        float idleT = MathUtils.random(3f, 10f); // until the next idle
+        float idleAnimT;                         // remaining time of the current idle
+        int idleKind;
     }
 
     public ShipDeckView(GameState state) {
@@ -456,6 +464,7 @@ public class ShipDeckView {
         // hand-to-hand: the boarder engages crew in the same compartment within viewing
         // range (auto-initiation; personality traits could gate this later)
         engaged.clear();
+        clashes.clear();
         CrewMember boarder = state.boarder;
         if (boarder != null && !boarder.isDead()) {
             Sim bs = sims.get(boarder);
@@ -470,6 +479,12 @@ public class ShipDeckView {
                     if (ddx * ddx + ddy * ddy > 30f * 30f) continue; // out of viewing range
                     engaged.add(c);
                     engaged.add(boarder);
+                    float dd = Math.max(0.001f, (float) Math.sqrt(ddx * ddx + ddy * ddy));
+                    cs.lungeX = -ddx / dd;
+                    cs.lungeY = -ddy / dd;
+                    bs.lungeX = ddx / dd;
+                    bs.lungeY = ddy / dd;
+                    clashes.add(new float[]{(cs.x + bs.x) / 2f, (cs.y + bs.y) / 2f});
                     float boarderDps = 6f + 2f * boarder.bonusFor(Skill.COMBAT);
                     float crewDps = 6f + 2f * c.bonusFor(Skill.COMBAT);
                     c.hp = Math.max(0f, c.hp - boarderDps * delta);
@@ -502,6 +517,8 @@ public class ShipDeckView {
             if (c.station >= 0) c.freeX = -1; // a station assignment overrides a free order
             if (engaged.contains(c)) {
                 sim.moving = false; // locked in the melee
+                sim.struggle += delta;
+                sim.idleAnimT = 0;
             } else if (c.freeX >= 0) {
                 moveAlongPath(sim, delta); // free-move: no station re-path fights the order
             } else {
@@ -517,6 +534,21 @@ public class ShipDeckView {
             }
             c.deckX = sim.x;
             c.deckY = sim.y;
+            // idle scheduler: random interval, random pick + duration; never in sync across the crew
+            if (!sim.moving && !engaged.contains(c)) {
+                if (sim.idleAnimT > 0) {
+                    sim.idleAnimT -= delta;
+                } else {
+                    sim.idleT -= delta;
+                    if (sim.idleT <= 0) {
+                        sim.idleKind = MathUtils.random(2);
+                        sim.idleAnimT = MathUtils.random(0.8f, 2f);
+                        sim.idleT = MathUtils.random(4f, 12f);
+                    }
+                }
+            } else {
+                sim.idleAnimT = 0;
+            }
 
             int room = roomAtDeck(sim.x, sim.y);
             if (room != -1) occupied[room] = true;
@@ -1068,6 +1100,17 @@ public class ShipDeckView {
                                         {BEZ_X1 + 6, BEZ_Y2 - 6}, {BEZ_X2 - 6, BEZ_Y2 - 6}}) {
             shapes.circle(c[0], c[1], 2.5f, 8); // corner screws
         }
+        // melee impact flashes at the clash midpoints
+        if (clashes.size > 0 && MathUtils.sin(time * 14f) > 0.35f) {
+            Palette.set(shapes, 1f, 0.8f, 0.3f, 0.9f);
+            for (float[] cl : clashes) {
+                float cxp = px(cl[0]);
+                float cyp = py(cl[1], FIGURE_H * 0.55f);
+                shapes.line(cxp - 3, cyp - 2, cxp + 3, cyp + 2);
+                shapes.line(cxp - 3, cyp + 2, cxp + 3, cyp - 2);
+                shapes.line(cxp, cyp - 3.5f, cxp, cyp + 3.5f);
+            }
+        }
         // free-move destination marker for the selected figure
         if (selectedCrew != null && selectedCrew.freeX >= 0) {
             float mxp = px(selectedCrew.freeX);
@@ -1197,20 +1240,44 @@ public class ShipDeckView {
 
     /** Stick-figure crew: swap this method's body for sprite rendering later. */
     private void drawFigure(ShapeRenderer shapes, CrewMember c, Sim sim) {
-        float bx = px(sim.x);
-        float by = py(sim.y, 0);
-        float hipX = bodyX(sim, FIGURE_H * 0.45f), hipY = bodyY(sim, FIGURE_H * 0.45f);
-        float neckX = bodyX(sim, FIGURE_H - 5), neckY = bodyY(sim, FIGURE_H - 5);
+        boolean fighting = !c.isDead() && engaged.contains(c);
+        // struggle: rapid jostling toward the opponent (visual offset only)
+        float jx = 0f, jy = 0f;
+        if (fighting) {
+            float lunge = (0.6f + 0.6f * MathUtils.sin(sim.struggle * 9f)) * 1.4f;
+            jx = sim.lungeX * lunge * SCALE;
+            jy = sim.lungeY * lunge * SQUASH * SCALE;
+        }
+        float bx = px(sim.x) + jx;
+        float by = py(sim.y, 0) + jy;
+        float hipX = bodyX(sim, FIGURE_H * 0.45f) + jx, hipY = bodyY(sim, FIGURE_H * 0.45f) + jy;
+        float neckX = bodyX(sim, FIGURE_H - 5) + jx, neckY = bodyY(sim, FIGURE_H - 5) + jy;
         // limbs spread perpendicular to the body axis
         float sideX = fallDy(sim), sideY = -fallDx(sim);
         setFigureColor(shapes, c);
         float swing = sim.moving ? MathUtils.sin(sim.walkPhase) * 3.5f : 0f;
+        if (fighting) swing = MathUtils.sin(sim.struggle * 11f) * 1.6f;
+        else if (sim.idleAnimT > 0 && sim.idleKind == 0) swing = MathUtils.sin(time * 1.7f) * 1.1f; // weight shift
         shapes.line(hipX, hipY, bx - (2 + swing) * sideX, by - (2 + swing) * sideY);  // legs
         shapes.line(hipX, hipY, bx + (2 + swing) * sideX, by + (2 + swing) * sideY);
         shapes.line(hipX, hipY, neckX, neckY);                                        // torso
         float armSwing = sim.moving ? MathUtils.sin(sim.walkPhase + MathUtils.PI) * 2.5f : 0f;
-        shapes.line(neckX, neckY, hipX - (3 + armSwing) * sideX, hipY - (3 + armSwing) * sideY); // arms
-        shapes.line(neckX, neckY, hipX + (3 + armSwing) * sideX, hipY + (3 + armSwing) * sideY);
+        if (fighting) armSwing = MathUtils.sin(sim.struggle * 16f) * 4.5f;            // flailing
+        // arm endpoints: hip height normally, overhead when stretching
+        float armEndH = FIGURE_H * 0.45f;
+        boolean stretch = !fighting && sim.idleAnimT > 0 && sim.idleKind == 1;
+        boolean scratch = !fighting && sim.idleAnimT > 0 && sim.idleKind == 2;
+        if (stretch) armEndH = FIGURE_H + 2f;
+        float aX = bodyX(sim, armEndH) + jx, aY = bodyY(sim, armEndH) + jy;
+        float reach = stretch ? 1.5f : 3 + armSwing;
+        shapes.line(neckX, neckY, aX - reach * sideX, aY - reach * sideY); // arms
+        if (scratch) {
+            // one hand up to the head
+            float hX = bodyX(sim, FIGURE_H - 1) + jx, hY = bodyY(sim, FIGURE_H - 1) + jy;
+            shapes.line(neckX, neckY, hX + 1.5f * sideX, hY + 1.5f * sideY);
+        } else {
+            shapes.line(neckX, neckY, aX + reach * sideX, aY + reach * sideY);
+        }
     }
 
     /** Blink phase for damage indicators; shared with the roster's health bars. */
