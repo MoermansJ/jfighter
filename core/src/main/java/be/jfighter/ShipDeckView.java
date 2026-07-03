@@ -543,10 +543,14 @@ public class ShipDeckView {
                     clashes.add(new float[]{(cs.x + bs.x) / 2f, (cs.y + bs.y) / 2f});
                     float boarderDps = 6f + 2f * boarder.bonusFor(Skill.COMBAT);
                     float crewDps = 6f + 2f * c.bonusFor(Skill.COMBAT);
+                    if (c.trait == CrewMember.Trait.BRAVE) crewDps += 2f;   // relishes the brawl
+                    else if (c.trait == CrewMember.Trait.TIMID) crewDps *= 0.5f; // fights half-heartedly
                     c.hp = Math.max(0f, c.hp - boarderDps * delta);
                     c.damageFlash = 0.4f;
+                    boolean wasAlive = !boarder.isDead();
                     boarder.hp = Math.max(0f, boarder.hp - crewDps * delta);
                     boarder.damageFlash = 0.4f;
+                    if (wasAlive && boarder.isDead()) c.gainXp(10f); // the kill is worth learning from
                 }
                 // left alone in a manned-type room, the boarder wrecks its station
                 if (!engaged.contains(boarder) && broom != -1 && ROOM_SKILL[broom] != null) {
@@ -621,6 +625,11 @@ public class ShipDeckView {
             }
         }
 
+        // station time earns experience (#101)
+        for (int i = 0; i < ROOMS.length; i++) {
+            CrewMember holder = stationHolder(i);
+            if (holder != null && roomStat(i) > 0) holder.gainXp(0.1f * delta);
+        }
         for (int i = 0; i < ROOMS.length; i++) {
             float target = occupied[i] ? 1f : 0.25f;
             int sys = powerSystemForRoom(i);
@@ -718,8 +727,9 @@ public class ShipDeckView {
                 }
             }
             if (bestX != -1) {
-                fire[bestX][bestY] = Math.max(0f,
-                    fire[bestX][bestY] - (0.3f + 0.12f * c.bonusFor(Skill.ENGINEERING)) * delta);
+                float rate = 0.3f + 0.12f * c.bonusFor(Skill.ENGINEERING);
+                if (c.trait == CrewMember.Trait.STEADY) rate *= 1.5f;
+                fire[bestX][bestY] = Math.max(0f, fire[bestX][bestY] - rate * delta);
             }
         }
     }
@@ -796,8 +806,9 @@ public class ShipDeckView {
                 if (c.isDead()) continue;
                 Sim sim = sims.get(c);
                 if (sim != null && roomAtDeck(sim.x, sim.y) == i) {
-                    state.roomIntegrity[i] = Math.min(1f,
-                        state.roomIntegrity[i] + (0.03f + 0.015f * c.bonusFor(Skill.ENGINEERING)) * delta);
+                    float rate = 0.03f + 0.015f * c.bonusFor(Skill.ENGINEERING);
+                    if (c.trait == CrewMember.Trait.STEADY) rate *= 1.5f; // calm hands fix faster
+                    state.roomIntegrity[i] = Math.min(1f, state.roomIntegrity[i] + rate * delta);
                 }
             }
         }

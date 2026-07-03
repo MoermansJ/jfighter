@@ -6,6 +6,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class GameState {
+    public ShipHull shipHull = ShipHull.CARRIER;
+    // optional run modifiers chosen at setup (#103)
+    public final java.util.Set<String> modifiers = new java.util.HashSet<>();
+    public static final String MOD_IRON = "IRON";         // no HOME repairs, +2 salvage
+    public static final String MOD_DARK = "DARK";         // the fog never lifts, richer loot
+    public static final String MOD_OVERLOAD = "OVERLOAD"; // +1 reactor unit, storms everywhere
+
     private static final String[] SURNAMES = {
         "Jones", "Riggs", "Rockefeller", "Vance", "Okafor", "Petrov", "Tanaka", "Silva",
         "Moreau", "Lindgren", "Castillo", "Adeyemi", "Novak", "Byrne", "Haddad", "Kowalski"
@@ -50,6 +57,9 @@ public class GameState {
         sector++;
         sectorsCleared++;
         map = new OverworldMap();
+        if (modifiers.contains(MOD_OVERLOAD)) {
+            for (Node n : map.allNodes()) n.stormy = true;
+        }
     }
 
     // ship upgrades (#30): owned levels; effects read where the systems use their tuning
@@ -113,7 +123,22 @@ public class GameState {
     }
 
     public float thrustMult() {
-        return 1f + 0.1f * upgradeLevel(ShipUpgrade.ENGINE_TUNING);
+        return shipHull.thrustMult * (1f + 0.1f * upgradeLevel(ShipUpgrade.ENGINE_TUNING));
+    }
+
+    /** Applies the chosen run modifiers' start-of-run effects (#103). */
+    public void applyModifiers() {
+        if (modifiers.contains(MOD_OVERLOAD)) {
+            reactorUnits = 9;
+            for (Node n : map.allNodes()) n.stormy = true;
+        }
+    }
+
+    /** XP payout to all living crew (#101). */
+    public void awardCrewXp(float amount) {
+        for (CrewMember c : crew) {
+            if (!c.isDead()) c.gainXp(amount);
+        }
     }
 
     /** A new random deckhand, same generation rules as the starting crew. */
@@ -143,17 +168,22 @@ public class GameState {
     public final boolean[] doorHeldOpen = new boolean[12];
 
     public GameState() {
+        this(ShipHull.CARRIER);
+    }
+
+    public GameState(ShipHull hullType) {
+        this.shipHull = hullType;
         this.map = new OverworldMap();
         this.credits = 500 + 100 * Meta.perkLevel(Meta.PERK_CREDITS);
         this.maxFuel = 100f;
         this.fuel = 8f + 2 * Meta.perkLevel(Meta.PERK_FUEL); // scarce: each node hop costs 1
-        this.maxHull += 15 * Meta.perkLevel(Meta.PERK_HULL);
+        this.maxHull = hullType.maxHull + 15 * Meta.perkLevel(Meta.PERK_HULL);
         this.hull = maxHull;
         // roguelite: every run starts with a fresh random crew (the map is random too;
         // the ship layout stays fixed for now)
         List<String> names = new ArrayList<>(List.of(SURNAMES));
         Skill[] skills = Skill.values();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < hullType.crewCount; i++) {
             String surname = names.remove(MathUtils.random(names.size() - 1));
             String name = (char) ('A' + MathUtils.random(25)) + ". " + surname;
             Skill primary = skills[MathUtils.random(skills.length - 1)];

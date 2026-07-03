@@ -257,9 +257,12 @@ public class OverworldScreen implements Screen {
         float detailY = ROSTER_TOP - state.crew.size() * ROSTER_ROW_H - 6;
         if (selectedCrew != null) {
             font.setColor(Color.WHITE);
-            font.draw(batch, selectedCrew.primary + " +" + CrewMember.PRIMARY_BONUS
-                + "   " + selectedCrew.secondary + " +" + CrewMember.SECONDARY_BONUS
-                + "   HP " + (int) Math.ceil(selectedCrew.hp), ROSTER_X, detailY);
+            font.draw(batch, selectedCrew.primary + " +" + selectedCrew.bonusFor(selectedCrew.primary)
+                + "   " + selectedCrew.secondary + " +" + selectedCrew.bonusFor(selectedCrew.secondary)
+                + "   HP " + (int) Math.ceil(selectedCrew.hp)
+                + (selectedCrew.level > 0 ? "   LV" + selectedCrew.level : ""), ROSTER_X, detailY);
+            font.setColor(Color.GRAY);
+            font.draw(batch, selectedCrew.trait.name(), ROSTER_X + 190, detailY - 22);
             font.setColor(Color.GRAY);
             String station = selectedCrew.station < 0 ? "unassigned" : ShipDeckView.ROOM_NAMES[selectedCrew.station];
             font.draw(batch, "Station: " + station, ROSTER_X, detailY - 22);
@@ -487,6 +490,11 @@ public class OverworldScreen implements Screen {
      */
     private boolean typeKnown(Node n) {
         if (Dev.MODE) return true; // dev builds see through the fog
+        if (state.modifiers.contains(GameState.MOD_DARK)) {
+            // dark running: the fog never lifts
+            return n.type == Node.Type.TRADER || n.type == Node.Type.HOME
+                || n.id == state.map.lastNodeId;
+        }
         return n.visited || n.type == Node.Type.TRADER || n.type == Node.Type.HOME
             || n.id == state.map.lastNodeId;
     }
@@ -834,8 +842,8 @@ public class OverworldScreen implements Screen {
             }
         }
         state.map.setCurrentNode(node.id);
-        if (node.type == Node.Type.HOME) {
-            // home dock: full repairs
+        if (node.type == Node.Type.HOME && !state.modifiers.contains(GameState.MOD_IRON)) {
+            // home dock: full repairs (iron runs get nothing for free)
             state.hull = state.maxHull;
             state.shield = state.maxShield;
             state.repairWings();

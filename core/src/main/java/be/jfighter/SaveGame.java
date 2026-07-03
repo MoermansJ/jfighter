@@ -42,6 +42,15 @@ public final class SaveGame {
             num(b, "leftWingHp", s.leftWingHp);
             num(b, "rightWingHp", s.rightWingHp);
             num(b, "sector", s.sector);
+            b.append("\"shipHull\":\"").append(s.shipHull.name()).append("\",");
+            b.append("\"modifiers\":[");
+            boolean firstMod = true;
+            for (String mod : s.modifiers) {
+                if (!firstMod) b.append(',');
+                b.append('"').append(mod).append('"');
+                firstMod = false;
+            }
+            b.append("],");
             num(b, "nodesVisited", s.nodesVisited);
             num(b, "instancesCompleted", s.instancesCompleted);
             num(b, "cargoDelivered", s.cargoDelivered);
@@ -104,6 +113,9 @@ public final class SaveGame {
         b.append(",\"freeX\":").append(c.freeX);
         b.append(",\"freeY\":").append(c.freeY);
         b.append(",\"hostile\":").append(c.hostile);
+        b.append(",\"xp\":").append(c.xp);
+        b.append(",\"level\":").append(c.level);
+        b.append(",\"trait\":\"").append(c.trait.name()).append('"');
         b.append('}');
     }
 
@@ -194,6 +206,12 @@ public final class SaveGame {
             s.leftWingHp = r.getFloat("leftWingHp", 15f);
             s.rightWingHp = r.getFloat("rightWingHp", 15f);
             s.sector = r.getInt("sector");
+            if (r.has("shipHull")) s.shipHull = ShipHull.valueOf(r.getString("shipHull"));
+            if (r.has("modifiers")) {
+                for (JsonValue mod = r.get("modifiers").child; mod != null; mod = mod.next) {
+                    s.modifiers.add(mod.asString());
+                }
+            }
             s.nodesVisited = r.getInt("nodesVisited");
             s.instancesCompleted = r.getInt("instancesCompleted");
             s.cargoDelivered = r.getInt("cargoDelivered");
@@ -239,6 +257,9 @@ public final class SaveGame {
         m.freeX = c.getFloat("freeX", -1f);
         m.freeY = c.getFloat("freeY", -1f);
         m.hostile = c.getBoolean("hostile");
+        m.xp = c.getFloat("xp", 0f);
+        m.level = c.getInt("level", 0);
+        if (c.has("trait")) m.trait = CrewMember.Trait.valueOf(c.getString("trait"));
         return m;
     }
 

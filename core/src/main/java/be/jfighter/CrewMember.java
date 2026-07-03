@@ -10,10 +10,17 @@ public class CrewMember {
     public static final float MAX_HP = 100f;
     public static final int PRIMARY_BONUS = 2;
     public static final int SECONDARY_BONUS = 1;
+    public static final int MAX_LEVEL = 2;
+
+    /** Personality (#111): shapes melee behaviour and small stat edges. */
+    public enum Trait { BRAVE, TIMID, STEADY }
 
     public final String name;
     public final Skill primary;
     public final Skill secondary;
+    public Trait trait = Trait.values()[com.badlogic.gdx.math.MathUtils.random(2)]; // reassigned on load
+    public float xp;
+    public int level; // level 1: primary +1, level 2: secondary +1 (#101)
     public boolean hostile;   // boarders fight the crew and read in the inverted scheme colour
     public int station = -1;
     public long assignedAt;
@@ -34,9 +41,20 @@ public class CrewMember {
 
     /** Skill bonus this crew member contributes to a station of the given skill. */
     public int bonusFor(Skill skill) {
-        if (skill == primary) return PRIMARY_BONUS;
-        if (skill == secondary) return SECONDARY_BONUS;
+        if (skill == primary) return PRIMARY_BONUS + (level >= 1 ? 1 : 0);
+        if (skill == secondary) return SECONDARY_BONUS + (level >= 2 ? 1 : 0);
         return 0;
+    }
+
+    /** Experience: levels sharpen the skills; veterans are worth protecting. */
+    public void gainXp(float amount) {
+        if (level >= MAX_LEVEL) return;
+        xp += amount;
+        float need = 20f * (level + 1);
+        if (xp >= need) {
+            xp -= need;
+            level++;
+        }
     }
 
     public boolean isDead() {

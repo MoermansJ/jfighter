@@ -75,8 +75,7 @@ public class TitleScreen implements Screen {
                 return;
             }
             if (hovered) {
-                game.currentRun = new GameState(); // abandons any run in progress
-                game.setScreen(new OverworldScreen(game, game.currentRun));
+                game.setScreen(new SetupScreen(game)); // outfitting first; LAUNCH commits the run
                 return;
             }
             if (optionsHovered) {

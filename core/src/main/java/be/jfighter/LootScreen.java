@@ -1544,7 +1544,8 @@ public class LootScreen implements Screen {
             lootItems.removeIndex(i);
             pincerHeld.removeValue(crate, true);
             removeFromCatches(crate); // a net delivered empty collapses too
-            int paid = Math.round(crate.value * Difficulty.rewardFactor(state.sector));
+            float darkBonus = state.modifiers.contains(GameState.MOD_DARK) ? 1.3f : 1f;
+            int paid = Math.round(crate.value * Difficulty.rewardFactor(state.sector) * darkBonus);
             state.credits += paid;
             state.cargoDelivered++;
             lastDeliveredValue = paid;
@@ -1553,6 +1554,7 @@ public class LootScreen implements Screen {
             if (lootItems.isEmpty()) {
                 state.map.getCurrentNode().completed = true; // all cargo delivered: this site is stripped
                 state.instancesCompleted++;
+                state.awardCrewXp(5f);
             }
         }
     }

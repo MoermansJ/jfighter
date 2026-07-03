@@ -35,7 +35,8 @@ public class SummaryScreen implements Screen {
         viewport = new FitViewport(JFighter.WORLD_WIDTH, JFighter.WORLD_HEIGHT);
         font = game.fonts.font;
         // meta-progression: the run pays out persistent salvage
-        salvageEarned = state.sectorsCleared + state.credits / 300;
+        salvageEarned = state.sectorsCleared + state.credits / 300
+            + (state.modifiers.contains(GameState.MOD_IRON) ? 2 : 0);
         if (salvageEarned > 0) Meta.addSalvage(salvageEarned);
     }
 

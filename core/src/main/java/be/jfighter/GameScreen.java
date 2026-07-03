@@ -658,6 +658,7 @@ public class GameScreen implements Screen {
         objectiveDone = true;
         state.map.getCurrentNode().completed = true;
         state.instancesCompleted++;
+        state.awardCrewXp(5f);
         if (bonus > 0) state.credits += Math.round(bonus * Difficulty.rewardFactor(state.sector));
         showHudToast(msg);
     }
