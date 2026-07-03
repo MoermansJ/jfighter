@@ -7,6 +7,7 @@ import java.util.List;
 
 public class GameState {
     public ShipHull shipHull = ShipHull.CARRIER;
+    public Mothership mothership = Mothership.modelA();
     // optional run modifiers chosen at setup (#103)
     public final java.util.Set<String> modifiers = new java.util.HashSet<>();
     public static final String MOD_IRON = "IRON";         // no HOME repairs, +2 salvage
@@ -26,7 +27,7 @@ public class GameState {
     // fighter weapon loadout (#98): 4 slots max, bought/sold at the trader
     public static final int LOADOUT_SLOTS = 4;
     public final List<Weapon.Type> loadout = new ArrayList<>(List.of(
-        Weapon.Type.LIGHT_CANNON, Weapon.Type.ROCKET));
+        Weapon.Type.CANNON_155)); // the heavy socket's gun; mediums come from the trader (#119)
 
     // ammunition pools (#120): ballistic weapons burn these, bought at the trader
     public int ammoLight = 600;
@@ -204,6 +205,7 @@ public class GameState {
 
     public GameState(ShipHull hullType) {
         this.shipHull = hullType;
+        this.mothership = Mothership.forHull(hullType);
         this.map = new OverworldMap();
         this.credits = 500 + 100 * Meta.perkLevel(Meta.PERK_CREDITS);
         this.maxFuel = 100f;

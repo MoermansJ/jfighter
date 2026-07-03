@@ -56,6 +56,7 @@ public class GameScreen implements Screen {
     private int controlled = -1;
     private float shieldSince;   // time since the last hit (drives recharge)
     private float shieldFlash;   // shimmer ring on shield hits
+    private float cupolaCd;      // MG-46 cupolas share a cadence clock (#119)
     private float fireCritT;     // fighter ablaze: hull dot (#99)
     private float helmCritT;     // fighter helm crippled: poor turning
     private String hudToast;
@@ -320,6 +321,7 @@ public class GameScreen implements Screen {
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
             updateObjective(delta);
             updateWrecks();
+            updateCupolas(delta);
             fireWeapons(delta);
             updateProjectiles(delta);
             updateEffects(delta);
@@ -988,6 +990,35 @@ public class GameScreen implements Screen {
         } else {
             addSparks(p.x, p.y, 0, 0, 2 + (int) (p.damage * 0.3f));
         }
+    }
+
+    /**
+     * MG-46 cupolas (#119): automatic close-defence turrets. Each mounted cupola
+     * streams 1200 rpm at the nearest hostile in range, one light round per shot.
+     */
+    private void updateCupolas(float delta) {
+        int cupolas = state.mothership.countMounts(Mothership.MOUNT_MG46);
+        if (cupolas == 0 || defeatT >= 0 || enemies.isEmpty()) return;
+        cupolaCd -= delta;
+        if (cupolaCd > 0) return;
+        float cx = player.x + Player.WIDTH / 2f;
+        float cy = player.y + Player.HEIGHT / 2f;
+        Enemy target = null;
+        float best = 380f;
+        for (Enemy e : enemies) {
+            float d = Vector2.dst(cx, cy, e.centerX(), e.centerY());
+            if (d < best) {
+                best = d;
+                target = e;
+            }
+        }
+        if (target == null || !state.spendAmmo(Weapon.Type.LIGHT_CANNON, 1)) return;
+        cupolaCd = 60f / (1200f * cupolas); // combined rate of fire across mounted cupolas
+        float aim = MathUtils.atan2(-(target.centerX() - cx), target.centerY() - cy)
+            * MathUtils.radiansToDegrees + MathUtils.random(-3.5f, 3.5f);
+        projectiles.add(new Projectile(cx - MathUtils.sinDeg(aim) * 22f,
+            cy + MathUtils.cosDeg(aim) * 22f, aim, player, 560f, 1.5f, 0f, 0f, false));
+        if (MathUtils.randomBoolean(0.2f)) game.sfx.playCannon(0);
     }
 
     /** Per-frame weapon step: cooldowns, lock-on, and firing the active weapon while SPACE is held. */

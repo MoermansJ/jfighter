@@ -64,7 +64,7 @@ public class SetupScreen implements Screen {
     }
 
     private Rectangle modRect(int i) {
-        return new Rectangle(480, 260 - i * 34, 430, 28);
+        return new Rectangle(480, 196 - i * 34, 430, 28);
     }
 
     @Override
@@ -155,6 +155,19 @@ public class SetupScreen implements Screen {
                 + "%  CREW " + hulls[i].crewCount, r.x + 112, r.y + r.height - 62);
             Fonts.scale(font, 1.4f);
         }
+        // mothership armament: the selected hull's socket diagram (#119)
+        Mothership fit = Mothership.forHull(hull);
+        font.setColor(Color.GRAY);
+        font.draw(batch, "ARMAMENT — " + fit.model, 480, 348);
+        Fonts.scale(font, 0.95f);
+        float sy = 326;
+        for (Mothership.Socket s : fit.sockets) {
+            font.setColor(s.mount != null ? Color.WHITE : Color.DARK_GRAY);
+            font.draw(batch, "[" + s.size.name().charAt(0) + "] "
+                + (s.mount != null ? s.mount : "— EMPTY —"), 480, sy);
+            sy -= 20;
+        }
+        Fonts.scale(font, 1.4f);
         // crew review
         font.setColor(Color.GRAY);
         font.draw(batch, "CREW MANIFEST", 60, 320);
@@ -172,7 +185,7 @@ public class SetupScreen implements Screen {
         Fonts.scale(font, 1.4f);
         // modifiers
         font.setColor(Color.GRAY);
-        font.draw(batch, "RUN MODIFIERS", 480, 320);
+        font.draw(batch, "RUN MODIFIERS", 480, 252);
         Fonts.scale(font, 0.95f);
         for (int i = 0; i < MODS.length; i++) {
             Rectangle r = modRect(i);

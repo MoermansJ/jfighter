@@ -46,6 +46,13 @@ public final class SaveGame {
             num(b, "rightWingHp", s.rightWingHp);
             num(b, "sector", s.sector);
             b.append("\"shipHull\":\"").append(s.shipHull.name()).append("\",");
+            b.append("\"sockets\":[");
+            for (int i = 0; i < s.mothership.sockets.size(); i++) {
+                if (i > 0) b.append(',');
+                Mothership.Socket sk = s.mothership.sockets.get(i);
+                b.append('"').append(sk.mount == null ? "" : sk.mount).append('"');
+            }
+            b.append("],");
             b.append("\"modifiers\":[");
             boolean firstMod = true;
             for (String mod : s.modifiers) {
@@ -213,6 +220,15 @@ public final class SaveGame {
             s.rightWingHp = r.getFloat("rightWingHp", 15f);
             s.sector = r.getInt("sector");
             if (r.has("shipHull")) s.shipHull = ShipHull.valueOf(r.getString("shipHull"));
+            s.mothership = Mothership.forHull(s.shipHull);
+            if (r.has("sockets")) {
+                int idx = 0;
+                for (JsonValue sk = r.get("sockets").child; sk != null && idx < s.mothership.sockets.size();
+                        sk = sk.next, idx++) {
+                    String mount = sk.asString();
+                    s.mothership.sockets.get(idx).mount = mount.isEmpty() ? null : mount;
+                }
+            }
             if (r.has("modifiers")) {
                 for (JsonValue mod = r.get("modifiers").child; mod != null; mod = mod.next) {
                     s.modifiers.add(mod.asString());
