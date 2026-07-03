@@ -103,9 +103,8 @@ public class TraderScreen implements Screen {
         float w = MathUtils.random(); // base shuffle noise
         w += state.upgradeLevel(u) * 0.8f;              // owned drifts out of stock
         if (state.sector <= 1 && u.basePrice > 110) w += 0.6f; // early game: mostly cheap tiers
-        if (u == ShipUpgrade.M155_BARRELS
-                && (!state.loadout.contains(Weapon.Type.CANNON_155) || state.upgradeLevel(u) >= 2)) {
-            w += 10f; // barrel upgrades only make sense with the gun aboard and below max tier
+        if (u == ShipUpgrade.M155_BARRELS) {
+            w += 10f; // the 155 ships at full tier now — barrel upgrades stay off the shelf
         }
         return w;
     }

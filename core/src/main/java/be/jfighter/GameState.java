@@ -60,9 +60,9 @@ public class GameState {
         }
     }
 
-    /** 155mm barrel count: 1 stock, up to 3 via trader barrel upgrades (#91). */
+    /** 155mm barrel count: Model A ships the full tier-3 triple mount. */
     public int cannon155Tier() {
-        return 1 + Math.min(2, upgradeLevel(ShipUpgrade.M155_BARRELS));
+        return 3;
     }
     // ship integrity: shields absorb before hull; 0 hull = run lost
     public float hull = 100f;
