@@ -63,8 +63,33 @@ public class GameScreen implements Screen {
     private float tacticalZoom = 1.4f; // Z cycles 1.0 / 1.4 / 1.9 / 10 (#146/#160)
     private static final float SPLASH_155 = 55f;
     private float scopeSweep;    // instrument clock (plot scanline)
-    private static final float SONAR_PERIOD = 2.6f; // seconds between pings
+    private static final float SONAR_PERIOD = 2.6f; // base seconds between pings
     private float sonarT = SONAR_PERIOD; // pulsing sonar on the contact monitor
+    // sensor warfare (#185/#186/#192)
+    private boolean sonarActive = true;
+    private final Array<float[]> decoys = new Array<>(); // {x, y, vx, vy, life, seed}
+    private float jamT;
+    private float jamNextT = MathUtils.random(18f, 30f);
+
+    /** How good the picture is: bridge crew sharpens it, passive mode and jamming blur it. */
+    private float sensorQuality() {
+        float q = 0.55f + 0.15f * state.roomStats[5];
+        if (!sonarActive) q *= 0.6f;
+        if (jamT > 0) q *= 0.5f;
+        return MathUtils.clamp(q, 0.2f, 1f);
+    }
+
+    private float pingPeriod() {
+        return (sonarActive ? SONAR_PERIOD : SONAR_PERIOD * 2f) / Math.max(0.4f, sensorQuality());
+    }
+
+    /** Plot position error for un-firm contacts: quality shrinks it, jamming blows it up. */
+    private float contactJitter(int seed, boolean xAxis) {
+        float q = sensorQuality();
+        float base = (1f - q) * 55f * MathUtils.sin(scopeSweep * (xAxis ? 0.045f : 0.06f) + seed);
+        float jam = jamT > 0 ? 120f * MathUtils.sin(scopeSweep * 0.4f + seed * (xAxis ? 3 : 7)) : 0f;
+        return base + jam;
+    }
     private float viewZoom = 1f; // legacy world-view zoom; the desk view keeps it at 1
 
     // bridge desk monitors (#162)
@@ -81,6 +106,7 @@ public class GameScreen implements Screen {
     private static final float CREW_Y = 148f;
     private final Vector2 lastAim = new Vector2(ARENA_WIDTH / 2f, ARENA_HEIGHT / 2f);
     private final Vector2 carrierWaypoint = new Vector2(-1, -1);
+    private final Array<Vector2> carrierQueue = new Array<>(); // chained helm legs (#191)
 
     private float plotPX(float wx) {
         return PLOT_X + wx / ARENA_WIDTH * PLOT_W;
@@ -147,6 +173,9 @@ public class GameScreen implements Screen {
         {"LEFT/RIGHT", "turn"},
         {"LMB", "select / order on the PLOT monitor"},
         {"RMB", "carrier waypoint on the PLOT / deselect"},
+        {"SHIFT+click", "chain waypoints"},
+        {"G", "sonar active/passive"},
+        {"N", "silence the alarm"},
         {"TAB", "take a fighter's stick"},
         {"R", "fighter rocket pod (on the stick)"},
         {"V", "deck monitor: crew, power, doors"},
@@ -293,6 +322,7 @@ public class GameScreen implements Screen {
 
     private static class Squadron {
         int mode; // 0 escort carrier, 1 move to point, 2 attack target
+        final Array<Vector2> queue = new Array<>(); // chained waypoints (#191)
         float ox, oy;
         float orderDir; // heading of the last move order; idlers keep pointing this way (#132)
         Enemy target;
@@ -406,6 +436,8 @@ public class GameScreen implements Screen {
         float leftWingHp = 12f;
         float rightWingHp = 12f;
         int strength = 1;   // squads pool craft into one unit (#151); capitals stay 1
+        boolean recognized; // #167: unknown blip until a visual confirms the class
+        final int blipSeed = MathUtils.random(999);
         SquadArms arms = SquadArms.MG; // rolled loadout (#152)
         float armsCd;
         boolean boss;       // heavy multi-section flagship (#106)
@@ -464,6 +496,15 @@ public class GameScreen implements Screen {
             weapons.add(wp);
         }
         state.weaponEnergy = state.maxWeaponEnergy; // fresh capacitors each engagement
+        if (state.sector >= 3) { // ECM pickets seed false returns (#192)
+            int n = MathUtils.random(1, 2);
+            for (int i = 0; i < n; i++) {
+                decoys.add(new float[]{MathUtils.random(ARENA_WIDTH * 0.5f, ARENA_WIDTH - 100f),
+                    MathUtils.random(100f, ARENA_HEIGHT - 100f),
+                    MathUtils.random(-14f, 14f), MathUtils.random(-14f, 14f),
+                    40f, MathUtils.random(999f)});
+            }
+        }
         deckView = new ShipDeckView(state);
         deckView.setLifesigns(true); // combat overlay reads crew as heartbeat pips (#159)
         creditsAtStart = state.credits;
@@ -491,6 +532,7 @@ public class GameScreen implements Screen {
             ms.leftWingHp = 80f;
             ms.rightWingHp = 80f;
             enemies.add(ms);
+            addLog("LARGE SIGNATURE DETECTED");
         } else {
             spawnEnemies();
             float roll = MathUtils.random();
@@ -542,7 +584,7 @@ public class GameScreen implements Screen {
             craft -= size;
             float x, y;
             do {
-                x = MathUtils.random(ARENA_WIDTH * 0.45f, ARENA_WIDTH - 80f);
+                x = MathUtils.random(ARENA_WIDTH * 0.72f, ARENA_WIDTH - 80f); // out in the dark (#190)
                 y = MathUtils.random(60f, ARENA_HEIGHT - 60f);
             } while (tooCloseToOthers(x, y));
             Enemy e = new Enemy(x, y, Difficulty.enemyHp(state.sector) * size);
@@ -671,7 +713,13 @@ public class GameScreen implements Screen {
             if (ammoFlashR > 0) ammoFlashR -= delta;
             if (carrierWaypoint.x >= 0 && Vector2.dst(carrierWaypoint.x, carrierWaypoint.y,
                     player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f) < 60f) {
-                carrierWaypoint.set(-1, -1);
+                if (carrierQueue.size > 0) { // the helm takes the next leg (#191)
+                    Vector2 next = carrierQueue.removeIndex(0);
+                    carrierWaypoint.set(next.x, next.y);
+                    effects.setAutopilotTarget(next.x, next.y);
+                } else {
+                    carrierWaypoint.set(-1, -1);
+                }
             }
             state.weaponEnergy = Math.min(state.maxWeaponEnergy,
                 state.weaponEnergy + (2f + 4f * state.power[GameState.PWR_WEAPONS]) * delta);
@@ -686,6 +734,7 @@ public class GameScreen implements Screen {
             player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * 0.24f; // swinging a city block (#148)
             effects.setCarrierHull(true);
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
+            updateSensors(delta);
             updateDogfights(delta);
             deckView.update(delta); // the deck lives through the battle (#121)
             deckView.setFocus(deckSelected, null);
@@ -713,9 +762,9 @@ public class GameScreen implements Screen {
         if (shieldFlash > 0) shieldFlash -= delta;
         scopeSweep = (scopeSweep + 55f * delta) % 360f;
         sonarT += delta;
-        if (sonarT >= SONAR_PERIOD) {
-            sonarT -= SONAR_PERIOD;
-            game.sfx.playSonar();
+        if (sonarT >= pingPeriod()) {
+            sonarT -= pingPeriod();
+            if (sonarActive) game.sfx.playSonar(); // passive listening makes no noise (#186)
         }
 
         // the bridge desk (#162): everything is read off instrument monitors
@@ -999,10 +1048,24 @@ public class GameScreen implements Screen {
         for (float[] wk : wrecks) {
             shapeRenderer.circle(plotPX(wk[0]), plotPY(wk[1]), 2f, 6);
         }
+        // decoys and un-firm contacts read as anonymous returns (#167/#192)
+        Palette.set(shapeRenderer, 0.5f, 0.55f, 0.5f, 1f);
+        for (float[] dc : decoys) {
+            float dxp = plotPX(dc[0] + contactJitter((int) dc[5], true));
+            float dyp = plotPY(dc[1] + contactJitter((int) dc[5], false));
+            shapeRenderer.circle(dxp, dyp, 3f, 8);
+        }
         // hostiles: diamonds (one per craft is soup at this scale — one glyph, size by strength)
         for (Enemy e : enemies) {
-            float px = plotPX(e.centerX());
-            float py = plotPY(e.centerY());
+            if (!e.recognized) { // unknown contact: neutral blip, position un-firm
+                Palette.set(shapeRenderer, 0.5f, 0.55f, 0.5f, 1f);
+                shapeRenderer.circle(plotPX(e.centerX() + contactJitter(e.blipSeed, true)),
+                    plotPY(e.centerY() + contactJitter(e.blipSeed, false)),
+                    e.mothership || e.boss ? 5f : 3f, 8);
+                continue;
+            }
+            float px = plotPX(e.centerX() + (jamT > 0 ? contactJitter(e.blipSeed, true) : 0f));
+            float py = plotPY(e.centerY() + (jamT > 0 ? contactJitter(e.blipSeed, false) : 0f));
             float ms = e.mothership ? 9f : e.boss ? 7f : 3f + 0.7f * e.strength;
             if (e.arms == SquadArms.TORPEDO && !e.boss && !e.mothership) {
                 shapeRenderer.setColor(1f, 0.4f, 0.5f, 1f);
@@ -1050,13 +1113,39 @@ public class GameScreen implements Screen {
                 shapeRenderer.circle(plotPX(sq.target.centerX()), plotPY(sq.target.centerY()), 7f, 12);
             }
         }
-        // carrier waypoint
+        // carrier waypoint + chained legs
         if (carrierWaypoint.x >= 0) {
             Palette.set(shapeRenderer, 0.35f, 0.7f, 0.8f, 1f);
             float wx = plotPX(carrierWaypoint.x);
             float wy = plotPY(carrierWaypoint.y);
             shapeRenderer.circle(wx, wy, 4f, 10);
             shapeRenderer.line(wx - 6, wy, wx + 6, wy);
+            Palette.set(shapeRenderer, 0.22f, 0.45f, 0.5f, 1f);
+            float lx = wx;
+            float ly = wy;
+            for (Vector2 q : carrierQueue) {
+                float qx = plotPX(q.x);
+                float qy = plotPY(q.y);
+                shapeRenderer.line(lx, ly, qx, qy);
+                shapeRenderer.circle(qx, qy, 2.5f, 8);
+                lx = qx;
+                ly = qy;
+            }
+        }
+        // selected squadron's chained legs
+        if (selectedSquadron != -1 && squadrons[selectedSquadron].queue.size > 0) {
+            Squadron sqc = squadrons[selectedSquadron];
+            Palette.set(shapeRenderer, 0.3f, 0.6f, 0.75f, 1f);
+            float lx = plotPX(sqc.ox);
+            float ly = plotPY(sqc.oy);
+            for (Vector2 q : sqc.queue) {
+                float qx = plotPX(q.x);
+                float qy = plotPY(q.y);
+                shapeRenderer.line(lx, ly, qx, qy);
+                shapeRenderer.circle(qx, qy, 2f, 8);
+                lx = qx;
+                ly = qy;
+            }
         }
         // own ship: mini silhouette
         if (defeatT < 0) {
@@ -1553,7 +1642,7 @@ public class GameScreen implements Screen {
         shapeRenderer.line(RAD_CX - RAD_R, RAD_CY, RAD_CX + RAD_R, RAD_CY);
         shapeRenderer.line(RAD_CX, RAD_CY - RAD_R, RAD_CX, RAD_CY + RAD_R);
         // sonar pulse: an expanding ring, bright at the wavefront with a fading wake
-        float pulseR = sonarT / SONAR_PERIOD * RAD_R;
+        float pulseR = sonarT / pingPeriod() * RAD_R;
         Palette.set(shapeRenderer, 0.25f, 0.6f, 0.55f, 1f);
         shapeRenderer.circle(RAD_CX, RAD_CY, pulseR, 44);
         if (pulseR > 8f) {
@@ -1582,6 +1671,18 @@ public class GameScreen implements Screen {
         for (float[] wk : wrecks) {
             radarBlip(wk[0] - ox, wk[1] - oy, k, 1.2f, 0.45f, 0.42f, 0.36f);
         }
+        for (float[] dc : decoys) {
+            radarBlip(dc[0] - ox, dc[1] - oy, k, 2f, 0.8f, 0.5f, 0.3f); // decoys ping true
+        }
+        if (jamT > 0) { // jamming: the scope fills with garbage
+            for (int i = 0; i < 26; i++) {
+                float a = MathUtils.random(360f);
+                float r = MathUtils.random(RAD_R - 8f);
+                shapeRenderer.setColor(0.5f, 0.5f, 0.45f, 1f);
+                shapeRenderer.circle(RAD_CX + MathUtils.cosDeg(a) * r,
+                    RAD_CY + MathUtils.sinDeg(a) * r, MathUtils.random(0.6f, 1.6f), 5);
+            }
+        }
         shapeRenderer.end();
     }
 
@@ -1608,9 +1709,10 @@ public class GameScreen implements Screen {
         float range = (float) Math.sqrt(sx * sx + sy * sy);
         if (range > RAD_R - 4) return; // beyond scope range
         // time since the expanding ring crossed this blip's range
-        float sincePass = sonarT - range / RAD_R * SONAR_PERIOD;
-        if (sincePass < 0) sincePass += SONAR_PERIOD;
-        float glow = Math.max(0.12f, 1f - sincePass / SONAR_PERIOD);
+        float period = pingPeriod();
+        float sincePass = sonarT - range / RAD_R * period;
+        if (sincePass < 0) sincePass += period;
+        float glow = Math.max(0.12f, 1f - sincePass / period);
         // a brief hot flash right on the wavefront
         if (sincePass < 0.12f) glow = 1.2f;
         shapeRenderer.setColor(Math.min(1f, r * glow), Math.min(1f, g * glow), Math.min(1f, b * glow), 1f);
@@ -1868,6 +1970,10 @@ public class GameScreen implements Screen {
                 }
             }
         }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.G)) {
+            sonarActive = !sonarActive;
+            addLog(sonarActive ? "SONAR ACTIVE — WE ARE LOUD" : "SONAR PASSIVE — RUNNING QUIET");
+        }
         if (Gdx.input.isKeyJustPressed(Input.Keys.V)) {
             deckOpen = !deckOpen;
             if (!deckOpen) deckSelected = null;
@@ -1909,10 +2015,17 @@ public class GameScreen implements Screen {
             if (selectedSquadron != -1) {
                 selectedSquadron = -1; // stand down the selection
             } else if (inPlot(hm2.x, hm2.y)) {
-                // carrier helm: waypoint plotted on the chart
+                // carrier helm: waypoint plotted on the chart; SHIFT chains legs (#191)
                 Vector2 at = plotToWorld(hm2.x, hm2.y);
-                carrierWaypoint.set(at.x, at.y);
-                effects.setAutopilotTarget(at.x, at.y);
+                boolean shiftHeld = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
+                    || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
+                if (shiftHeld && carrierWaypoint.x >= 0) {
+                    carrierQueue.add(new Vector2(at.x, at.y));
+                } else {
+                    carrierQueue.clear();
+                    carrierWaypoint.set(at.x, at.y);
+                    effects.setAutopilotTarget(at.x, at.y);
+                }
                 game.sfx.playPing();
             }
         }
@@ -2349,12 +2462,17 @@ public class GameScreen implements Screen {
         boolean inRange = dist < arms.range && (arms != SquadArms.TORPEDO || dist > 500f);
         if (e.armsCd <= 0 && inRange && Math.abs(aimErr) < (arms.rocket() ? 14f : 9f)
                 && MathUtils.random() < 0.85f) {
+            if (!e.recognized) {
+                e.recognized = true; // muzzle flash gives it away
+                addLog("CONTACT CLASSIFIED: " + arms.name() + " SQUAD (FIRING)");
+            }
             e.armsCd = arms.reload * MathUtils.random(1.1f, 1.6f);
             float fx = -MathUtils.sinDeg(e.body.rotation);
             float fy = MathUtils.cosDeg(e.body.rotation);
+            float exJit = sonarActive ? 2.4f : 4.5f; // pinging paints us for them (#186)
             if (arms.rocket()) {
                 Projectile p = new Projectile(cx + fx * 22f, cy + fy * 22f,
-                    e.body.rotation + MathUtils.random(-3f, 3f), e.body,
+                    e.body.rotation + MathUtils.random(-exJit, exJit), e.body,
                     arms.speed, arms.damage,
                     arms == SquadArms.TORPEDO ? 60f : 200f,
                     arms == SquadArms.HOMING ? 120f : 0f, true);
@@ -2675,6 +2793,14 @@ public class GameScreen implements Screen {
                 launchSquad(f);
             }
         }
+        boolean shift = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
+            || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
+        if (shift && sq.mode == 1) { // chain the leg onto the plan (#191)
+            sq.queue.add(new Vector2(x, y));
+            game.sfx.playPing();
+            return;
+        }
+        sq.queue.clear();
         sq.mode = 1;
         // remember the direction of travel so the squadron holds it after arriving
         float scx = 0f;
@@ -2809,6 +2935,13 @@ public class GameScreen implements Screen {
             float dy = ty - cy;
             float dist = (float) Math.sqrt(dx * dx + dy * dy);
             if (dist < 24f) {
+                if (sq.mode == 1 && sq.queue.size > 0) { // next leg of the chain (#191)
+                    Vector2 next = sq.queue.removeIndex(0);
+                    sq.orderDir = MathUtils.atan2(-(next.x - sq.ox), next.y - sq.oy)
+                        * MathUtils.radiansToDegrees;
+                    sq.ox = next.x;
+                    sq.oy = next.y;
+                }
                 wantThrottle = 0;
                 // hold the move-order heading instead of drifting around (#132)
                 gx = -MathUtils.sinDeg(sq.mode == 1 ? sq.orderDir : f.body.rotation);
@@ -2935,6 +3068,60 @@ public class GameScreen implements Screen {
      * MG-46 cupolas (#119): automatic close-defence turrets. Each mounted cupola
      * streams 1200 rpm at the nearest hostile in range, one light round per shot.
      */
+    /** Recognition, decoys and jamming (#167/#190/#192). */
+    private void updateSensors(float delta) {
+        float q = sensorQuality();
+        // visual confirmation: a friendly gets close enough to classify the contact
+        for (Enemy e : enemies) {
+            if (e.recognized) continue;
+            boolean seen = Vector2.dst(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
+                e.centerX(), e.centerY()) < 620f * q;
+            for (Fighter f : fighters) {
+                if (f.dock == 0 && Vector2.dst(f.centerX(), f.centerY(),
+                        e.centerX(), e.centerY()) < 480f * q) {
+                    seen = true;
+                }
+            }
+            if (seen) {
+                e.recognized = true;
+                addLog("CONTACT CLASSIFIED: " + (e.mothership ? "HOSTILE CAPITAL"
+                    : e.boss ? "FLAGSHIP" : e.arms.name() + " SQUAD"));
+            }
+        }
+        // decoys dissolve on visual
+        for (int i = decoys.size - 1; i >= 0; i--) {
+            float[] d = decoys.get(i);
+            d[0] += d[2] * delta;
+            d[1] += d[3] * delta;
+            d[4] -= delta;
+            boolean burned = d[4] <= 0
+                || Vector2.dst(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
+                    d[0], d[1]) < 350f;
+            for (Fighter f : fighters) {
+                if (f.dock == 0 && Vector2.dst(f.centerX(), f.centerY(), d[0], d[1]) < 350f) {
+                    burned = true;
+                }
+            }
+            if (burned) {
+                decoys.removeIndex(i);
+                addLog("CONTACT FADED — DECOY");
+            }
+        }
+        // jamming bursts in deep sectors (#192)
+        if (state.sector >= 3 && !objectiveDone) {
+            if (jamT > 0) {
+                jamT -= delta;
+            } else {
+                jamNextT -= delta;
+                if (jamNextT <= 0) {
+                    jamT = 3f / Math.max(0.4f, q);
+                    jamNextT = MathUtils.random(18f, 30f);
+                    addLog("JAMMING BURST DETECTED");
+                }
+            }
+        }
+    }
+
     /** Burst size (#172): green gunners hold the trigger, veterans fire tight salvos. */
     private int mgBurstSize() {
         int sloppy = Math.max(0, 2 - state.roomStats[4]); // unmanned/low-skill gunnery wastes belt
