@@ -62,6 +62,10 @@ public class OverworldScreen implements Screen {
     private final float[] mapStarB = new float[MAP_STAR_COUNT];
     private final float[] mapStarPhase = new float[MAP_STAR_COUNT];
     private CrewMember selectedCrew; // crew member being (re)stationed
+
+    private float rosterDetailY() {
+        return ROSTER_TOP - state.crew.size() * ROSTER_ROW_H - 6;
+    }
     private CrewMember hoveredCrew;
     private int hoveredRoom = -1;
     private ShipDeckView deckView;
@@ -261,7 +265,7 @@ public class OverworldScreen implements Screen {
             }
         }
         // selected crew details + hint
-        float detailY = ROSTER_TOP - state.crew.size() * ROSTER_ROW_H - 6;
+        float detailY = rosterDetailY();
         if (selectedCrew != null) {
             font.setColor(Color.WHITE);
             font.draw(batch, selectedCrew.primary + " +" + selectedCrew.bonusFor(selectedCrew.primary)
@@ -270,6 +274,14 @@ public class OverworldScreen implements Screen {
                 + (selectedCrew.level > 0 ? "   LV" + selectedCrew.level : ""), ROSTER_X, detailY);
             font.setColor(Color.GRAY);
             font.draw(batch, selectedCrew.trait.name(), ROSTER_X + 190, detailY - 22);
+            // squadron lead assignment (#142)
+            int crewIdx = state.crew.indexOf(selectedCrew);
+            for (int sq = 0; sq < 2; sq++) {
+                boolean leads = state.squadronLeaders[sq] == crewIdx;
+                font.setColor(leads ? Color.CYAN : Color.GRAY);
+                font.draw(batch, (leads ? "* " : "") + "LEAD " + state.squadronNames[sq],
+                    ROSTER_X + sq * 130, detailY - 44);
+            }
             font.setColor(Color.GRAY);
             String station = selectedCrew.station < 0 ? "unassigned" : ShipDeckView.ROOM_NAMES[selectedCrew.station];
             font.draw(batch, "Station: " + station, ROSTER_X, detailY - 22);
@@ -789,6 +801,20 @@ public class OverworldScreen implements Screen {
                 return false;
             }
             if (selectedCrew != null) {
+                // lead-assignment rows under the roster detail (#142)
+                float detailY = rosterDetailY();
+                if (mouse.y > detailY - 56 && mouse.y < detailY - 36 && mouse.x >= ROSTER_X
+                        && mouse.x < ROSTER_X + 260) {
+                    int sq = mouse.x < ROSTER_X + 130 ? 0 : 1;
+                    int crewIdx = state.crew.indexOf(selectedCrew);
+                    if (state.squadronLeaders[sq] == crewIdx) {
+                        state.squadronLeaders[sq] = -1; // step down
+                    } else {
+                        if (state.squadronLeaders[1 - sq] == crewIdx) state.squadronLeaders[1 - sq] = -1;
+                        state.squadronLeaders[sq] = crewIdx;
+                    }
+                    return false;
+                }
                 // console clicks man the station; any other walkable spot is a free-move order
                 deckView.orderAtScreen(selectedCrew, mouse.x, mouse.y);
                 selectedCrew = null; // ordered, or clicked empty space = deselect

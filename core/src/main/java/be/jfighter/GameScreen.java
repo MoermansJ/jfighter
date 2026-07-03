@@ -182,6 +182,34 @@ public class GameScreen implements Screen {
     private final Squadron[] squadrons = new Squadron[SQUADRON_COUNT];
     private int selectedSquadron = -1;
 
+    /** A latched fighter-vs-fighter engagement (#141): resolves in timed rounds. */
+    private static class Dogfight {
+        float x, y;
+        final Array<Fighter> friends = new Array<>();
+        final Array<Enemy> foes = new Array<>();
+        float roundT = ROUND_TIME;
+        float anim;
+        int rounds;
+    }
+
+    private static final float ROUND_TIME = 2.6f;
+    private static final float DOGFIGHT_RADIUS = 44f;
+    private final Array<Dogfight> dogfights = new Array<>();
+
+    private boolean latched(Fighter f) {
+        for (Dogfight d : dogfights) {
+            if (d.friends.contains(f, true)) return true;
+        }
+        return false;
+    }
+
+    private boolean latched(Enemy e) {
+        for (Dogfight d : dogfights) {
+            if (d.foes.contains(e, true)) return true;
+        }
+        return false;
+    }
+
     private int squadronAlive(int s) {
         int alive = 0;
         for (Fighter f : fighters) {
@@ -191,7 +219,7 @@ public class GameScreen implements Screen {
     }
 
     private com.badlogic.gdx.math.Rectangle squadronTabRect(int s) {
-        return new com.badlogic.gdx.math.Rectangle(10, HUD_H - 128 - s * 24, 138, 20);
+        return new com.badlogic.gdx.math.Rectangle(10, HUD_H - 142 - s * 38, 150, 34);
     }
 
     /** HUD-space mouse position (the HUD ortho spans the whole window). */
@@ -354,6 +382,7 @@ public class GameScreen implements Screen {
             updateFighters(delta);
             for (int i = enemies.size - 1; i >= 0; i--) {
                 Enemy e = enemies.get(i);
+                if (latched(e)) continue;
                 updateEnemyAi(e, delta);
                 e.body.updatePosition(delta);
                 bounceOffWalls(e.body);
@@ -410,6 +439,7 @@ public class GameScreen implements Screen {
             player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * 0.24f; // swinging a city block (#148)
             effects.setCarrierHull(true);
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
+            updateDogfights(delta);
             deckView.update(delta); // the deck lives through the battle (#121)
             deckView.setFocus(deckSelected, null);
             updateObjective(delta);
@@ -715,7 +745,7 @@ public class GameScreen implements Screen {
                 pw.append(' ').append(GameState.POWER_SYSTEMS[i].charAt(0)).append(state.power[i]);
             }
             pw.append("   [V] deck");
-            font.draw(batch, pw.toString(), 10, HUD_H - 182);
+            font.draw(batch, pw.toString(), 10, HUD_H - 226);
         }
         for (int s = 0; s < SQUADRON_COUNT; s++) {
             int alive = squadronAlive(s);
@@ -725,7 +755,10 @@ public class GameScreen implements Screen {
                 : squadrons[s].mode == 1 ? " MOV" : " ESC";
             font.setColor(s == selectedSquadron ? Color.WHITE : Color.GRAY);
             font.draw(batch, state.squadronNames[s] + " " + alive + "/" + FIGHTERS_PER_SQUADRON + mode,
-                tr.x + 5, tr.y + 15);
+                tr.x + 5, tr.y + 29);
+            CrewMember lead = state.squadronLeader(s);
+            font.setColor(lead != null ? new Color(0.4f, 0.8f, 0.9f, 1f) : Color.DARK_GRAY);
+            font.draw(batch, lead != null ? "LEAD: " + lead.name : "no leader", tr.x + 5, tr.y + 13);
         }
         Fonts.scale(font, 1.4f);
         if (objectiveDone) {
@@ -914,6 +947,51 @@ public class GameScreen implements Screen {
 
     private void updateProjectiles(float delta) {
         interceptRockets(delta);
+        // firing into a dogfight is a gamble (#143)
+        outer:
+        for (int i = projectiles.size - 1; i >= 0; i--) {
+            Projectile p = projectiles.get(i);
+            for (Dogfight d : dogfights) {
+                if (d.friends.size == 0 || d.foes.size == 0) continue;
+                float dx = p.x - d.x;
+                float dy = p.y - d.y;
+                float dist2 = dx * dx + dy * dy;
+                if (dist2 > DOGFIGHT_RADIUS * DOGFIGHT_RADIUS) continue;
+                boolean participant = false;
+                for (Fighter f : d.friends) {
+                    if (p.shooter == f.body) participant = true;
+                }
+                for (Enemy e : d.foes) {
+                    if (p.shooter == e.body) participant = true;
+                }
+                if (participant) continue;
+                // risk scales with weapon class and how deep into the swirl the round lands
+                float depth = 1f - (float) Math.sqrt(dist2) / DOGFIGHT_RADIUS;
+                float base = p.rocket || p.damage >= 20f ? 0.45f : 0.2f;
+                float ffChance = base * (0.5f + 0.5f * depth);
+                projectiles.removeIndex(i);
+                impact(p);
+                if (p.shooter == player && MathUtils.random() < ffChance) {
+                    Fighter hitF = d.friends.random();
+                    hitF.hp -= p.damage * 0.7f;
+                    showHudToast("FRIENDLY HIT — CHECK FIRE");
+                    if (hitF.hp <= 0) {
+                        d.friends.removeValue(hitF, true);
+                        spawnDeathEffect(hitF.centerX(), hitF.centerY(), hitF.body.vx, hitF.body.vy);
+                        int fi = fighters.indexOf(hitF, true);
+                        if (fi != -1) {
+                            if (controlled == fi) controlled = -1;
+                            else if (controlled > fi) controlled--;
+                            fighters.removeIndex(fi);
+                        }
+                    }
+                } else {
+                    Enemy hitE = d.foes.random();
+                    damageEnemyAt(hitE, p.damage, p.x, p.y);
+                }
+                continue outer;
+            }
+        }
         for (int i = projectiles.size - 1; i >= 0; i--) {
             Projectile p = projectiles.get(i);
             p.update(delta);
@@ -1000,8 +1078,6 @@ public class GameScreen implements Screen {
                 Enemy e = enemies.get(i);
                 if (e.runner && e.body.x > ARENA_WIDTH - 80f) {
                     enemies.removeIndex(i);
-                    if (controlled == i) controlled = -1;
-                    else if (controlled > i) controlled--;
                     completeObjective("TARGET ESCAPED — NO BOUNTY", 0);
                 }
             }
@@ -1193,6 +1269,133 @@ public class GameScreen implements Screen {
         }
     }
 
+    /**
+     * Dogfights (#141): contact latches both sides into a swirling engagement that
+     * resolves over timed rounds; hidden rolls weigh pilot lead (#142), craft state
+     * and remaining weaponry. Leaders are the last to go down.
+     */
+    private void updateDogfights(float delta) {
+        // latch on contact
+        for (Fighter f : fighters) {
+            if (latched(f)) continue;
+            for (Enemy e : enemies) {
+                if (e.boss || latched(e)) continue;
+                if (Vector2.dst(f.centerX(), f.centerY(), e.centerX(), e.centerY()) > 55f) continue;
+                Dogfight d = new Dogfight();
+                d.x = (f.centerX() + e.centerX()) / 2f;
+                d.y = (f.centerY() + e.centerY()) / 2f;
+                // everyone close gets pulled into the furball
+                for (Fighter o : fighters) {
+                    if (!latched(o) && Vector2.dst(d.x, d.y, o.centerX(), o.centerY()) < 130f) {
+                        d.friends.add(o);
+                        if (controlled == fighters.indexOf(o, true)) controlled = -1; // stick torn away
+                    }
+                }
+                for (Enemy o : enemies) {
+                    if (!o.boss && !latched(o)
+                            && Vector2.dst(d.x, d.y, o.centerX(), o.centerY()) < 130f) {
+                        d.foes.add(o);
+                    }
+                }
+                dogfights.add(d);
+                game.sfx.playCannon(0);
+                break;
+            }
+        }
+        for (int di = dogfights.size - 1; di >= 0; di--) {
+            Dogfight d = dogfights.get(di);
+            d.anim += delta;
+            // close-quarters swirl: participants orbit the engagement point
+            for (int i = 0; i < d.friends.size; i++) {
+                Fighter f = d.friends.get(i);
+                float ang = d.anim * 190f + i * (360f / Math.max(1, d.friends.size));
+                float r = 22f + (i % 2) * 12f;
+                f.body.x = d.x + MathUtils.cosDeg(ang) * r - Player.WIDTH / 2f;
+                f.body.y = d.y + MathUtils.sinDeg(ang) * r - Player.HEIGHT / 2f;
+                f.body.rotation = ang + 180f; // tangent, nose into the turn
+            }
+            for (int i = 0; i < d.foes.size; i++) {
+                Enemy e = d.foes.get(i);
+                float ang = -d.anim * 170f + i * (360f / Math.max(1, d.foes.size)) + 45f;
+                float r = 30f + (i % 2) * 10f;
+                e.body.x = d.x + MathUtils.cosDeg(ang) * r - Player.WIDTH / 2f;
+                e.body.y = d.y + MathUtils.sinDeg(ang) * r - Player.HEIGHT / 2f;
+                e.body.rotation = ang - 180f;
+            }
+            // timed rounds
+            d.roundT -= delta;
+            if (d.roundT <= 0) {
+                d.roundT = ROUND_TIME;
+                d.rounds++;
+                resolveDogfightRound(d);
+            }
+            // disengage: a side wiped, or a rout after a long scrap
+            if (d.foes.size == 0 || d.friends.size == 0 || d.rounds >= 6) {
+                if (d.rounds >= 6) {
+                    for (Enemy e : d.foes) { // the raiders break off for good
+                        e.ai = 2;
+                        e.aiT = 999f;
+                    }
+                }
+                dogfights.removeIndex(di);
+            }
+        }
+    }
+
+    /** One hidden round roll: lead pilot skill, craft condition and weaponry decide. */
+    private void resolveDogfightRound(Dogfight d) {
+        float fp = 0f;
+        for (Fighter f : d.friends) {
+            fp += 1f + f.hp / FIGHTER_HP + f.rockets * 0.25f;
+        }
+        // the best involved lead pilot sharpens the whole element
+        float leadBonus = 0f;
+        for (Fighter f : d.friends) {
+            CrewMember lead = state.squadronLeader(f.squadron);
+            if (lead != null) {
+                leadBonus = Math.max(leadBonus,
+                    0.6f * lead.bonusFor(Skill.COMBAT) + 0.4f * lead.level);
+            }
+        }
+        fp += leadBonus * d.friends.size * 0.4f;
+        float ep = 0f;
+        for (Enemy e : d.foes) {
+            ep += 1f + e.hp / e.maxHp + 0.3f * (Difficulty.factor(state.sector) - 1f);
+        }
+        if (MathUtils.random() < fp / (fp + ep)) {
+            // a raider goes down
+            Enemy dead = d.foes.random();
+            d.foes.removeValue(dead, true);
+            int idx = enemies.indexOf(dead, true);
+            if (idx != -1) killEnemy(idx);
+        } else {
+            // we lose a craft — the leader's is always the last hull flying (#142)
+            Fighter loss = null;
+            for (Fighter f : d.friends) {
+                boolean leaderCraft = fighterSlot(f) == 0 && state.squadronLeader(f.squadron) != null;
+                if (!leaderCraft) {
+                    loss = f;
+                    break;
+                }
+            }
+            if (loss == null) loss = d.friends.first(); // only lead craft left
+            d.friends.removeValue(loss, true);
+            spawnDeathEffect(loss.centerX(), loss.centerY(), loss.body.vx, loss.body.vy);
+            int idx = fighters.indexOf(loss, true);
+            if (idx != -1) {
+                if (controlled == idx) controlled = -1;
+                else if (controlled > idx) controlled--;
+                fighters.removeIndex(idx);
+            }
+            // leadership persists to the final resolution — then goes down with the ship
+            CrewMember lead = state.squadronLeader(loss.squadron);
+            if (lead != null && squadronAlive(loss.squadron) == 0) {
+                lead.hp = 0f;
+                showHudToast(lead.name + " LOST WITH " + state.squadronNames[loss.squadron]);
+            }
+        }
+    }
+
     /** Clicks on the mid-battle deck monitor: power, doors, crew selection and orders (#121/#122). */
     private void handleDeckClick(float x, float y) {
         int pwr = deckView.powerButtonAt(x, y);
@@ -1270,6 +1473,7 @@ public class GameScreen implements Screen {
         for (int i = fighters.size - 1; i >= 0; i--) {
             Fighter f = fighters.get(i);
             f.gun.update(delta);
+            if (latched(f)) continue; // the dogfight owns this craft (#141)
             if (i != controlled) flyFighter(f, delta);
             f.body.updatePosition(delta);
             bounceOffWalls(f.body);
@@ -1749,8 +1953,9 @@ public class GameScreen implements Screen {
         for (Projectile p : projectiles) {
             if (p.target == enemies.get(index).body) p.target = null; // lock dies with the ship
         }
-        if (controlled == index) controlled = -1;
-        else if (controlled > index) controlled--;
+        for (Dogfight d : dogfights) {
+            d.foes.removeValue(enemies.get(index), true); // fell out of the furball
+        }
         Enemy e = enemies.get(index);
         spawnDeathEffect(e.centerX(), e.centerY(), e.body.vx, e.body.vy);
         Enemy dead = enemies.get(index);
@@ -2111,6 +2316,21 @@ public class GameScreen implements Screen {
             }
         }
         shapeRenderer.setTransformMatrix(transform.idt());
+        // dogfight furballs: faint engagement ring + snapping tracer exchanges (#141)
+        for (Dogfight d : dogfights) {
+            shapeRenderer.setColor(0.8f, 0.6f, 0.25f, 1f);
+            shapeRenderer.circle(d.x, d.y, DOGFIGHT_RADIUS + 6f + 3f * MathUtils.sin(d.anim * 3f), 24);
+            for (int k = 0; k < 3; k++) {
+                if (!MathUtils.randomBoolean(0.35f)) continue;
+                float a1 = MathUtils.random(360f);
+                float a2 = a1 + MathUtils.random(90f, 260f);
+                float r1 = MathUtils.random(10f, DOGFIGHT_RADIUS);
+                float r2 = MathUtils.random(10f, DOGFIGHT_RADIUS);
+                shapeRenderer.setColor(1f, 0.85f, 0.4f, 1f);
+                shapeRenderer.line(d.x + MathUtils.cosDeg(a1) * r1, d.y + MathUtils.sinDeg(a1) * r1,
+                    d.x + MathUtils.cosDeg(a2) * r2, d.y + MathUtils.sinDeg(a2) * r2);
+            }
+        }
         // selection rings + the selected squadron's order marker
         if (selectedSquadron != -1) {
             shapeRenderer.setColor(Color.WHITE);

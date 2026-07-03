@@ -218,6 +218,20 @@ public class GameState {
         int callsign = MathUtils.random(CALLSIGNS.length - 1);
         squadronNames[0] = CALLSIGNS[callsign];
         squadronNames[1] = CALLSIGNS[(callsign + 1 + MathUtils.random(CALLSIGNS.length - 3)) % CALLSIGNS.length];
+        // default leaders: the two best scrappers fly lead until reassigned
+        int bestA = -1;
+        int bestB = -1;
+        for (int i = 0; i < crew.size(); i++) {
+            int cb = crew.get(i).bonusFor(Skill.COMBAT);
+            if (bestA == -1 || cb > crew.get(bestA).bonusFor(Skill.COMBAT)) {
+                bestB = bestA;
+                bestA = i;
+            } else if (bestB == -1 || cb > crew.get(bestB).bonusFor(Skill.COMBAT)) {
+                bestB = i;
+            }
+        }
+        squadronLeaders[0] = bestA;
+        squadronLeaders[1] = bestB;
         this.map = new OverworldMap();
         this.credits = 500 + 100 * Meta.perkLevel(Meta.PERK_CREDITS);
         this.maxFuel = 100f;
@@ -282,6 +296,16 @@ public class GameState {
         "ALFA-9", "BRAVAR", "CHARON", "DELTIC", "ECHO-V", "FOXTAR", "GOLIAD", "HELIX",
         "INDRA", "JULETT", "KILO-7", "LIMBUS", "MIRAGE", "NOVAK", "OSCURA", "QUASAR"};
     public final String[] squadronNames = new String[2];
+    // squadron leaders (#142): crew indices flying lead, -1 = unassigned
+    public final int[] squadronLeaders = {-1, -1};
+
+    /** The living crew member leading this squadron, or null. */
+    public CrewMember squadronLeader(int squadron) {
+        int idx = squadronLeaders[squadron];
+        if (idx < 0 || idx >= crew.size()) return null;
+        CrewMember c = crew.get(idx);
+        return c.isDead() ? null : c;
+    }
 
     private long stationSeq;
 
