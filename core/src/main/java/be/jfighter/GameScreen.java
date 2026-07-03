@@ -65,6 +65,7 @@ public class GameScreen implements Screen {
     // fired-shot projections (#157): {targetX, targetY, tofLeft, tofTotal, originX, originY}
     private final Array<float[]> shotProjections = new Array<>();
     private float viewZoom = 1f; // final camera zoom this frame (LOD + HUD maths)
+    private float scopeSweep;    // rotating radar sweep on the plotting scope (#161)
     private float camX;
     private float camY;
 
@@ -574,8 +575,6 @@ public class GameScreen implements Screen {
                 wd.rotation += wd.spin * delta;
             }
             effects.update(player, delta);
-            effects.spawnExhaust(player, delta);
-            for (Enemy e : enemies) effects.spawnExhaust(e.body, delta);
             // fighter condition: wings, crits and power feed the handling every frame
             if (fireCritT > 0) {
                 fireCritT -= delta;
@@ -648,7 +647,7 @@ public class GameScreen implements Screen {
         camY = cam.position.y;
         shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
 
-        effects.renderBackground(shapeRenderer);
+        drawScopeField(delta);
         drawArenaBounds();
         effects.renderAutopilot(shapeRenderer);
         drawEnemies();
@@ -723,7 +722,22 @@ public class GameScreen implements Screen {
             shapeRenderer.end();
         }
         if (defeatT < 0) {
-            effects.renderShip(shapeRenderer, player);
+            // own-ship return (#161): the carrier silhouette as a scope marker + velocity vector
+            shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+            Palette.set(shapeRenderer, 0.35f, 0.95f, 0.6f, 1f);
+            transform.setToTranslation(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f, 0)
+                .rotate(0, 0, 1, player.rotation).scale(0.62f, 0.62f, 1f);
+            shapeRenderer.setTransformMatrix(transform);
+            ShipRenderer.drawCarrier(shapeRenderer);
+            shapeRenderer.setTransformMatrix(transform.idt());
+            float spd = (float) Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+            if (spd > 12f) {
+                Palette.set(shapeRenderer, 0.25f, 0.6f, 0.4f, 1f);
+                shapeRenderer.line(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
+                    player.x + Player.WIDTH / 2f + player.vx * 0.8f,
+                    player.y + Player.HEIGHT / 2f + player.vy * 0.8f);
+            }
+            shapeRenderer.end();
             float hullFrac = state.hull / state.maxHull;
             if (hullFrac < 0.95f) {
                 shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
@@ -754,25 +768,25 @@ public class GameScreen implements Screen {
             }
         }
 
-        // projectiles (filled mode, per-projectile transform); size scales with caliber
+        // projectiles as scope contacts (#161): streaks along their velocity
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.end();
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         for (Projectile p : projectiles) {
-            transform.setToTranslation(p.x, p.y, 0).rotate(0, 0, 1, p.rotation);
-            shapeRenderer.setTransformMatrix(transform);
+            float vx = p.velX();
+            float vy = p.velY();
             if (p.rocket) {
-                shapeRenderer.setColor(0.85f, 0.85f, 0.9f, 1f);
-                shapeRenderer.rect(-2, -8, 4, 16);
-                shapeRenderer.setColor(1f, 0.55f, 0.15f, 1f);
-                shapeRenderer.rect(-1.5f, -13, 3, 5); // flame
+                boolean hostile = p.shooter != player;
+                shapeRenderer.setColor(hostile ? 1f : 0.7f, hostile ? 0.45f : 0.9f, 0.35f, 1f);
+                shapeRenderer.line(p.x, p.y, p.x - vx * 0.14f, p.y - vy * 0.14f);
+                shapeRenderer.circle(p.x, p.y, 2.4f, 6); // hot return
             } else {
-                float s = 0.6f + p.damage * 0.05f;
-                shapeRenderer.setColor(Color.GREEN);
-                shapeRenderer.rect(-2 * s, -7 * s, 4 * s, 14 * s);
-                shapeRenderer.circle(0, 7 * s, 2 * s, 8);
-                shapeRenderer.circle(0, -7 * s, 2 * s, 8);
+                shapeRenderer.setColor(0.55f, 0.75f, 0.6f, 1f);
+                shapeRenderer.line(p.x, p.y, p.x - vx * 0.06f, p.y - vy * 0.06f);
             }
         }
-        shapeRenderer.setTransformMatrix(transform.idt());
+        shapeRenderer.end();
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
         shapeRenderer.end();
 
         drawHud();
@@ -1018,7 +1032,40 @@ public class GameScreen implements Screen {
             shapeRenderer.end();
         }
 
+        drawScopeChrome();
         controlsHelp.draw(shapeRenderer, batch, font, hudMatrix);
+    }
+
+    /** Bezel, scanline and labels that make the combat view read as an instrument (#161). */
+    private void drawScopeChrome() {
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Palette.set(shapeRenderer, 0.2f, 0.4f, 0.5f, 1f);
+        shapeRenderer.rect(2, 2, HUD_W - 4, HUD_H - 4);
+        shapeRenderer.rect(4, 4, HUD_W - 8, HUD_H - 8);
+        // corner brackets
+        Palette.set(shapeRenderer, 0.3f, 0.6f, 0.7f, 1f);
+        for (int cx = 0; cx < 2; cx++) {
+            for (int cy = 0; cy < 2; cy++) {
+                float x = cx == 0 ? 10 : HUD_W - 10;
+                float y = cy == 0 ? 10 : HUD_H - 10;
+                float dx = cx == 0 ? 18 : -18;
+                float dy = cy == 0 ? 18 : -18;
+                shapeRenderer.line(x, y, x + dx, y);
+                shapeRenderer.line(x, y, x, y + dy);
+            }
+        }
+        ShipDeckView.drawScanline(shapeRenderer, scopeSweep * 0.12f, 6, HUD_W - 6, 6, HUD_H - 6);
+        shapeRenderer.end();
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        Fonts.scale(font, 0.95f);
+        Palette.set(font, 0.4f, 0.75f, 0.85f, 1f);
+        font.draw(batch, "TACTICAL SCOPE", HUD_W - 148, 22);
+        Palette.set(font, 0.3f, 0.55f, 0.62f, 1f);
+        font.draw(batch, "CONTACTS " + enemies.size, HUD_W - 148, 38);
+        Fonts.scale(font, 1.4f);
+        batch.end();
     }
 
     /** Returns true when the screen was switched and rendering must stop. */
@@ -1830,7 +1877,6 @@ public class GameScreen implements Screen {
             if (i != controlled) flyFighter(f, delta);
             f.body.updatePosition(delta);
             bounceOffWalls(f.body);
-            effects.spawnExhaust(f.body, delta);
             // stow order: arriving at the carrier tucks the squad in
             Squadron sq = squadrons[f.squadron];
             if (sq.mode == 3 && Vector2.dst(f.centerX(), f.centerY(),
@@ -2672,46 +2718,36 @@ public class GameScreen implements Screen {
     /** Friendly squadrons: green hulls, squadron tint, selection rings and order markers. */
     private void drawFighters() {
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-        if (strategicView()) {
-            // 10x view (#160): squads read as chevrons, hostiles as diamonds
-            float ms = 6f * viewZoom;
-            for (Fighter f : fighters) {
-                if (f.dock == 2) continue;
-                shapeRenderer.setColor(f.squadron == 0
-                    ? new Color(0.25f, 0.85f, 0.4f, 1f) : new Color(0.3f, 0.8f, 0.75f, 1f));
-                float ang = f.body.rotation;
-                float fxm = -MathUtils.sinDeg(ang);
-                float fym = MathUtils.cosDeg(ang);
-                float rxm = MathUtils.cosDeg(ang);
-                float rym = MathUtils.sinDeg(ang);
-                shapeRenderer.line(f.centerX() - rxm * ms - fxm * ms, f.centerY() - rym * ms - fym * ms,
-                    f.centerX() + fxm * ms, f.centerY() + fym * ms);
-                shapeRenderer.line(f.centerX() + rxm * ms - fxm * ms, f.centerY() + rym * ms - fym * ms,
-                    f.centerX() + fxm * ms, f.centerY() + fym * ms);
-            }
-        } else {
+        // scope signatures (#161): one chevron per craft in the formation, phosphor streaks
         for (int i = 0; i < fighters.size; i++) {
             Fighter f = fighters.get(i);
             if (f.dock == 2) continue; // tucked away in the hangar
             float dockScale = 1f;
-            if (f.dock == 1) dockScale = f.dockAnimT / 0.8f;           // shrinking in
-            else if (f.dock == 3) dockScale = 1f - f.dockAnimT / 0.8f; // growing out
+            if (f.dock == 1) dockScale = f.dockAnimT / 0.8f;
+            else if (f.dock == 3) dockScale = 1f - f.dockAnimT / 0.8f;
+            float ms = Math.max(8f, 5.5f * viewZoom) * dockScale;
+            if (i == controlled) shapeRenderer.setColor(Color.WHITE);
+            else if (f.squadron == 0) shapeRenderer.setColor(0.25f, 0.85f, 0.4f, 1f);
+            else shapeRenderer.setColor(0.3f, 0.8f, 0.75f, 1f);
+            float ang = f.body.rotation;
+            float fxm = -MathUtils.sinDeg(ang);
+            float fym = MathUtils.cosDeg(ang);
+            float rxm = MathUtils.cosDeg(ang);
+            float rym = MathUtils.sinDeg(ang);
             for (int slot = 0; slot < f.strength; slot++) {
-                if (i == controlled) shapeRenderer.setColor(Color.WHITE);
-                else if (f.squadron == 0) shapeRenderer.setColor(0.25f, 0.85f, 0.4f, 1f);
-                else shapeRenderer.setColor(0.3f, 0.8f, 0.75f, 1f);
-                transform.setToTranslation(f.centerX(), f.centerY(), 0)
-                    .rotate(0, 0, 1, f.body.rotation)
-                    .translate(formX(slot), formY(slot), 0)
-                    .scale(0.38f * dockScale, 0.38f * dockScale, 1f);
-                shapeRenderer.setTransformMatrix(transform);
-                ShipRenderer.drawB2(shapeRenderer);
-                if (f.body.thrustLevel > 0.02f) {
-                    shapeRenderer.setColor(1f, 0.55f, 0.15f, 1f);
-                    ShipRenderer.drawExhaust(shapeRenderer, f.body.thrustLevel);
-                }
+                float cx = f.centerX() + formX(slot) * rxm + formY(slot) * fxm;
+                float cy = f.centerY() + formX(slot) * rym + formY(slot) * fym;
+                shapeRenderer.line(cx - rxm * ms - fxm * ms, cy - rym * ms - fym * ms,
+                    cx + fxm * ms, cy + fym * ms);
+                shapeRenderer.line(cx + rxm * ms - fxm * ms, cy + rym * ms - fym * ms,
+                    cx + fxm * ms, cy + fym * ms);
             }
-        }
+            float spd = (float) Math.sqrt(f.body.vx * f.body.vx + f.body.vy * f.body.vy);
+            if (spd > 10f && f.dock == 0) { // phosphor streak
+                shapeRenderer.setColor(0.16f, 0.38f, 0.24f, 1f);
+                shapeRenderer.line(f.centerX(), f.centerY(),
+                    f.centerX() - f.body.vx * 0.5f, f.centerY() - f.body.vy * 0.5f);
+            }
         }
         shapeRenderer.setTransformMatrix(transform.idt());
         // command cursor (#154): stow/launch state beside the pointer
@@ -2776,19 +2812,66 @@ public class GameScreen implements Screen {
         shapeRenderer.end();
     }
 
+    /**
+     * The plotting scope (#161): phosphor field with a plotting grid, range rings
+     * centred on own ship, and a rotating sweep — the battle is read, not watched.
+     */
+    private void drawScopeField(float delta) {
+        scopeSweep = (scopeSweep + 55f * delta) % 360f;
+        float ox = player.x + Player.WIDTH / 2f;
+        float oy = player.y + Player.HEIGHT / 2f;
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        // plotting grid
+        Palette.set(shapeRenderer, 0.05f, 0.1f, 0.12f, 1f);
+        for (float gx = 0; gx <= ARENA_WIDTH; gx += 300f) {
+            shapeRenderer.line(gx, 0, gx, ARENA_HEIGHT);
+        }
+        for (float gy = 0; gy <= ARENA_HEIGHT; gy += 300f) {
+            shapeRenderer.line(0, gy, ARENA_WIDTH, gy);
+        }
+        // range rings around own ship
+        Palette.set(shapeRenderer, 0.08f, 0.17f, 0.2f, 1f);
+        for (int r = 1; r <= 4; r++) {
+            shapeRenderer.circle(ox, oy, r * 500f, 64);
+        }
+        // rotating sweep: bright leading edge, dimmer trailer
+        Palette.set(shapeRenderer, 0.12f, 0.3f, 0.34f, 1f);
+        shapeRenderer.line(ox, oy, ox + MathUtils.cosDeg(scopeSweep - 8f) * 2100f,
+            oy + MathUtils.sinDeg(scopeSweep - 8f) * 2100f);
+        Palette.set(shapeRenderer, 0.2f, 0.48f, 0.55f, 1f);
+        shapeRenderer.line(ox, oy, ox + MathUtils.cosDeg(scopeSweep) * 2100f,
+            oy + MathUtils.sinDeg(scopeSweep) * 2100f);
+        shapeRenderer.end();
+    }
+
     /** Hostile wireframes, drawn in red; same hull as the player until variants exist. */
     private void drawEnemies() {
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-        if (strategicView()) {
-            float ms = 6f * viewZoom;
-            for (Enemy e : enemies) {
-                if (e.mothership || e.boss) continue; // capitals keep their silhouettes
-                shapeRenderer.setColor(e.arms == SquadArms.TORPEDO
-                    ? new Color(1f, 0.4f, 0.5f, 1f) : new Color(0.95f, 0.25f, 0.2f, 1f));
-                shapeRenderer.line(e.centerX() - ms, e.centerY(), e.centerX(), e.centerY() + ms);
-                shapeRenderer.line(e.centerX(), e.centerY() + ms, e.centerX() + ms, e.centerY());
-                shapeRenderer.line(e.centerX() + ms, e.centerY(), e.centerX(), e.centerY() - ms);
-                shapeRenderer.line(e.centerX(), e.centerY() - ms, e.centerX() - ms, e.centerY());
+        for (Enemy e : enemies) {
+            if (e.mothership || e.boss) continue; // capitals draw as full returns below
+            float ms = Math.max(7f, 5f * viewZoom);
+            if (e.arms == SquadArms.TORPEDO) shapeRenderer.setColor(1f, 0.4f, 0.5f, 1f);
+            else if (e.runner) shapeRenderer.setColor(1f, 0.75f, 0.2f, 1f);
+            else shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
+            // one diamond per craft in the formation
+            float ang = e.body.rotation;
+            float fxm = -MathUtils.sinDeg(ang);
+            float fym = MathUtils.cosDeg(ang);
+            float rxm = MathUtils.cosDeg(ang);
+            float rym = MathUtils.sinDeg(ang);
+            for (int slot = 0; slot < Math.max(1, e.strength); slot++) {
+                float cx = e.centerX() + formX(slot) * rxm + formY(slot) * fxm;
+                float cy = e.centerY() + formX(slot) * rym + formY(slot) * fym;
+                shapeRenderer.line(cx - ms, cy, cx, cy + ms);
+                shapeRenderer.line(cx, cy + ms, cx + ms, cy);
+                shapeRenderer.line(cx + ms, cy, cx, cy - ms);
+                shapeRenderer.line(cx, cy - ms, cx - ms, cy);
+            }
+            float spd = (float) Math.sqrt(e.body.vx * e.body.vx + e.body.vy * e.body.vy);
+            if (spd > 10f) {
+                shapeRenderer.setColor(0.4f, 0.14f, 0.12f, 1f);
+                shapeRenderer.line(e.centerX(), e.centerY(),
+                    e.centerX() - e.body.vx * 0.5f, e.centerY() - e.body.vy * 0.5f);
             }
         }
         for (int i = 0; i < enemies.size; i++) {
@@ -2798,7 +2881,7 @@ public class GameScreen implements Screen {
             else if (e.arms == SquadArms.TORPEDO) shapeRenderer.setColor(1f, 0.4f, 0.5f, 1f); // priority!
             else if (e.arms == SquadArms.HOMING) shapeRenderer.setColor(1f, 0.3f, 0.35f, 1f);
             else shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
-            if (strategicView() && !e.boss && !e.mothership) continue; // glyph drawn above
+            if (!e.boss && !e.mothership) continue; // squads are scope glyphs, drawn above
             for (int slot = 0; slot < Math.max(1, e.strength); slot++) {
                 transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
                 if (e.boss) transform.scale(2.2f, 2.2f, 1f);
@@ -2840,15 +2923,14 @@ public class GameScreen implements Screen {
                     101f * flick, 40);
             }
         }
-        // the carrier's persistent battle scars (#123)
+        // the carrier's persistent battle scars (#123), on the own-ship marker
         if (!state.damageMarks.isEmpty() && defeatT < 0) {
-            shapeRenderer.setColor(0.32f, 0.22f, 0.14f, 1f);
+            shapeRenderer.setColor(0.45f, 0.3f, 0.18f, 1f);
             transform.setToTranslation(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f, 0)
-                .rotate(0, 0, 1, player.rotation);
+                .rotate(0, 0, 1, player.rotation).scale(0.62f, 0.62f, 1f);
             shapeRenderer.setTransformMatrix(transform);
             for (float[] mk : state.damageMarks) {
                 shapeRenderer.circle(mk[0], mk[1], mk[2], 8);
-                shapeRenderer.circle(mk[0] + mk[2] * 0.4f, mk[1] - mk[2] * 0.3f, mk[2] * 0.5f, 6);
             }
         }
         shapeRenderer.setTransformMatrix(transform.idt());
