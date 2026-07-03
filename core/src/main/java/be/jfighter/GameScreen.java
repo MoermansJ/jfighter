@@ -152,7 +152,8 @@ public class GameScreen implements Screen {
         Fonts.scale(font, 1.4f);
         viewport = new FitViewport(VIEW_WIDTH, VIEW_HEIGHT);
         player = new Player(120f, (ARENA_HEIGHT - Player.HEIGHT) / 2f);
-        player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0]); // engine crew
+        player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0])
+            * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]); // engine crew + reactor power
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
@@ -198,7 +199,8 @@ public class GameScreen implements Screen {
             shieldSince += delta;
             if (shieldSince >= SHIELD_RECHARGE_DELAY && state.shield < state.maxShield) {
                 state.shield = Math.min(state.maxShield,
-                    state.shield + (SHIELD_RECHARGE_RATE + state.shieldRechargeBonus()) * delta);
+                    state.shield + (SHIELD_RECHARGE_RATE + state.shieldRechargeBonus())
+                        * (state.power[GameState.PWR_SHIELDS] / 2f) * delta);
             }
             if (shieldFlash > 0) shieldFlash -= delta;
             player.updatePosition(delta);
@@ -716,8 +718,9 @@ public class GameScreen implements Screen {
             default:
                 if (held && w.ready()) {
                     w.fire();
-                    // gunnery crew shortens the cycle
-                    w.cooldown = w.type.reload / (1f + 0.08f * state.roomStats[4]);
+                    // gunnery crew and weapons power shorten the cycle
+                    w.cooldown = w.type.reload / ((1f + 0.08f * state.roomStats[4])
+                        * (0.7f + 0.15f * state.power[GameState.PWR_WEAPONS]));
                     Projectile p = new Projectile(nx, ny, fireRotation, body,
                         w.type.speed, w.type.damage,
                         w.type.isRocket() ? 260f : 0f,

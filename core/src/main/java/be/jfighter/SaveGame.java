@@ -45,6 +45,8 @@ public final class SaveGame {
             num(b, "cargoDelivered", s.cargoDelivered);
             num(b, "hostilesDestroyed", s.hostilesDestroyed);
             num(b, "sectorsCleared", s.sectorsCleared);
+            num(b, "reactorUnits", s.reactorUnits);
+            intArray(b, "power", s.power);
             intArray(b, "roomTier", s.roomTier);
             floatArray(b, "roomIntegrity", s.roomIntegrity);
             floatArray(b, "oxygen", s.oxygen);
@@ -187,6 +189,8 @@ public final class SaveGame {
             s.cargoDelivered = r.getInt("cargoDelivered");
             s.hostilesDestroyed = r.getInt("hostilesDestroyed");
             s.sectorsCleared = r.getInt("sectorsCleared");
+            s.reactorUnits = r.getInt("reactorUnits", 8);
+            if (r.has("power")) readInts(r.get("power"), s.power);
             readInts(r.get("roomTier"), s.roomTier);
             readFloats(r.get("roomIntegrity"), s.roomIntegrity);
             readFloats(r.get("oxygen"), s.oxygen);

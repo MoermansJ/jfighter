@@ -206,6 +206,62 @@ public class ShipDeckView {
         }
     }
 
+    /** Which power system a room's lighting/behaviour follows, or -1. */
+    private static int powerSystemForRoom(int room) {
+        switch (room) {
+            case 0: return GameState.PWR_ENGINES;
+            case 4: return GameState.PWR_WEAPONS;
+            case 6: return GameState.PWR_MEDBAY;
+            case 7: return GameState.PWR_LIFE;
+            default: return -1;
+        }
+    }
+
+    // power panel (#90): right side of the screen, a row of pips per system
+    private static final float PWR_X = SCR_X2 - 152f;
+    private static final float PWR_Y0 = SCR_Y1 + 26f;
+    private static final float PWR_ROW_H = 16f;
+
+    /** Which power control is at (x,y): system * 2 (+0 minus, +1 plus), or -1. */
+    public int powerButtonAt(float x, float y) {
+        for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
+            float ry = PWR_Y0 + (GameState.POWER_SYSTEMS.length - 1 - i) * PWR_ROW_H;
+            if (y < ry || y > ry + 13f) continue;
+            if (x >= PWR_X + 58f && x <= PWR_X + 70f) return i * 2;      // [-]
+            if (x >= PWR_X + 130f && x <= PWR_X + 142f) return i * 2 + 1; // [+]
+        }
+        return -1;
+    }
+
+    public void pressPowerButton(int btn) {
+        state.adjustPower(btn / 2, btn % 2 == 0 ? -1 : 1);
+    }
+
+    private void drawPowerPanel(ShapeRenderer shapes) {
+        for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
+            float ry = PWR_Y0 + (GameState.POWER_SYSTEMS.length - 1 - i) * PWR_ROW_H;
+            // +/- buttons
+            Palette.set(shapes, 0.3f, 0.45f, 0.52f, 1f);
+            shapes.rect(PWR_X + 58f, ry, 12f, 12f);
+            shapes.rect(PWR_X + 130f, ry, 12f, 12f);
+            shapes.line(PWR_X + 61f, ry + 6f, PWR_X + 67f, ry + 6f);       // minus glyph
+            shapes.line(PWR_X + 133f, ry + 6f, PWR_X + 139f, ry + 6f);     // plus glyph
+            shapes.line(PWR_X + 136f, ry + 3f, PWR_X + 136f, ry + 9f);
+            // pips
+            for (int p = 0; p < GameState.POWER_CAP[i]; p++) {
+                float pxp = PWR_X + 74f + p * 18f;
+                if (p < state.power[i]) {
+                    Palette.set(shapes, 0.35f, 0.85f, 0.5f, 1f);
+                    shapes.rect(pxp, ry + 2f, 14f, 8f);
+                    shapes.rect(pxp + 1, ry + 3f, 12f, 6f); // filled look via double line
+                } else {
+                    Palette.set(shapes, 0.2f, 0.3f, 0.35f, 1f);
+                    shapes.rect(pxp, ry + 2f, 14f, 8f);
+                }
+            }
+        }
+    }
+
     private String doorBtnLabel(int i) {
         switch (i) {
             case 0: return openAllStage == 0 ? "OPEN INNER" : openAllStage == 1 ? "OPEN OUTER" : "ALL OPEN";
@@ -567,6 +623,8 @@ public class ShipDeckView {
 
         for (int i = 0; i < ROOMS.length; i++) {
             float target = occupied[i] ? 1f : 0.25f;
+            int sys = powerSystemForRoom(i);
+            if (sys != -1 && state.power[sys] == 0) target = 0.04f; // unpowered: lights out
             roomBrightness[i] = MathUtils.lerp(roomBrightness[i], target, Math.min(1f, BRIGHT_LERP * delta));
         }
         corridorBrightness = MathUtils.lerp(corridorBrightness,
@@ -617,7 +675,9 @@ public class ShipDeckView {
             }
         }
         for (int i = 0; i < o.length; i++) {
-            o[i] = Math.min(1f, o[i] + OXY_REGEN * (1f + roomStat(7)) * delta); // life support crew boost regen
+            // life support: crew boost regen, reactor power gates it (0 units = off)
+            o[i] = Math.min(1f, o[i] + OXY_REGEN * (1f + roomStat(7))
+                * (state.power[GameState.PWR_LIFE] / 2f) * delta);
         }
         // battle-damaged rooms leak air until a crew member (engineer, ideally) patches them
         for (int i = 0; i < ROOMS.length; i++) {
@@ -1120,6 +1180,8 @@ public class ShipDeckView {
             shapes.line(mxp - pulse, myp, mxp + pulse, myp);
             shapes.line(mxp, myp - pulse * SQUASH, mxp, myp + pulse * SQUASH);
         }
+        // reactor power panel
+        drawPowerPanel(shapes);
         // door control cluster
         for (int i = 0; i < 4; i++) {
             boolean hot = (i == 0 && openAllStage == 2) || (i >= 2 && ventArm == i - 2);
@@ -1319,6 +1381,15 @@ public class ShipDeckView {
             font.draw(batch, label, px((al[4] + al[5]) / 2f) - airGl.width / 2f, py((al[6] + al[7]) / 2f + 3, 0));
         }
 
+        // power panel labels + reactor readout
+        Palette.set(font, 0.5f, 0.7f, 0.78f, 1f);
+        for (int i = 0; i < GameState.POWER_SYSTEMS.length; i++) {
+            float ry = PWR_Y0 + (GameState.POWER_SYSTEMS.length - 1 - i) * PWR_ROW_H;
+            font.draw(batch, GameState.POWER_SYSTEMS[i], PWR_X, ry + 11f);
+        }
+        Palette.set(font, 0.75f, 0.85f, 0.9f, 1f);
+        font.draw(batch, "REACTOR " + (state.reactorUnits - state.unallocatedPower())
+            + "/" + state.reactorUnits, PWR_X, PWR_Y0 + GameState.POWER_SYSTEMS.length * PWR_ROW_H + 12f);
         // door control cluster labels
         for (int i = 0; i < 4; i++) {
             boolean hot = (i == 0 && openAllStage == 2) || (i >= 2 && ventArm == i - 2);

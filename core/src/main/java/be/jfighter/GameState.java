@@ -47,6 +47,29 @@ public class GameState {
     public final int[] roomTier = {1, 1, 1, 1, 1, 1, 1, 1};
     // manned-station snapshot taken when entering an instance (#7: crew stats matter)
     public final int[] roomStats = new int[8];
+    // reactor power (#90): a fixed pool of units invested on demand into ship systems
+    public static final String[] POWER_SYSTEMS = {"LIFE SUP", "SHIELDS", "ENGINES", "WEAPONS", "MEDBAY"};
+    public static final int[] POWER_CAP = {3, 3, 3, 3, 2};
+    public static final int PWR_LIFE = 0;
+    public static final int PWR_SHIELDS = 1;
+    public static final int PWR_ENGINES = 2;
+    public static final int PWR_WEAPONS = 3;
+    public static final int PWR_MEDBAY = 4;
+    public int reactorUnits = 8;
+    public final int[] power = {2, 2, 2, 1, 1};
+
+    public int unallocatedPower() {
+        int used = 0;
+        for (int p : power) used += p;
+        return reactorUnits - used;
+    }
+
+    /** Invest (+1) or divert (-1) a unit; respects the pool and per-system caps. */
+    public void adjustPower(int system, int delta) {
+        if (delta > 0 && (unallocatedPower() <= 0 || power[system] >= POWER_CAP[system])) return;
+        if (delta < 0 && power[system] <= 0) return;
+        power[system] += delta;
+    }
     // combat damage leaks into the deck (#12): rooms below 1.0 bleed oxygen until repaired
     public final float[] roomIntegrity = {1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f};
 

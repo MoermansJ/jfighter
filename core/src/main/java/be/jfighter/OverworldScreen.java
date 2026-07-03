@@ -749,6 +749,12 @@ public class OverworldScreen implements Screen {
                     return false;
                 }
             }
+            // reactor power panel
+            int pwrBtn = deckView.powerButtonAt(mouse.x, mouse.y);
+            if (pwrBtn != -1) {
+                deckView.pressPowerButton(pwrBtn);
+                return false;
+            }
             // door control cluster
             int doorBtn = deckView.doorButtonAt(mouse.x, mouse.y);
             if (doorBtn != -1) {
