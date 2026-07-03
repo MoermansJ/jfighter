@@ -105,6 +105,13 @@ public class ShipDeckView {
     // console colour buttons (blue/green/red) on the bottom bezel strip
     private static final float[] SCHEME_BTN_X = {BEZ_X1 + 22, BEZ_X1 + 42, BEZ_X1 + 62};
     private static final float SCHEME_BTN_Y = (BEZ_Y1 + SCR_Y1) / 2f;
+    // door control cluster (#112/#116), bottom-left inside the screen
+    private static final float DOOR_BTN_W = 92f;
+    private static final float DOOR_BTN_H = 18f;
+    private static final float DOOR_BTN_Y = SCR_Y1 + 6f;
+    private int openAllStage;   // 0 = default, 1 = inner doors held open, 2 = outer too
+    private int ventArm = -1;   // airlock awaiting vent confirmation
+    private float ventArmT;
     // background starfield drifting past the cruising ship (screen coords, wraps inside the screen rect)
     private static final int[] BG_STAR_COUNT = {26, 14};
     private static final float[] BG_STAR_SPEED = {4f, 9f};
@@ -141,6 +148,71 @@ public class ShipDeckView {
     private final float[][] bgStarX = new float[BG_STAR_COUNT.length][];
     private final float[][] bgStarY = new float[BG_STAR_COUNT.length][];
     private final float[] bgStarOff = new float[BG_STAR_COUNT.length];
+
+    private static float doorBtnX(int i) {
+        return SCR_X1 + 8f + i * (DOOR_BTN_W + 8f);
+    }
+
+    /** Which door-control button is at (x,y): 0 open-all, 1 close-all, 2 vent A, 3 vent B; -1 none. */
+    public int doorButtonAt(float x, float y) {
+        if (y < DOOR_BTN_Y || y > DOOR_BTN_Y + DOOR_BTN_H) return -1;
+        for (int i = 0; i < 4; i++) {
+            if (x >= doorBtnX(i) && x <= doorBtnX(i) + DOOR_BTN_W) return i;
+        }
+        return -1;
+    }
+
+    /** OPEN ALL escalates inner -> outer; CLOSE ALL resets to automatic; venting needs a confirm click. */
+    public void pressDoorButton(int btn) {
+        switch (btn) {
+            case 0:
+                openAllStage = Math.min(2, openAllStage + 1);
+                applyOpenAll();
+                break;
+            case 1:
+                openAllStage = 0;
+                ventArm = -1;
+                java.util.Arrays.fill(state.doorHeldOpen, false);
+                break;
+            default: {
+                int a = btn - 2;
+                if (ventArm == a && ventArmT > 0) {
+                    // confirmed: open the airlock chain, corridor air goes overboard
+                    state.doorHeldOpen[innerDoor(a)] = true;
+                    state.doorHeldOpen[outerDoor(a)] = true;
+                    ventArm = -1;
+                } else {
+                    ventArm = a;
+                    ventArmT = 1.5f;
+                }
+            }
+        }
+    }
+
+    private void applyOpenAll() {
+        if (openAllStage >= 1) {
+            for (int i = 0; i < ROOMS.length; i++) {
+                state.doorHeldOpen[i] = true;
+            }
+            for (int a = 0; a < AIRLOCKS.length; a++) {
+                state.doorHeldOpen[innerDoor(a)] = true;
+            }
+        }
+        if (openAllStage >= 2) {
+            for (int a = 0; a < AIRLOCKS.length; a++) {
+                state.doorHeldOpen[outerDoor(a)] = true;
+            }
+        }
+    }
+
+    private String doorBtnLabel(int i) {
+        switch (i) {
+            case 0: return openAllStage == 0 ? "OPEN INNER" : openAllStage == 1 ? "OPEN OUTER" : "ALL OPEN";
+            case 1: return "CLOSE ALL";
+            case 2: return ventArm == 0 ? "VENT A ?!" : "VENT A";
+            default: return ventArm == 1 ? "VENT B ?!" : "VENT B";
+        }
+    }
 
     /** Which console colour button is at (x,y): 0 blue, 1 green, 2 red, -1 none. */
     public int schemeButtonAt(float x, float y) {
@@ -330,6 +402,10 @@ public class ShipDeckView {
 
     public void update(float delta) {
         time += delta;
+        if (ventArmT > 0) {
+            ventArmT -= delta;
+            if (ventArmT <= 0) ventArm = -1; // confirmation window lapsed
+        }
         // stars drift aft (the carrier cruises nose-first, to the right)
         for (int l = 0; l < BG_STAR_COUNT.length; l++) {
             bgStarOff[l] -= BG_STAR_SPEED[l] * delta;
@@ -948,6 +1024,13 @@ public class ShipDeckView {
         for (float[] c : new float[][] {{BEZ_X1 + 6, BEZ_Y1 + 6}, {BEZ_X2 - 6, BEZ_Y1 + 6},
                                         {BEZ_X1 + 6, BEZ_Y2 - 6}, {BEZ_X2 - 6, BEZ_Y2 - 6}}) {
             shapes.circle(c[0], c[1], 2.5f, 8); // corner screws
+        }
+        // door control cluster
+        for (int i = 0; i < 4; i++) {
+            boolean hot = (i == 0 && openAllStage == 2) || (i >= 2 && ventArm == i - 2);
+            if (hot) Palette.set(shapes, 0.9f, 0.25f, 0.2f, 1f);
+            else Palette.set(shapes, 0.3f, 0.45f, 0.52f, 1f);
+            shapes.rect(doorBtnX(i), DOOR_BTN_Y, DOOR_BTN_W, DOOR_BTN_H);
         }
         // hull outline
         Palette.set(shapes, 0.2f, 0.4f, 0.5f, 1f);

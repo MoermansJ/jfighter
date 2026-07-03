@@ -749,6 +749,12 @@ public class OverworldScreen implements Screen {
                     return false;
                 }
             }
+            // door control cluster
+            int doorBtn = deckView.doorButtonAt(mouse.x, mouse.y);
+            if (doorBtn != -1) {
+                deckView.pressDoorButton(doorBtn);
+                return false;
+            }
             // console colour buttons on the monitor bezel
             int schemeBtn = deckView.schemeButtonAt(mouse.x, mouse.y);
             if (schemeBtn != -1) {
