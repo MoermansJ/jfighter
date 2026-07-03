@@ -1200,6 +1200,14 @@ public class ShipDeckView {
             font.draw(batch, label, px((al[4] + al[5]) / 2f) - airGl.width / 2f, py((al[6] + al[7]) / 2f + 3, 0));
         }
 
+        // door control cluster labels
+        for (int i = 0; i < 4; i++) {
+            boolean hot = (i == 0 && openAllStage == 2) || (i >= 2 && ventArm == i - 2);
+            if (hot) Palette.set(font, 0.95f, 0.35f, 0.3f, 1f);
+            else Palette.set(font, 0.5f, 0.7f, 0.78f, 1f);
+            GlyphLayout dbl = new GlyphLayout(font, doorBtnLabel(i));
+            font.draw(batch, dbl, doorBtnX(i) + (DOOR_BTN_W - dbl.width) / 2f, DOOR_BTN_Y + 14f);
+        }
         Fonts.scale(font, 1f);
 
         // feed overlay, right-aligned in the bottom-right corner inside the bezel
