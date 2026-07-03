@@ -423,6 +423,7 @@ public class GameScreen implements Screen {
         }
         state.weaponEnergy = state.maxWeaponEnergy; // fresh capacitors each engagement
         deckView = new ShipDeckView(state);
+        deckView.setLifesigns(true); // combat overlay reads crew as heartbeat pips (#159)
         // squadrons launch with the carrier on the field
         for (int s = 0; s < SQUADRON_COUNT; s++) {
             squadrons[s] = new Squadron();

@@ -145,6 +145,7 @@ public class ShipDeckView {
     private float corridorBrightness;
     private float time;
     private int highlightRoom = -1;
+    private boolean lifesigns; // #159: combat overlay draws heartbeat pips, not figures
     private CrewMember selectedCrew;
     private CrewMember hoveredCrew;
     private final boolean[] doorOpen = new boolean[DOOR_COUNT]; // effective state this frame
@@ -314,6 +315,7 @@ public class ShipDeckView {
         float idleT = MathUtils.random(3f, 10f); // until the next idle
         float idleAnimT;                         // remaining time of the current idle
         int idleKind;
+        float flatT; // seconds since flatline (#159 lifesign overlay)
     }
 
     public ShipDeckView(GameState state) {
@@ -353,6 +355,11 @@ public class ShipDeckView {
     /** Room to highlight while the player is stationing a crew member (-1 = none). */
     public void setHighlight(int room) {
         highlightRoom = room;
+    }
+
+    /** Combat overlay mode (#159): crew render as heartbeat pips instead of figures. */
+    public void setLifesigns(boolean on) {
+        this.lifesigns = on;
     }
 
     /** Crew focus for avatar highlighting: strong for selected, subtle for hovered. */
@@ -1506,7 +1513,49 @@ public class ShipDeckView {
     }
 
     /** Stick-figure crew: swap this method's body for sprite rendering later. */
+    /**
+     * Heartbeat pip (#159): resting 60 BPM, fighting 80-120, near death 180,
+     * then a flatline dash that greys out. Hostiles pulse in the inverted colour.
+     */
+    private void drawLifePip(ShapeRenderer shapes, CrewMember c, Sim sim) {
+        float x = px(sim.x);
+        float y = py(sim.y, 3);
+        if (c.isDead()) {
+            if (sim.flatT < 2f) { // flatline: the trace goes flat and fades
+                float a = 1f - sim.flatT / 2f;
+                shapes.setColor(0.8f * a + 0.25f, 0.3f * a + 0.25f, 0.3f * a + 0.28f, 1f);
+                shapes.line(x - 6, y, x + 6, y);
+            } else {
+                shapes.setColor(0.3f, 0.32f, 0.34f, 1f); // grey memorial dot
+                shapes.circle(x, y, 1.6f, 6);
+            }
+            return;
+        }
+        float bpm;
+        boolean fighting = engaged.contains(c) || c.damageFlash > 0;
+        if (c.hp < CrewMember.MAX_HP * 0.25f) bpm = 180f;
+        else if (fighting) bpm = 100f + 20f * MathUtils.sin(time * 0.9f + c.name.hashCode() % 7);
+        else bpm = 60f;
+        float phase = (time * bpm / 60f + (c.name.hashCode() & 15) * 0.06f) % 1f;
+        float beat = phase < 0.16f ? 1f - phase / 0.16f : 0f; // sharp systole
+        if (c.hostile) Palette.setInverted(shapes, 0.3f, 0.9f, 0.5f, 1f);
+        else if (c == selectedCrew) shapes.setColor(1f, 0.9f, 0.3f, 1f);
+        else Palette.set(shapes, 0.3f, 0.9f, 0.5f, 1f);
+        shapes.circle(x, y, 1.7f, 6);                        // steady core
+        shapes.circle(x, y, 3f + 3.5f * beat, 10);           // systole ring
+        if (beat > 0.4f) { // tiny EKG spike above the pip on the beat
+            shapes.line(x - 3, y + 6, x - 1, y + 6);
+            shapes.line(x - 1, y + 6, x, y + 9);
+            shapes.line(x, y + 9, x + 1, y + 4);
+            shapes.line(x + 1, y + 4, x + 3, y + 6);
+        }
+    }
+
     private void drawFigure(ShapeRenderer shapes, CrewMember c, Sim sim) {
+        if (lifesigns) {
+            drawLifePip(shapes, c, sim);
+            return;
+        }
         boolean fighting = !c.isDead() && engaged.contains(c);
         // struggle: rapid jostling toward the opponent (visual offset only)
         float jx = 0f, jy = 0f;
