@@ -632,6 +632,114 @@ public class ShipDeckView {
 
         updateDoors();
         updateOxygen(delta);
+        if (state.pendingFireRoom != -1) {
+            igniteRoom(state.pendingFireRoom);
+            state.pendingFireRoom = -1;
+        }
+        updateFire(delta);
+    }
+
+    /** Combat damage sparks a blaze on a random tile of the room. */
+    private void igniteRoom(int room) {
+        float[] r = ROOMS[room];
+        for (int attempt = 0; attempt < 12; attempt++) {
+            int gx = (int) ((r[0] + MathUtils.random(r[2]) - GRID_X0) / CELL);
+            int gy = (int) ((r[1] + MathUtils.random(r[3]) - GRID_Y0) / CELL);
+            if (gx >= 0 && gy >= 0 && gx < GRID_W && gy < GRID_H && walkable[gx][gy]) {
+                fire[gx][gy] = 1f;
+                return;
+            }
+        }
+    }
+
+    /**
+     * Tile fire (#110): burns oxygen and room integrity, spreads to oxygenated
+     * neighbours (through OPEN doors only), starves and dies in airless
+     * compartments, and is fought by crew standing in the same room.
+     */
+    private void updateFire(float delta) {
+        fireTick += delta;
+        boolean tick = fireTick >= 0.8f;
+        if (tick) fireTick = 0f;
+        for (int gx = 0; gx < GRID_W; gx++) {
+            for (int gy = 0; gy < GRID_H; gy++) {
+                if (fire[gx][gy] <= 0f) continue;
+                int comp = compOf[gx][gy];
+                float oxy = state.oxygen[comp];
+                if (oxy <= 0.02f) {
+                    // no oxygen: the fire cannot spread and dies out instead
+                    fire[gx][gy] = Math.max(0f, fire[gx][gy] - 0.6f * delta);
+                    continue;
+                }
+                state.oxygen[comp] = Math.max(0f, oxy - 0.012f * delta); // fire eats air
+                if (comp < ROOMS.length) {
+                    state.roomIntegrity[comp] = Math.max(0f, state.roomIntegrity[comp] - 0.008f * delta);
+                }
+                if (tick && fire[gx][gy] > 0.5f && MathUtils.random() < 0.4f) {
+                    int k = MathUtils.random(3);
+                    int nx = gx + (k == 0 ? 1 : k == 1 ? -1 : 0);
+                    int ny = gy + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                    if (nx < 0 || ny < 0 || nx >= GRID_W || ny >= GRID_H) continue;
+                    if (!walkable[nx][ny] || fire[nx][ny] > 0f) continue;
+                    if (state.oxygen[compOf[nx][ny]] <= 0.15f) continue; // won't take in thin air
+                    if (compOf[nx][ny] != compOf[gx][gy]) {
+                        // crossing a compartment boundary needs an open door
+                        int door = doorAtCell[gx][gy] != -1 ? doorAtCell[gx][gy] : doorAtCell[nx][ny];
+                        if (door == -1 || !doorOpen[door]) continue;
+                    }
+                    fire[nx][ny] = 0.7f;
+                }
+            }
+        }
+        // crew fight fires in their room and burn on flaming tiles
+        for (CrewMember c : figures()) {
+            if (c.isDead()) continue;
+            Sim sim = sims.get(c);
+            if (sim == null) continue;
+            int cgx = MathUtils.clamp((int) ((sim.x - GRID_X0) / CELL), 0, GRID_W - 1);
+            int cgy = MathUtils.clamp((int) ((sim.y - GRID_Y0) / CELL), 0, GRID_H - 1);
+            if (fire[cgx][cgy] > 0.3f) {
+                c.hp = Math.max(0f, c.hp - 6f * delta);
+                c.damageFlash = 0.5f;
+            }
+            // extinguish the nearest burning tile in the same compartment
+            int comp = compOf[cgx][cgy];
+            int bestX = -1, bestY = -1;
+            float bestD = Float.MAX_VALUE;
+            for (int gx = 0; gx < GRID_W; gx++) {
+                for (int gy = 0; gy < GRID_H; gy++) {
+                    if (fire[gx][gy] <= 0f || compOf[gx][gy] != comp) continue;
+                    float dd = (gx - cgx) * (gx - cgx) + (gy - cgy) * (gy - cgy);
+                    if (dd < bestD) {
+                        bestD = dd;
+                        bestX = gx;
+                        bestY = gy;
+                    }
+                }
+            }
+            if (bestX != -1) {
+                fire[bestX][bestY] = Math.max(0f,
+                    fire[bestX][bestY] - (0.3f + 0.12f * c.bonusFor(Skill.ENGINEERING)) * delta);
+            }
+        }
+    }
+
+    /** Flickering flames on burning tiles; call inside the filled pass. */
+    private void drawFires(ShapeRenderer shapes) {
+        for (int gx = 0; gx < GRID_W; gx++) {
+            for (int gy = 0; gy < GRID_H; gy++) {
+                float f = fire[gx][gy];
+                if (f <= 0f) continue;
+                float x = GRID_X0 + (gx + 0.5f) * CELL;
+                float y = GRID_Y0 + (gy + 0.5f) * CELL;
+                float flick = 0.7f + 0.3f * MathUtils.sin(time * 17f + gx * 5f + gy * 3f);
+                // fire stays fire-coloured in every console scheme (semantic danger colour)
+                shapes.setColor(1f, 0.45f * flick + 0.1f, 0.08f, 0.8f * f * flick);
+                shapes.circle(px(x), py(y, 1), (1.6f + 1.6f * f) * flick, 8);
+                shapes.setColor(1f, 0.8f, 0.35f, 0.9f * f);
+                shapes.circle(px(x), py(y, 2), 0.9f * flick, 6);
+            }
+        }
     }
 
     /** Effective door state: held open by the player, or automatically open for nearby crew. */
@@ -753,8 +861,11 @@ public class ShipDeckView {
     private static final int GRID_W = 106;
     private static final int GRID_H = 27;
     private final boolean[][] walkable = new boolean[GRID_W][GRID_H];
-    private final boolean[][] doorway = new boolean[GRID_W][GRID_H];
+    private final int[][] doorAtCell = new int[GRID_W][GRID_H]; // door index, -1 = none
     private final int[][] compOf = new int[GRID_W][GRID_H];
+    // fire (#110): per-tile intensity; starved without oxygen, fought by crew in the room
+    private final float[][] fire = new float[GRID_W][GRID_H];
+    private float fireTick;
 
     private void buildGrid() {
         for (int gx = 0; gx < GRID_W; gx++) {
@@ -766,6 +877,9 @@ public class ShipDeckView {
                 walkable[gx][gy] = comp != -1;
             }
         }
+        for (int gx = 0; gx < GRID_W; gx++) {
+            java.util.Arrays.fill(doorAtCell[gx], -1);
+        }
         for (int d = 0; d < DOOR_COUNT; d++) {
             float dx = doorPosX(d);
             float dy = doorPosY(d);
@@ -774,7 +888,7 @@ public class ShipDeckView {
                     float x = GRID_X0 + (gx + 0.5f) * CELL;
                     float y = GRID_Y0 + (gy + 0.5f) * CELL;
                     if (Math.abs(x - dx) <= DOOR_HALF + 2f && Math.abs(y - dy) <= 6f && walkable[gx][gy]) {
-                        doorway[gx][gy] = true;
+                        doorAtCell[gx][gy] = d;
                     }
                 }
             }
@@ -824,7 +938,7 @@ public class ShipDeckView {
                 int idx = nx * GRID_H + ny;
                 if (prev[idx] != -2 || !walkable[nx][ny]) continue;
                 if (compOf[cx][cy] != compOf[nx][ny]
-                        && !doorway[cx][cy] && !doorway[nx][ny]) {
+                        && doorAtCell[cx][cy] == -1 && doorAtCell[nx][ny] == -1) {
                     continue; // compartment crossings only happen at doors
                 }
                 prev[idx] = cur;
@@ -1117,6 +1231,8 @@ public class ShipDeckView {
             setFloorColor(shapes, 0.02f + 0.06f * b, 0.04f + 0.10f * b, 0.06f + 0.16f * b, state.oxygen[i]);
             fillDeckRect(shapes, r[0], r[1], r[2], r[3]);
         }
+        // burning tiles
+        drawFires(shapes);
         // light pools over each room's console, flickering
         for (int i = 0; i < ROOMS.length; i++) {
             float[] r = ROOMS[i];

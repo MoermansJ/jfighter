@@ -163,6 +163,8 @@ public class GameState {
 
     // dev-mode boarder (#42): a hostile figure in the cargo hold, player-controllable
     public CrewMember boarder;
+    // set by combat when a hit sparks a blaze aboard; consumed by ShipDeckView (#110)
+    public int pendingFireRoom = -1;
 
     private long stationSeq;
 
