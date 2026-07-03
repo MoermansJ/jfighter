@@ -32,6 +32,8 @@ public class SoundFx {
     private Sound beamLoop;
     private Sound report;
     private final Sound[] explosions = new Sound[3];
+    private Sound klaxon;
+    private long klaxonId = -1;
     private long beamId = -1;
     private long thrusterId = -1;
     private boolean ready;
@@ -55,6 +57,7 @@ public class SoundFx {
             explosions[0] = load(dir.child("boom_a.wav"), synthExplosion(0.55f, 45f, 7f));
             explosions[1] = load(dir.child("boom_b.wav"), synthExplosion(0.8f, 32f, 4.5f));
             explosions[2] = load(dir.child("boom_c.wav"), synthExplosion(0.4f, 60f, 10f));
+            klaxon = load(dir.child("klaxon.wav"), synthKlaxon());
             ready = true;
         } catch (Exception e) {
             Gdx.app.error("SoundFx", "audio disabled: " + e.getMessage());
@@ -120,6 +123,18 @@ public class SoundFx {
         if (ready) ping.play(0.1f * masterVolume, 0.75f, 0f); // lower pitch, under the mix
     }
 
+    /** Near-death alarm (#182): starts/stops the looping klaxon. */
+    public void startAlarm() {
+        if (ready && klaxonId == -1) klaxonId = klaxon.loop(0.4f * masterVolume);
+    }
+
+    public void stopAlarm() {
+        if (ready && klaxonId != -1) {
+            klaxon.stop(klaxonId);
+            klaxonId = -1;
+        }
+    }
+
     /** Hull hit with the shield down: one of a few different blasts, varied per impact. */
     public void playExplosion(float strength) {
         if (!ready) return;
@@ -146,6 +161,7 @@ public class SoundFx {
 
     public void dispose() {
         if (!ready) return;
+        stopAlarm();
         stopBeam();
         stopThruster();
         thruster.dispose();
@@ -160,6 +176,7 @@ public class SoundFx {
         beamLoop.dispose();
         report.dispose();
         for (Sound s : explosions) s.dispose();
+        klaxon.dispose();
     }
 
     // --- synthesis ---
@@ -327,6 +344,23 @@ public class SoundFx {
                 + Math.sin(2 * Math.PI * f2 * t) * 0.3) + ns * 0.25f;
         }
         return normalise(s, 0.6f);
+    }
+
+    /** Two-tone emergency klaxon: alternating wail, loops cleanly on whole cycles. */
+    private static float[] synthKlaxon() {
+        int n = RATE; // one second: two half-second tones
+        float[] s = new float[n];
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            double freq = (i < n / 2) ? 620 : 460;
+            float env = 1f;
+            int seg = i % (n / 2);
+            if (seg < 400) env = seg / 400f;                 // soft attack per tone
+            else if (seg > n / 2 - 400) env = (n / 2 - seg) / 400f;
+            s[i] = (float) (Math.sin(2 * Math.PI * freq * t)
+                + 0.35 * Math.sin(2 * Math.PI * freq * 2 * t)) * env;
+        }
+        return normalise(s, 0.5f);
     }
 
     /** Parameterised explosion: crackle attack, rumbling body, tonal thump. */

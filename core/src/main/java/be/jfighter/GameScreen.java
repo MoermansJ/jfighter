@@ -103,6 +103,21 @@ public class GameScreen implements Screen {
         return hx >= CREW_X && hx <= CREW_X + 960f * CREW_S
             && hy >= CREW_Y && hy <= CREW_Y + 270f * CREW_S;
     }
+    // desk instruments (#176-#189) + end-of-battle bookkeeping
+    private final Array<String> signalLog = new Array<>();
+    private final Array<Float> signalLogAge = new Array<>();
+    private boolean endModal;
+    private float endModalDelay = -1f;
+    private String endHeadline = "";
+    private int creditsAtStart;
+    private boolean alarmSilenced;
+    private float hullAtSilence;
+    private float ammoFlashL;
+    private float ammoFlashH;
+    private float ammoFlashR;
+    private int lastAmmoL;
+    private int lastAmmoH;
+    private int lastAmmoR;
     private float cupolaCd;      // MG-46 cupolas share a cadence clock (#119)
     private int cupolaBurstLeft; // rounds left in the current 5-8 round burst
     private float cupolaGapT;    // one-second breath between bursts
@@ -451,6 +466,10 @@ public class GameScreen implements Screen {
         state.weaponEnergy = state.maxWeaponEnergy; // fresh capacitors each engagement
         deckView = new ShipDeckView(state);
         deckView.setLifesigns(true); // combat overlay reads crew as heartbeat pips (#159)
+        creditsAtStart = state.credits;
+        lastAmmoL = state.ammoLight;
+        lastAmmoH = state.ammoHeavy;
+        lastAmmoR = state.ammoRockets;
         // squadrons launch with the carrier on the field
         for (int s = 0; s < SQUADRON_COUNT; s++) {
             squadrons[s] = new Squadron();
@@ -554,8 +573,39 @@ public class GameScreen implements Screen {
                 return;
             }
         }
-        if (defeatT < 0) pause.handleEscape();
-        if (!pause.isOpen()) {
+        for (int i = 0; i < signalLogAge.size; i++) {
+            signalLogAge.set(i, signalLogAge.get(i) + delta);
+        }
+        // near-death klaxon (#182)
+        boolean losingHp = fireCritT > 0;
+        boolean nearDeath = state.hull < state.maxHull * 0.25f && defeatT < 0;
+        if (alarmSilenced && state.hull < hullAtSilence - 1f) alarmSilenced = false; // fresh damage re-arms
+        if (nearDeath && (enemies.size > 0 || losingHp) && !alarmSilenced && !endModal) {
+            game.sfx.startAlarm();
+        } else {
+            game.sfx.stopAlarm();
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.N) && !alarmSilenced) {
+            alarmSilenced = true;
+            hullAtSilence = state.hull;
+            addLog("ALARM SILENCED");
+        }
+        // end-of-combat modal (#179): a beat after the objective, the desk stands down
+        if (objectiveDone && !endModal && defeatT < 0) {
+            if (endModalDelay < 0) endModalDelay = 1.6f;
+            endModalDelay -= delta;
+            if (endModalDelay <= 0) endModal = true;
+        }
+        if (endModal) {
+            if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)
+                    || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+                game.sfx.stopAlarm();
+                game.setScreen(new OverworldScreen(game, state));
+                return;
+            }
+        }
+        if (defeatT < 0 && !endModal) pause.handleEscape();
+        if (!pause.isOpen() && !endModal) {
             // stop rendering once the screen switches: hide() disposed our resources
             if (defeatT < 0 && handleInput(delta)) return;
             if (defeatT < 0) effects.handleFlightInput(controlledBody(), delta);
@@ -670,6 +720,10 @@ public class GameScreen implements Screen {
         drawShieldGauge();
         drawThrustLever();
         drawDeckConsole();
+        drawCardiographPanel();
+        drawHullIndicator();
+        drawSignalLog();
+        drawAnnunciator();
 
         drawHud();
 
@@ -685,10 +739,49 @@ public class GameScreen implements Screen {
             Fonts.scale(font, 1.4f);
             batch.end();
         }
+        if (endModal) drawEndModal();
         if (pause.isOpen()
                 && pause.render(shapeRenderer, batch, font, hudMatrix, viewport, objectiveDone)) {
             game.setScreen(new OverworldScreen(game, state));
         }
+    }
+
+    /** End-of-combat modal (#179): the sim stands frozen behind it; one way out. */
+    private void drawEndModal() {
+        float mw = 380f;
+        float mh = 190f;
+        float mx = (HUD_W - mw) / 2f;
+        float my = (HUD_H - mh) / 2f;
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        shapeRenderer.setColor(0.015f, 0.03f, 0.04f, 1f);
+        shapeRenderer.rect(mx, my, mw, mh);
+        shapeRenderer.end();
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Palette.set(shapeRenderer, 0.3f, 0.6f, 0.7f, 1f);
+        shapeRenderer.rect(mx, my, mw, mh);
+        shapeRenderer.rect(mx + 3, my + 3, mw - 6, mh - 6);
+        shapeRenderer.setColor(0.3f, 0.8f, 0.4f, 1f);
+        shapeRenderer.rect(mx + mw / 2f - 70f, my + 18f, 140f, 32f);
+        shapeRenderer.end();
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        font.setColor(Color.GREEN);
+        GlyphLayout hl = new GlyphLayout(font, endHeadline.isEmpty() ? "ENGAGEMENT RESOLVED" : endHeadline);
+        font.draw(batch, hl, mx + (mw - hl.width) / 2f, my + mh - 22f);
+        Fonts.scale(font, 0.95f);
+        font.setColor(Color.YELLOW);
+        int earned = state.credits - creditsAtStart;
+        GlyphLayout cg = new GlyphLayout(font, "CREDITS " + (earned >= 0 ? "+" : "") + earned);
+        font.draw(batch, cg, mx + (mw - cg.width) / 2f, my + mh - 62f);
+        font.setColor(Color.GRAY);
+        GlyphLayout sg = new GlyphLayout(font, salvageToast == null ? "" : salvageToast);
+        font.draw(batch, sg, mx + (mw - sg.width) / 2f, my + mh - 84f);
+        Fonts.scale(font, 1.4f);
+        font.setColor(Color.GREEN);
+        GlyphLayout lg = new GlyphLayout(font, "LEAVE");
+        font.draw(batch, lg, mx + (mw - lg.width) / 2f, my + 40f);
+        batch.end();
     }
 
     /**
@@ -1032,6 +1125,19 @@ public class GameScreen implements Screen {
         batch.end();
         batch.setProjectionMatrix(hudMatrix);
         deckView.setCompact(false);
+        // left-to-right CRT scan band (#175): the EKG chart feed look
+        float mw = 960f * CREW_S;
+        float mh = 270f * CREW_S;
+        float scanX = CREW_X + (scopeSweep * 2.4f % mw);
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Palette.set(shapeRenderer, 0.3f, 0.9f, 1f, 0.22f);
+        shapeRenderer.line(scanX, CREW_Y + 2, scanX, CREW_Y + mh - 2);
+        shapeRenderer.line(scanX + 1, CREW_Y + 2, scanX + 1, CREW_Y + mh - 2);
+        Palette.set(shapeRenderer, 0.3f, 0.9f, 1f, 0.1f);
+        shapeRenderer.line(scanX - 2, CREW_Y + 2, scanX - 2, CREW_Y + mh - 2);
+        shapeRenderer.line(scanX + 3, CREW_Y + 2, scanX + 3, CREW_Y + mh - 2);
+        shapeRenderer.end();
     }
 
     // desk deck-console geometry: power rows + door buttons on the desk surface
@@ -1174,6 +1280,11 @@ public class GameScreen implements Screen {
         font.setColor(Color.GRAY);
         GlyphLayout pv = new GlyphLayout(font, (player.throttle * 10) + "%");
         font.draw(batch, pv, LEV_X - pv.width / 2f, LEV_Y0 - 12f);
+        // actual way on the ship, in knots (#180)
+        float kn = (float) Math.sqrt(player.vx * player.vx + player.vy * player.vy) * 0.15f;
+        Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
+        GlyphLayout kg = new GlyphLayout(font, Math.round(kn) + " kn");
+        font.draw(batch, kg, LEV_X - kg.width / 2f, LEV_Y0 - 26f);
         Fonts.scale(font, 1.4f);
         batch.end();
     }
@@ -1237,6 +1348,147 @@ public class GameScreen implements Screen {
         font.setColor(frac < 0.25f ? Color.RED : Color.GRAY);
         GlyphLayout pv = new GlyphLayout(font, Math.round(frac * 100) + "%");
         font.draw(batch, pv, fx - pv.width / 2f, fy - 18f);
+        Fonts.scale(font, 1.4f);
+        batch.end();
+    }
+
+    /** Crew cardiographs (#176): a name and a live EKG trace per crew member. */
+    private void drawCardiographPanel() {
+        float px0 = 668f;
+        float pw = 122f;
+        float rowH = 15f;
+        float top = CREW_Y + 270f * CREW_S;
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Palette.set(shapeRenderer, 0.22f, 0.36f, 0.42f, 1f);
+        shapeRenderer.rect(px0 - 6, CREW_Y - 6, pw + 74, top - CREW_Y + 12);
+        for (int i = 0; i < state.crew.size() && i < 6; i++) {
+            CrewMember c = state.crew.get(i);
+            float baseY = top - 10f - i * rowH;
+            float bpm = deckView.bpmFor(c);
+            if (c.isDead()) {
+                shapeRenderer.setColor(0.35f, 0.37f, 0.39f, 1f); // flat grey trace
+                shapeRenderer.line(px0 + 62, baseY, px0 + 62 + pw, baseY);
+                continue;
+            }
+            if (bpm >= 170f) shapeRenderer.setColor(0.95f, 0.3f, 0.25f, 1f);
+            else if (bpm >= 110f) shapeRenderer.setColor(0.95f, 0.75f, 0.3f, 1f);
+            else Palette.set(shapeRenderer, 0.3f, 0.9f, 0.5f, 1f);
+            float prevY = baseY;
+            for (int sx2 = 0; sx2 < pw; sx2 += 3) {
+                float phase = ((scopeSweep * 0.6f * bpm / 60f) - sx2 * 0.045f) % 1f;
+                if (phase < 0) phase += 1f;
+                float y = baseY + ekgY(phase) * 5f;
+                shapeRenderer.line(px0 + 62 + sx2 - 3, prevY, px0 + 62 + sx2, y);
+                prevY = y;
+            }
+        }
+        shapeRenderer.end();
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        Fonts.scale(font, 0.8f);
+        for (int i = 0; i < state.crew.size() && i < 6; i++) {
+            CrewMember c = state.crew.get(i);
+            font.setColor(c.isDead() ? Color.DARK_GRAY : Color.GRAY);
+            String nm = c.name.length() > 9 ? c.name.substring(0, 9) : c.name;
+            font.draw(batch, nm, px0, top - 6f - i * rowH);
+        }
+        Fonts.scale(font, 1.4f);
+        batch.end();
+    }
+
+    /** Classic PQRST-ish waveform: mostly flat with a sharp systole spike. */
+    private static float ekgY(float phase) {
+        if (phase < 0.06f) return phase / 0.06f * 0.3f;             // P bump
+        if (phase < 0.1f) return 0.3f - (phase - 0.06f) / 0.04f * 0.3f;
+        if (phase < 0.14f) return -(phase - 0.1f) / 0.04f * 0.4f;   // Q dip
+        if (phase < 0.2f) return -0.4f + (phase - 0.14f) / 0.06f * 2.4f; // R spike
+        if (phase < 0.26f) return 2f - (phase - 0.2f) / 0.06f * 2.6f;    // S drop
+        if (phase < 0.32f) return -0.6f + (phase - 0.26f) / 0.06f * 0.6f;
+        if (phase < 0.5f) return MathUtils.sin((phase - 0.32f) / 0.18f * MathUtils.PI) * 0.35f; // T wave
+        return 0f;
+    }
+
+    /** Hull integrity (#177): a segmented strip that reddens as plates give out. */
+    private void drawHullIndicator() {
+        float hx0 = 700f;
+        float hy0 = 505f;
+        float frac = state.hull / state.maxHull;
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 10; i++) {
+            boolean lit = frac > i / 10f;
+            if (!lit) shapeRenderer.setColor(0.08f, 0.1f, 0.11f, 1f);
+            else if (frac < 0.25f) shapeRenderer.setColor(0.9f, 0.25f, 0.2f, 1f);
+            else if (frac < 0.55f) shapeRenderer.setColor(0.85f, 0.6f, 0.2f, 1f);
+            else shapeRenderer.setColor(0.35f, 0.75f, 0.45f, 1f);
+            shapeRenderer.rect(hx0 + i * 20f, hy0, 16f, 10f);
+        }
+        shapeRenderer.end();
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        Fonts.scale(font, 0.8f);
+        Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
+        font.draw(batch, "HULL " + Math.round(frac * 100) + "%", hx0, hy0 + 24f);
+        Fonts.scale(font, 1.4f);
+        batch.end();
+    }
+
+    /** Signal log (#184): the last few battle events, dimming with age. */
+    private void drawSignalLog() {
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        Fonts.scale(font, 0.8f);
+        for (int i = 0; i < signalLog.size; i++) {
+            float age = signalLogAge.get(i);
+            float a = MathUtils.clamp(1.2f - age * 0.08f, 0.25f, 1f);
+            Palette.set(font, 0.35f * a + 0.1f, 0.6f * a + 0.1f, 0.65f * a + 0.1f, 1f);
+            font.draw(batch, "> " + signalLog.get(i), 665, 128 - (signalLog.size - 1 - i) * 13f);
+        }
+        Fonts.scale(font, 1.4f);
+        batch.end();
+    }
+
+    /** Damage-control annunciator (#188): a warning lamp per room, plus intruders. */
+    private void drawAnnunciator() {
+        float ax0 = 640f;
+        float ay0 = 12f;
+        boolean blinkOn = MathUtils.sin(scopeSweep * 0.6f) > 0f;
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 8; i++) {
+            boolean fire = deckView.roomBurning(i);
+            boolean breach = state.roomIntegrity[i] < 0.5f;
+            boolean stn = state.stationHealth[i] <= 0f;
+            boolean o2 = state.oxygen[i] < 0.3f;
+            boolean warn = fire || breach || stn || o2;
+            if (warn && (blinkOn || !fire)) {
+                if (fire) shapeRenderer.setColor(1f, 0.4f, 0.1f, 1f);
+                else if (breach || o2) shapeRenderer.setColor(0.9f, 0.2f, 0.15f, 1f);
+                else shapeRenderer.setColor(0.85f, 0.7f, 0.2f, 1f);
+            } else {
+                shapeRenderer.setColor(0.07f, 0.1f, 0.11f, 1f);
+            }
+            shapeRenderer.rect(ax0 + i * 30f, ay0, 24f, 12f);
+        }
+        // intruder lamp
+        boolean intruders = false;
+        for (CrewMember b : state.boarders) {
+            if (!b.isDead()) intruders = true;
+        }
+        if (intruders && blinkOn) shapeRenderer.setColor(1f, 0.15f, 0.1f, 1f);
+        else shapeRenderer.setColor(0.07f, 0.1f, 0.11f, 1f);
+        shapeRenderer.rect(ax0 + 240f, ay0, 24f, 12f);
+        shapeRenderer.end();
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        Fonts.scale(font, 0.7f);
+        Palette.set(font, 0.35f, 0.5f, 0.56f, 1f);
+        String[] codes = {"ENG", "CRG", "HGR", "QRT", "WPN", "BRG", "MED", "LIF"};
+        for (int i = 0; i < 8; i++) {
+            font.draw(batch, codes[i], ax0 + i * 30f + 3f, ay0 + 24f);
+        }
+        font.draw(batch, "INT", ax0 + 243f, ay0 + 24f);
         Fonts.scale(font, 1.4f);
         batch.end();
     }
@@ -1525,12 +1777,6 @@ public class GameScreen implements Screen {
             }
         }
         Fonts.scale(font, 1.4f);
-        if (objectiveDone) {
-            font.setColor(Color.GREEN);
-            String msg = "OBJECTIVE COMPLETE — ESC to return";
-            GlyphLayout gl = new GlyphLayout(font, msg);
-            font.draw(batch, msg, (HUD_W - gl.width) / 2f, HUD_H / 2f);
-        }
         // #147: one quiet line at the bottom, fading in through the long build-up
         if (state.map.getCurrentNode().stormy && stormTimer < STORM_BUILDUP && defeatT < 0) {
             float ramp = 1f - stormTimer / STORM_BUILDUP;
@@ -1874,6 +2120,7 @@ public class GameScreen implements Screen {
         state.instancesCompleted++;
         state.awardCrewXp(5f);
         if (bonus > 0) state.credits += Math.round(bonus * Difficulty.rewardFactor(state.sector));
+        endHeadline = msg;
         showHudToast(msg);
         // every drifting wreck is swept up at battle's end (#163)
         for (float[] wk : wrecks) {
@@ -1897,6 +2144,7 @@ public class GameScreen implements Screen {
             + (rocketsBack > 0 ? "  +" + rocketsBack + " RKT" : "")
             + "  +" + parts + " PARTS (hull +" + parts * 4 + ")";
         salvageToastT = 6f;
+        addLog(salvageToast);
     }
 
     private void updateObjective(float delta) {
@@ -2149,6 +2397,17 @@ public class GameScreen implements Screen {
     private void showHudToast(String text) {
         hudToast = text;
         hudToastT = 2.5f;
+        addLog(text);
+    }
+
+    /** Signal log (#184): a short rolling history of battle events. */
+    private void addLog(String line) {
+        signalLog.add(line);
+        signalLogAge.add(0f);
+        if (signalLog.size > 6) {
+            signalLog.removeIndex(0);
+            signalLogAge.removeIndex(0);
+        }
     }
 
     /** Shields soak damage first (with spill-over); 0 hull destroys the fighter and ends the run. */

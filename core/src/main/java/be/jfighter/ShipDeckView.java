@@ -365,6 +365,31 @@ public class ShipDeckView {
         this.lifesigns = on;
     }
 
+    /** Current heart rate for the cardiograph panel (#176); mirrors the pip logic. */
+    public float bpmFor(CrewMember c) {
+        if (c.isDead()) return 0f;
+        if (c.hp < CrewMember.MAX_HP * 0.25f) return 180f;
+        Float oppHp = duelOpponent.get(c);
+        if (oppHp != null) return c.hp / CrewMember.MAX_HP >= oppHp ? 120f : 180f;
+        if (c.damageFlash > 0) return 100f + 20f * MathUtils.sin(time * 0.9f + c.name.hashCode() % 7);
+        return 60f;
+    }
+
+    /** Any burning tile inside this room? (annunciator board, #188) */
+    public boolean roomBurning(int room) {
+        float[] r = ROOMS[room];
+        int gx1 = Math.max(0, (int) ((r[0] - GRID_X0) / CELL));
+        int gy1 = Math.max(0, (int) ((r[1] - GRID_Y0) / CELL));
+        int gx2 = Math.min(GRID_W - 1, (int) ((r[0] + r[2] - GRID_X0) / CELL));
+        int gy2 = Math.min(GRID_H - 1, (int) ((r[1] + r[3] - GRID_Y0) / CELL));
+        for (int gx = gx1; gx <= gx2; gx++) {
+            for (int gy = gy1; gy <= gy2; gy++) {
+                if (fire[gx][gy] > 0f) return true;
+            }
+        }
+        return false;
+    }
+
     /** Compact mode: skip the door/power panels (the combat desk has its own). */
     public void setCompact(boolean on) {
         this.compact = on;
@@ -1275,8 +1300,8 @@ public class ShipDeckView {
         // screen background
         Palette.set(shapes, 0.004f, 0.01f, 0.02f, 1f);
         shapes.rect(SCR_X1, SCR_Y1, SCR_X2 - SCR_X1, SCR_Y2 - SCR_Y1);
-        // parallax stars sliding past the hull
-        for (int l = 0; l < BG_STAR_COUNT.length; l++) {
+        // parallax stars sliding past the hull (pure instrument glass in compact mode, #174)
+        for (int l = 0; l < BG_STAR_COUNT.length && !compact; l++) {
             Palette.set(shapes, 0.8f, 0.85f, 1f, BG_STAR_ALPHA[l]);
             float span = SCR_X2 - SCR_X1;
             for (int i = 0; i < BG_STAR_COUNT[l]; i++) {
