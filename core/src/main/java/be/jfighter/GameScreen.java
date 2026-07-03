@@ -121,6 +121,11 @@ public class GameScreen implements Screen {
         // destructible sections (#73): wings shear off before the core gives out
         float leftWingHp = 12f;
         float rightWingHp = 12f;
+        // AI (#95): simple approach/orbit/break-off state machine with a light cannon (#96)
+        int ai; // 0 approach, 1 orbit, 2 break off
+        float aiT = MathUtils.random(1f, 3f);
+        int orbitDir = MathUtils.randomSign();
+        final Weapon gun = new Weapon(Weapon.Type.LIGHT_CANNON);
 
         Enemy(float x, float y, float maxHp) {
             hp = maxHp;
@@ -211,6 +216,7 @@ public class GameScreen implements Screen {
             bounceOffWalls(player);
             for (int i = enemies.size - 1; i >= 0; i--) {
                 Enemy e = enemies.get(i);
+                if (i != controlled) updateEnemyAi(e, delta); // TAB override skips the AI
                 e.body.updatePosition(delta);
                 bounceOffWalls(e.body);
                 if (e.onFire) {
@@ -552,6 +558,71 @@ public class GameScreen implements Screen {
                     break;
                 }
             }
+        }
+    }
+
+    /** Approach to range, orbit while firing, break off when mauled; re-engage after recovery. */
+    private void updateEnemyAi(Enemy e, float delta) {
+        e.gun.update(delta);
+        if (defeatT >= 0) return; // nothing left to fight
+        float cx = e.centerX();
+        float cy = e.centerY();
+        float px = player.x + Player.WIDTH / 2f;
+        float py = player.y + Player.HEIGHT / 2f;
+        float dx = px - cx;
+        float dy = py - cy;
+        float dist = Math.max(1f, (float) Math.sqrt(dx * dx + dy * dy));
+
+        e.aiT -= delta;
+        boolean mauled = e.hp < e.maxHp * 0.3f || e.leftWingHp <= 0 || e.rightWingHp <= 0;
+        if (e.ai != 2 && mauled && MathUtils.random() < 0.5f * delta) {
+            e.ai = 2;
+            e.aiT = MathUtils.random(3f, 5f);
+        } else if (e.ai == 2 && e.aiT <= 0) {
+            e.ai = 0;
+        } else if (e.ai == 0 && dist < 420f) {
+            e.ai = 1;
+            e.aiT = MathUtils.random(3f, 6f);
+            e.orbitDir = MathUtils.randomSign();
+        } else if (e.ai == 1 && (e.aiT <= 0 || dist > 620f)) {
+            e.ai = 0;
+        }
+
+        // desired heading per state
+        float hx;
+        float hy;
+        if (e.ai == 2) { // run for space
+            hx = -dx / dist;
+            hy = -dy / dist;
+        } else if (e.ai == 1) { // strafe around the fighter, drifting slightly inward
+            hx = -dy / dist * e.orbitDir + dx / dist * 0.25f;
+            hy = dx / dist * e.orbitDir + dy / dist * 0.25f;
+        } else {
+            hx = dx / dist;
+            hy = dy / dist;
+        }
+        float desired = MathUtils.atan2(-hx, hy) * MathUtils.radiansToDegrees;
+        float err = ((desired - e.body.rotation) % 360f + 540f) % 360f - 180f;
+        if (err > 4f) e.body.rotateLeft(delta);
+        else if (err < -4f) e.body.rotateRight(delta);
+        int wantThrottle = e.ai == 2 ? 10 : e.ai == 1 ? 5 : dist > 700f ? 9 : 7;
+        if (e.body.throttle < wantThrottle) e.body.throttleUp();
+        else if (e.body.throttle > wantThrottle) e.body.throttleDown();
+        e.body.updateThrust(delta, true);
+
+        // gunnery (#96): fire when roughly on target and in range
+        float aimErr = (((MathUtils.atan2(-dx, dy) * MathUtils.radiansToDegrees)
+            - e.body.rotation) % 360f + 540f) % 360f - 180f;
+        if (e.gun.ready() && dist < 520f && Math.abs(aimErr) < 9f && MathUtils.random() < 0.85f) {
+            e.gun.fire();
+            e.gun.cooldown = e.gun.type.reload * MathUtils.random(1.6f, 2.4f); // slower than the player
+            float jitter = MathUtils.random(-4f, 4f);
+            float fx = -MathUtils.sinDeg(e.body.rotation);
+            float fy = MathUtils.cosDeg(e.body.rotation);
+            projectiles.add(new Projectile(cx + fx * 20f, cy + fy * 20f,
+                e.body.rotation + jitter, e.body,
+                e.gun.type.speed, e.gun.type.damage, 0f, 0f, false));
+            game.sfx.playCannon(0);
         }
     }
 
