@@ -206,6 +206,9 @@ public class GameState {
     public GameState(ShipHull hullType) {
         this.shipHull = hullType;
         this.mothership = Mothership.forHull(hullType);
+        int callsign = MathUtils.random(CALLSIGNS.length - 1);
+        squadronNames[0] = CALLSIGNS[callsign];
+        squadronNames[1] = CALLSIGNS[(callsign + 1 + MathUtils.random(CALLSIGNS.length - 3)) % CALLSIGNS.length];
         this.map = new OverworldMap();
         this.credits = 500 + 100 * Meta.perkLevel(Meta.PERK_CREDITS);
         this.maxFuel = 100f;
@@ -265,6 +268,11 @@ public class GameState {
     public int pendingFireRoom = -1;
     // station condition per room (#127): 1 = intact, 0 = destroyed (rebuilt by crew before manning)
     public final float[] stationHealth = {1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f};
+    // squadron callsigns (#134): sci-fi NATO flavour, rolled once per run
+    private static final String[] CALLSIGNS = {
+        "ALFA-9", "BRAVAR", "CHARON", "DELTIC", "ECHO-V", "FOXTAR", "GOLIAD", "HELIX",
+        "INDRA", "JULETT", "KILO-7", "LIMBUS", "MIRAGE", "NOVAK", "OSCURA", "QUASAR"};
+    public final String[] squadronNames = new String[2];
 
     private long stationSeq;
 

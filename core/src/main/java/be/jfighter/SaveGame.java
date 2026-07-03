@@ -53,6 +53,8 @@ public final class SaveGame {
                 b.append('"').append(sk.mount == null ? "" : sk.mount).append('"');
             }
             b.append("],");
+            b.append("\"squadronNames\":[\"").append(s.squadronNames[0])
+                .append("\",\"").append(s.squadronNames[1]).append("\"],");
             b.append("\"modifiers\":[");
             boolean firstMod = true;
             for (String mod : s.modifiers) {
@@ -230,6 +232,11 @@ public final class SaveGame {
                     String mount = sk.asString();
                     s.mothership.sockets.get(idx).mount = mount.isEmpty() ? null : mount;
                 }
+            }
+            if (r.has("squadronNames")) {
+                JsonValue sn = r.get("squadronNames");
+                s.squadronNames[0] = sn.getString(0);
+                s.squadronNames[1] = sn.getString(1);
             }
             if (r.has("modifiers")) {
                 for (JsonValue mod = r.get("modifiers").child; mod != null; mod = mod.next) {

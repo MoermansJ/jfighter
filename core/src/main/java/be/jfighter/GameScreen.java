@@ -169,6 +169,24 @@ public class GameScreen implements Screen {
     private final Squadron[] squadrons = new Squadron[SQUADRON_COUNT];
     private int selectedSquadron = -1;
 
+    private int squadronAlive(int s) {
+        int alive = 0;
+        for (Fighter f : fighters) {
+            if (f.squadron == s) alive++;
+        }
+        return alive;
+    }
+
+    private com.badlogic.gdx.math.Rectangle squadronTabRect(int s) {
+        return new com.badlogic.gdx.math.Rectangle(10, HUD_H - 128 - s * 24, 138, 20);
+    }
+
+    /** HUD-space mouse position (the HUD ortho spans the whole window). */
+    private Vector2 hudMouse() {
+        return new Vector2(Gdx.input.getX() / (float) Gdx.graphics.getWidth() * HUD_W,
+            HUD_H - Gdx.input.getY() / (float) Gdx.graphics.getHeight() * HUD_H);
+    }
+
     private static class Enemy {
         final Player body; // reuses ship physics: drag keeps them slowly adrift
         float hp;
@@ -539,6 +557,13 @@ public class GameScreen implements Screen {
         }
         shapeRenderer.end();
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        for (int s = 0; s < SQUADRON_COUNT; s++) {
+            if (squadronAlive(s) == 0) continue;
+            com.badlogic.gdx.math.Rectangle tr = squadronTabRect(s);
+            if (s == selectedSquadron) shapeRenderer.setColor(Color.WHITE);
+            else shapeRenderer.setColor(0.3f, 0.42f, 0.46f, 1f);
+            shapeRenderer.rect(tr.x, tr.y, tr.width, tr.height);
+        }
         radar.border(shapeRenderer);
         com.badlogic.gdx.graphics.OrthographicCamera rcam =
             (com.badlogic.gdx.graphics.OrthographicCamera) viewport.getCamera();
@@ -617,18 +642,17 @@ public class GameScreen implements Screen {
         font.setColor(controlled < 0 ? Color.GRAY : Color.ORANGE);
         font.draw(batch, "Helm: " + (controlled < 0 ? "MOTHERSHIP" : "FIGHTER " + (controlled + 1)),
             10, HUD_H - 60);
-        // squadron chips
+        // squadron tabs (#134): callsign + fraction health; wiped squadrons drop off
         Fonts.scale(font, 0.95f);
         for (int s = 0; s < SQUADRON_COUNT; s++) {
-            int alive = 0;
-            for (Fighter f : fighters) {
-                if (f.squadron == s) alive++;
-            }
-            String mode = squadrons[s] == null ? "" : squadrons[s].mode == 2 ? "ATK"
-                : squadrons[s].mode == 1 ? "MOV" : "ESC";
-            font.setColor(s == selectedSquadron ? Color.WHITE
-                : alive == 0 ? Color.DARK_GRAY : Color.GRAY);
-            font.draw(batch, "SQ" + (s + 1) + " x" + alive + " " + mode, 10, HUD_H - 108 - s * 16);
+            int alive = squadronAlive(s);
+            if (alive == 0) continue;
+            com.badlogic.gdx.math.Rectangle tr = squadronTabRect(s);
+            String mode = squadrons[s] == null ? "" : squadrons[s].mode == 2 ? " ATK"
+                : squadrons[s].mode == 1 ? " MOV" : " ESC";
+            font.setColor(s == selectedSquadron ? Color.WHITE : Color.GRAY);
+            font.draw(batch, state.squadronNames[s] + " " + alive + "/" + FIGHTERS_PER_SQUADRON + mode,
+                tr.x + 5, tr.y + 15);
         }
         Fonts.scale(font, 1.4f);
         if (objectiveDone) {
@@ -677,8 +701,20 @@ public class GameScreen implements Screen {
             controlled = controlled + 1 >= fighters.size ? -1 : controlled + 1;
         }
         if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)) {
-            Vector2 at = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
-            handleCommandClick(at.x, at.y);
+            // squadron tabs double as selection buttons (#134)
+            Vector2 hm = hudMouse();
+            boolean tabHit = false;
+            for (int s = 0; s < SQUADRON_COUNT; s++) {
+                if (squadronAlive(s) > 0 && squadronTabRect(s).contains(hm.x, hm.y)) {
+                    selectedSquadron = s;
+                    game.sfx.playPing();
+                    tabHit = true;
+                }
+            }
+            if (!tabHit) {
+                Vector2 at = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+                handleCommandClick(at.x, at.y);
+            }
         }
         if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT)) {
             if (selectedSquadron != -1) {
