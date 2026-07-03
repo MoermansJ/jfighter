@@ -131,8 +131,12 @@ public class TraderScreen implements Screen {
                     !fuelFull, () -> state.fuel = Math.min(state.maxFuel, state.fuel + FUEL_AMOUNT)));
                 int missing = Math.round(state.maxHull - state.hull);
                 int repairPrice = Math.max(10, missing);
-                list.add(new Item("Hull repairs", "restore full hull", repairPrice,
-                    missing > 0, () -> state.hull = state.maxHull));
+                boolean wingsTorn = state.leftWingHp <= 0 || state.rightWingHp <= 0;
+                list.add(new Item("Hull repairs", "restore full hull and wings", repairPrice,
+                    missing > 0 || wingsTorn, () -> {
+                        state.hull = state.maxHull;
+                        state.repairWings();
+                    }));
                 break;
             }
             case 1: { // weapons: buy into free slots, sell what you carry

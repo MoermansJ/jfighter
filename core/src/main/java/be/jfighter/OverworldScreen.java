@@ -830,6 +830,7 @@ public class OverworldScreen implements Screen {
             // home dock: full repairs
             state.hull = state.maxHull;
             state.shield = state.maxShield;
+            state.repairWings();
         }
         return true;
     }

@@ -83,6 +83,8 @@ public class SpaceEffects {
     public static final float PINCER_SCALE = 1.3f; // the salvage pod is drawn bigger than the B-2
     private boolean pincerHull; // draw the pincer salvage craft instead of the B-2
     private float pincerGrab;   // 0..1 jaw pinch, set by the screen each frame
+    private boolean leftWing = true;  // sheared player sections stop rendering (#99)
+    private boolean rightWing = true;
 
     private static class Fragment {
         float x, y, vx, vy, rotation, spin;
@@ -200,6 +202,11 @@ public class SpaceEffects {
 
     public void setPincerHull(boolean pincerHull) {
         this.pincerHull = pincerHull;
+    }
+
+    public void setWings(boolean left, boolean right) {
+        this.leftWing = left;
+        this.rightWing = right;
     }
 
     public void setPincerGrab(float grab) {
@@ -429,8 +436,13 @@ public class SpaceEffects {
                 transform.setToTranslation(cx + dxs[i], cy + dys[j], 0).rotate(0, 0, 1, player.rotation);
                 if (pincerHull) transform.scale(PINCER_SCALE, PINCER_SCALE, 1f);
                 shapes.setTransformMatrix(transform);
-                if (pincerHull) ShipRenderer.drawPincer(shapes, pincerGrab);
-                else ShipRenderer.drawB2(shapes);
+                if (pincerHull) {
+                    ShipRenderer.drawPincer(shapes, pincerGrab);
+                } else {
+                    ShipRenderer.drawB2Core(shapes);
+                    if (leftWing) ShipRenderer.drawB2Wing(shapes, true);
+                    if (rightWing) ShipRenderer.drawB2Wing(shapes, false);
+                }
                 if (player.thrustLevel > 0.02f) {
                     // two-tone flickering plume: orange outer, bright core
                     float sr = shapes.getColor().r, sg = shapes.getColor().g,

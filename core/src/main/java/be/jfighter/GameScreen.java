@@ -56,6 +56,10 @@ public class GameScreen implements Screen {
     private int controlled = -1;
     private float shieldSince;   // time since the last hit (drives recharge)
     private float shieldFlash;   // shimmer ring on shield hits
+    private float fireCritT;     // fighter ablaze: hull dot (#99)
+    private float helmCritT;     // fighter helm crippled: poor turning
+    private String hudToast;
+    private float hudToastT;
     private float defeatT = -1f; // >= 0 once the fighter is destroyed
     private float stormTimer = MathUtils.random(6f, 11f); // stormy nodes: next radiation wave
     private float stormFlash;
@@ -251,6 +255,23 @@ public class GameScreen implements Screen {
             effects.update(player, delta);
             effects.spawnExhaust(player, delta);
             for (Enemy e : enemies) effects.spawnExhaust(e.body, delta);
+            // fighter condition: wings, crits and power feed the handling every frame
+            if (fireCritT > 0) {
+                fireCritT -= delta;
+                state.hull = Math.max(1f, state.hull - 3f * delta);
+                if (MathUtils.random() < 10f * delta) {
+                    addSparks(player.x + Player.WIDTH / 2f + MathUtils.random(-8f, 8f),
+                        player.y + Player.HEIGHT / 2f + MathUtils.random(-8f, 8f),
+                        player.vx, player.vy, 1);
+                }
+            }
+            if (helmCritT > 0) helmCritT -= delta;
+            if (hudToastT > 0) hudToastT -= delta;
+            float wingMult = (state.leftWingHp > 0 ? 1f : 0.75f) * (state.rightWingHp > 0 ? 1f : 0.75f);
+            player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0])
+                * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]) * wingMult;
+            player.turnMult = (helmCritT > 0 ? 0.4f : 1f) * wingMult;
+            effects.setWings(state.leftWingHp > 0, state.rightWingHp > 0);
             game.sfx.setThrusterLevel(controlledBody().thrustLevel);
             fireWeapons(delta);
             updateProjectiles(delta);
@@ -486,6 +507,11 @@ public class GameScreen implements Screen {
             GlyphLayout sr = new GlyphLayout(font, "SOLAR RADIATION");
             font.draw(batch, sr, (HUD_W - sr.width) / 2f, HUD_H - 70);
         }
+        if (hudToastT > 0) {
+            font.setColor(1f, 0.5f, 0.2f, 1f);
+            GlyphLayout ht = new GlyphLayout(font, hudToast);
+            font.draw(batch, ht, (HUD_W - ht.width) / 2f, HUD_H - 95);
+        }
         Dev.drawIndicator(batch, font, HUD_W, HUD_H);
         batch.end();
 
@@ -650,6 +676,46 @@ public class GameScreen implements Screen {
         }
     }
 
+    /** Positional damage: side hits chew the fighter's wings before the hull (#99). */
+    private void damagePlayerAt(float dmg, float hx, float hy) {
+        float dx = hx - (player.x + Player.WIDTH / 2f);
+        float dy = hy - (player.y + Player.HEIGHT / 2f);
+        float cos = MathUtils.cosDeg(-player.rotation);
+        float sin = MathUtils.sinDeg(-player.rotation);
+        float lx = dx * cos - dy * sin;
+        if (state.shield <= 0) {
+            if (lx < -9f && state.leftWingHp > 0) {
+                state.leftWingHp -= dmg * 0.7f;
+                if (state.leftWingHp <= 0) shearPlayerWing(true);
+            } else if (lx > 9f && state.rightWingHp > 0) {
+                state.rightWingHp -= dmg * 0.7f;
+                if (state.rightWingHp <= 0) shearPlayerWing(false);
+            }
+        }
+        damagePlayer(dmg);
+    }
+
+    private void shearPlayerWing(boolean left) {
+        WingDebris wd = new WingDebris();
+        wd.x = player.x + Player.WIDTH / 2f;
+        wd.y = player.y + Player.HEIGHT / 2f;
+        wd.vx = player.vx + MathUtils.random(-30f, 30f);
+        wd.vy = player.vy + MathUtils.random(-30f, 30f);
+        wd.rotation = player.rotation;
+        wd.spin = MathUtils.random(-160f, 160f);
+        wd.left = left;
+        wingDebris.add(wd);
+        addShockwave(wd.x, wd.y, 40f);
+        addShake(0.4f);
+        showHudToast(left ? "LEFT WING SHEARED" : "RIGHT WING SHEARED");
+        game.sfx.playThud(0.5f);
+    }
+
+    private void showHudToast(String text) {
+        hudToast = text;
+        hudToastT = 2.5f;
+    }
+
     /** Shields soak damage first (with spill-over); 0 hull destroys the fighter and ends the run. */
     private void damagePlayer(float dmg) {
         shieldSince = 0f;
@@ -662,6 +728,15 @@ public class GameScreen implements Screen {
         if (dmg > 0) {
             state.hull -= dmg;
             addShake(0.3f);
+            if (MathUtils.random() < 0.1f) {
+                if (MathUtils.randomBoolean()) {
+                    fireCritT = 6f;
+                    showHudToast("FIRE ABOARD THE FIGHTER");
+                } else {
+                    helmCritT = 8f;
+                    showHudToast("HELM DAMAGED");
+                }
+            }
             // the hit carries through to the deck: a random room starts leaking (#12)
             int room = MathUtils.random(7);
             state.roomIntegrity[room] = Math.max(0f, state.roomIntegrity[room] - 0.25f);

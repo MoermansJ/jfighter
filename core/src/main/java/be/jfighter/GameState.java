@@ -30,6 +30,14 @@ public class GameState {
     public float maxHull = 100f;
     public float shield = 50f;
     public float maxShield = 50f;
+    // fighter wing sections (#99): shear off under fire, restored by repairs
+    public float leftWingHp = 15f;
+    public float rightWingHp = 15f;
+
+    public void repairWings() {
+        leftWingHp = 15f;
+        rightWingHp = 15f;
+    }
     // run stats for the end-of-run summary
     public int nodesVisited;
     public int instancesCompleted;

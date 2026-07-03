@@ -39,6 +39,8 @@ public final class SaveGame {
             num(b, "maxHull", s.maxHull);
             num(b, "shield", s.shield);
             num(b, "maxShield", s.maxShield);
+            num(b, "leftWingHp", s.leftWingHp);
+            num(b, "rightWingHp", s.rightWingHp);
             num(b, "sector", s.sector);
             num(b, "nodesVisited", s.nodesVisited);
             num(b, "instancesCompleted", s.instancesCompleted);
@@ -189,6 +191,8 @@ public final class SaveGame {
             s.maxHull = r.getFloat("maxHull");
             s.shield = r.getFloat("shield");
             s.maxShield = r.getFloat("maxShield");
+            s.leftWingHp = r.getFloat("leftWingHp", 15f);
+            s.rightWingHp = r.getFloat("rightWingHp", 15f);
             s.sector = r.getInt("sector");
             s.nodesVisited = r.getInt("nodesVisited");
             s.instancesCompleted = r.getInt("instancesCompleted");
