@@ -737,7 +737,10 @@ public class GameScreen implements Screen {
                 // fired shell: the line draws BEHIND it, launch point to here
                 shapeRenderer.setColor(0.38f, 0.4f, 0.42f, 1f);
                 shapeRenderer.line(plotPX(p.originX), plotPY(p.originY), plotPX(p.x), plotPY(p.y));
-                // predicted burst point + splash forecast
+                // the shell itself + predicted burst point with splash forecast
+                shapeRenderer.setColor(0.9f, 0.85f, 0.6f, 1f);
+                shapeRenderer.circle(plotPX(p.x), plotPY(p.y), 2f, 6);
+                shapeRenderer.setColor(0.38f, 0.4f, 0.42f, 1f);
                 float exw = p.x + vx / spd * spd * p.fuseT;
                 float eyw = p.y + vy / spd * spd * p.fuseT;
                 shapeRenderer.circle(plotPX(exw), plotPY(eyw), SPLASH_155 * kx, 12);
@@ -749,7 +752,14 @@ public class GameScreen implements Screen {
             if (hostile) shapeRenderer.setColor(0.4f, 0.14f, 0.12f, 1f);
             else shapeRenderer.setColor(0.16f, 0.3f, 0.34f, 1f);
             shapeRenderer.line(plotPX(p.x), plotPY(p.y), plotPX(exw), plotPY(eyw));
+            // the round itself: a visible tracer dot, small/medium calibers included
+            float dotR = p.rocket ? 2.2f : p.damage >= 10f ? 1.6f : 1.1f;
+            if (hostile) shapeRenderer.setColor(1f, 0.45f, 0.35f, 1f);
+            else shapeRenderer.setColor(0.65f, 0.9f, 0.75f, 1f);
+            shapeRenderer.circle(plotPX(p.x), plotPY(p.y), dotR, 6);
             if (p.rocket) {
+                shapeRenderer.setColor(hostile ? 0.4f : 0.16f, hostile ? 0.14f : 0.3f,
+                    hostile ? 0.12f : 0.34f, 1f);
                 shapeRenderer.circle(plotPX(exw), plotPY(eyw), SPLASH_155 * kx, 12);
             }
         }
@@ -912,49 +922,64 @@ public class GameScreen implements Screen {
         batch.setProjectionMatrix(hudMatrix);
     }
 
-    /** Analog shield gauge on the desk: 240-degree dial, needle tracks the charge. */
+    /** Shield flask on the desk: a horizontal vial of plasma that drains with the charge. */
     private void drawShieldGauge() {
-        float gx = 845f;
-        float gy = 330f;
-        float gr = 58f;
+        float fx = 795f;   // left end of the tube
+        float fy = 320f;
+        float fw = 130f;   // tube length
+        float fh = 26f;    // tube bore
         float frac = state.maxShield > 0 ? state.shield / state.maxShield : 0f;
+        float t = scopeSweep * 0.4f; // slosh clock
         shapeRenderer.setProjectionMatrix(hudMatrix);
+        // the plasma: fills from the left, drains toward the neck as shields deplete
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
-        shapeRenderer.setColor(0.012f, 0.025f, 0.032f, 1f);
-        shapeRenderer.circle(gx, gy, gr, 40);
-        shapeRenderer.end();
-        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
-        Palette.set(shapeRenderer, 0.22f, 0.36f, 0.42f, 1f);
-        shapeRenderer.circle(gx, gy, gr, 40);        // bezel
-        shapeRenderer.circle(gx, gy, gr + 4f, 40);
-        // scale: 240 degrees, from 210 (empty) sweeping clockwise to -30 (full)
-        for (int t = 0; t <= 10; t++) {
-            float a = 210f - t * 24f;
-            float inner = t % 5 == 0 ? gr - 14f : gr - 9f;
-            if (t >= 8) shapeRenderer.setColor(0.35f, 0.7f, 1f, 1f);       // healthy zone
-            else if (t <= 2) shapeRenderer.setColor(0.85f, 0.3f, 0.25f, 1f); // danger zone
-            else Palette.set(shapeRenderer, 0.3f, 0.5f, 0.58f, 1f);
-            shapeRenderer.line(gx + MathUtils.cosDeg(a) * inner, gy + MathUtils.sinDeg(a) * inner,
-                gx + MathUtils.cosDeg(a) * (gr - 4f), gy + MathUtils.sinDeg(a) * (gr - 4f));
+        shapeRenderer.setColor(0.01f, 0.02f, 0.03f, 1f);
+        shapeRenderer.rect(fx, fy - fh / 2f, fw, fh);
+        shapeRenderer.circle(fx, fy, fh / 2f, 16);
+        if (frac > 0.01f) {
+            float level = fw * frac;
+            float flick = 0.85f + 0.15f * MathUtils.sin(t * 6f);
+            float lowPulse = frac < 0.25f ? 0.5f + 0.5f * MathUtils.sin(t * 12f) : 1f;
+            shapeRenderer.setColor(0.3f * flick * lowPulse, 0.55f * flick * lowPulse, 1f * flick, 1f);
+            shapeRenderer.circle(fx, fy, fh / 2f - 2f, 16); // bulb holds the reserve
+            shapeRenderer.rect(fx, fy - fh / 2f + 2f, Math.max(0f, level - 4f), fh - 4f);
+            // sloshing surface at the drain edge
+            float sx = fx + level - 4f;
+            for (int i = 0; i < 5; i++) {
+                float wob = MathUtils.sin(t * 5f + i * 1.7f) * 2.2f;
+                shapeRenderer.rect(sx, fy - fh / 2f + 2f + i * (fh - 4f) / 5f,
+                    Math.max(0.5f, 3.5f + wob), (fh - 4f) / 5f);
+            }
+            // plasma glints drifting through the liquid
+            for (int i = 0; i < 3; i++) {
+                float gxp = fx + ((t * 14f + i * 43f) % Math.max(8f, level - 8f));
+                float gyp = fy + MathUtils.sin(t * 3f + i * 2.1f) * (fh / 2f - 6f);
+                shapeRenderer.setColor(0.7f, 0.85f, 1f, 1f);
+                shapeRenderer.circle(gxp, gyp, 1.4f, 6);
+            }
         }
-        // needle, with a shiver while the shield is soaking hits
-        float needleA = 210f - frac * 240f;
-        if (shieldFlash > 0) needleA += MathUtils.random(-4f, 4f) * shieldFlash;
-        shapeRenderer.setColor(frac < 0.25f ? new Color(0.95f, 0.35f, 0.3f, 1f)
-            : new Color(0.5f, 0.8f, 1f, 1f));
-        shapeRenderer.line(gx - MathUtils.cosDeg(needleA) * 8f, gy - MathUtils.sinDeg(needleA) * 8f,
-            gx + MathUtils.cosDeg(needleA) * (gr - 16f), gy + MathUtils.sinDeg(needleA) * (gr - 16f));
-        shapeRenderer.circle(gx, gy, 3f, 8); // hub
+        shapeRenderer.end();
+        // flask glass: tube, round reserve bulb at the left, neck cap at the right
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        Palette.set(shapeRenderer, 0.25f, 0.42f, 0.5f, 1f);
+        shapeRenderer.line(fx, fy - fh / 2f, fx + fw, fy - fh / 2f);
+        shapeRenderer.line(fx, fy + fh / 2f, fx + fw, fy + fh / 2f);
+        shapeRenderer.circle(fx, fy, fh / 2f, 20);
+        shapeRenderer.line(fx + fw, fy - fh / 2f, fx + fw, fy + fh / 2f);
+        shapeRenderer.line(fx + fw + 3f, fy - fh / 2f + 4f, fx + fw + 3f, fy + fh / 2f - 4f); // cap
+        // graduation ticks
+        Palette.set(shapeRenderer, 0.18f, 0.3f, 0.36f, 1f);
+        for (int i = 1; i < 4; i++) {
+            shapeRenderer.line(fx + fw * i / 4f, fy + fh / 2f, fx + fw * i / 4f, fy + fh / 2f - 5f);
+        }
         shapeRenderer.end();
         batch.setProjectionMatrix(hudMatrix);
         batch.begin();
         Fonts.scale(font, 0.95f);
         Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
-        GlyphLayout sl = new GlyphLayout(font, "SHIELD");
-        font.draw(batch, sl, gx - sl.width / 2f, gy - gr - 10f);
+        font.draw(batch, "SHIELD", fx + 30f, fy + fh / 2f + 18f);
         font.setColor(frac < 0.25f ? Color.RED : Color.GRAY);
-        GlyphLayout pv = new GlyphLayout(font, Math.round(frac * 100) + "%");
-        font.draw(batch, pv, gx - pv.width / 2f, gy - 18f);
+        font.draw(batch, Math.round(frac * 100) + "%", fx + fw + 12f, fy + 5f);
         Fonts.scale(font, 1.4f);
         batch.end();
     }
