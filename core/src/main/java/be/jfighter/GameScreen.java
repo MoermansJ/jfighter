@@ -139,26 +139,28 @@ public class GameScreen implements Screen {
     private final Array<Shard> shards = new Array<>();
     private final Array<Blast> blasts = new Array<>();
 
-    // carrier ops (#117): friendly fighters flying in squadrons, dispatched by mouse
+    // carrier ops (#117/#151): squads are the atomic fighter unit, dispatched by mouse
     private static final int SQUADRON_COUNT = 2;
     private static final int FIGHTERS_PER_SQUADRON = 3;
-    private static final float FIGHTER_HP = 24f;
+    private static final float FIGHTER_HP = 24f; // pooled per craft in the squad
     private static final float CARRIER_HIT_RADIUS = 80f;
 
+    /** A whole friendly squadron flying as one unit: pooled strength/hp, squad weapons. */
     private static class Fighter {
         final Player body;
-        float hp = FIGHTER_HP;
+        int strength = FIGHTERS_PER_SQUADRON;
+        float hp = FIGHTERS_PER_SQUADRON * FIGHTER_HP;
         final int squadron;
         final Weapon gun = new Weapon(Weapon.Type.LIGHT_CANNON);
-        int rockets = 2;      // pod rounds per sortie (#126), restocked at the carrier
+        int rockets = 4;      // pod rounds per sortie (#126), restocked at the carrier
         float rocketCd;
         Enemy engaging; // current dogfight target
 
         Fighter(float x, float y, int squadron) {
             body = new Player(x, y);
             body.rotation = MathUtils.random(360f);
-            body.thrustMult = 1.5f; // interceptors: quick and twitchy (#132)
-            body.turnMult = 1.8f;
+            body.thrustMult = 0.9f;  // slower fleet-wide (#153), still nimbler than the carrier
+            body.turnMult = 1.2f;
             this.squadron = squadron;
         }
 
@@ -168,6 +170,45 @@ public class GameScreen implements Screen {
 
         float centerY() {
             return body.y + Player.HEIGHT / 2f;
+        }
+    }
+
+    /** Formation slot offset in unit space (rotated by heading when drawn). */
+    private static float formX(int slot) {
+        return (slot % 2 == 1 ? -1 : 1) * ((slot + 1) / 2) * 15f;
+    }
+
+    private static float formY(int slot) {
+        return -((slot + 1) / 2) * 13f;
+    }
+
+    /** A squad wiped outside the round system: remove it and settle the leader's fate. */
+    private void loseSquad(Fighter f) {
+        int idx = fighters.indexOf(f, true);
+        if (idx != -1) {
+            if (controlled == idx) controlled = -1;
+            else if (controlled > idx) controlled--;
+            fighters.removeIndex(idx);
+        }
+        for (Dogfight d : dogfights) {
+            d.friends.removeValue(f, true);
+        }
+        CrewMember lead = state.squadronLeader(f.squadron);
+        if (lead != null) {
+            lead.hp = 0f;
+            showHudToast(lead.name + " LOST WITH " + state.squadronNames[f.squadron]);
+        }
+    }
+
+    /** Pooled hp crossing a craft boundary pops one silhouette out of the formation. */
+    private void updateSquadStrength(Fighter f) {
+        int should = Math.max(0, (int) Math.ceil(f.hp / FIGHTER_HP));
+        while (f.strength > should) {
+            f.strength--;
+            float ang = f.body.rotation;
+            float ox = formX(f.strength) * MathUtils.cosDeg(ang) - formY(f.strength) * MathUtils.sinDeg(ang);
+            float oy = formX(f.strength) * MathUtils.sinDeg(ang) + formY(f.strength) * MathUtils.cosDeg(ang);
+            spawnDeathEffect(f.centerX() + ox, f.centerY() + oy, f.body.vx, f.body.vy);
         }
     }
 
@@ -211,11 +252,10 @@ public class GameScreen implements Screen {
     }
 
     private int squadronAlive(int s) {
-        int alive = 0;
         for (Fighter f : fighters) {
-            if (f.squadron == s) alive++;
+            if (f.squadron == s) return f.strength;
         }
-        return alive;
+        return 0;
     }
 
     private com.badlogic.gdx.math.Rectangle squadronTabRect(int s) {
@@ -239,6 +279,7 @@ public class GameScreen implements Screen {
         // destructible sections (#73): wings shear off before the core gives out
         float leftWingHp = 12f;
         float rightWingHp = 12f;
+        int strength = 1;   // squads pool craft into one unit (#151); capitals stay 1
         boolean boss;       // heavy multi-section flagship (#106)
         boolean mothership; // hostile carrier fielding its own fighters (#145)
         boolean runner;     // intercept objective: flees for the arena edge (#104)
@@ -299,10 +340,8 @@ public class GameScreen implements Screen {
         // squadrons launch with the carrier on the field
         for (int s = 0; s < SQUADRON_COUNT; s++) {
             squadrons[s] = new Squadron();
-            for (int f = 0; f < FIGHTERS_PER_SQUADRON; f++) {
-                fighters.add(new Fighter(player.x + MathUtils.random(-90f, 90f),
-                    player.y + MathUtils.random(-90f, 90f), s));
-            }
+            fighters.add(new Fighter(player.x + MathUtils.random(-90f, 90f),
+                player.y + MathUtils.random(-90f, 90f), s));
         }
         boolean bossFight = state.sector >= 3
             && state.map.getCurrentNode().id == state.map.lastNodeId;
@@ -345,16 +384,39 @@ public class GameScreen implements Screen {
         enemies.add(boss);
     }
 
+    /** Pooled hp crossing a craft boundary blows one silhouette out of the hostile formation. */
+    private void updateEnemyStrength(Enemy e) {
+        if (e.boss || e.mothership) return;
+        float perCraft = e.maxHp / Math.max(1, spawnStrengthOf(e));
+        int should = Math.max(0, (int) Math.ceil(e.hp / perCraft));
+        while (e.strength > should) {
+            e.strength--;
+            float ang = e.body.rotation;
+            float ox = formX(e.strength) * MathUtils.cosDeg(ang) - formY(e.strength) * MathUtils.sinDeg(ang);
+            float oy = formX(e.strength) * MathUtils.sinDeg(ang) + formY(e.strength) * MathUtils.cosDeg(ang);
+            spawnDeathEffect(e.centerX() + ox, e.centerY() + oy, e.body.vx, e.body.vy);
+        }
+    }
+
+    private int spawnStrengthOf(Enemy e) {
+        return Math.max(1, Math.round(e.maxHp / Difficulty.enemyHp(state.sector)));
+    }
+
     private void spawnEnemies() {
-        int count = Difficulty.enemyCount(state.sector);
-        for (int i = 0; i < count; i++) {
+        int craft = Difficulty.enemyCount(state.sector) + 2;
+        while (craft > 0) {
+            int size = Math.min(craft, MathUtils.random(2, 3));
+            craft -= size;
             float x, y;
             do {
                 x = MathUtils.random(ARENA_WIDTH * 0.45f, ARENA_WIDTH - 80f);
                 y = MathUtils.random(60f, ARENA_HEIGHT - 60f);
             } while (tooCloseToOthers(x, y));
-            Enemy e = new Enemy(x, y, Difficulty.enemyHp(state.sector));
+            Enemy e = new Enemy(x, y, Difficulty.enemyHp(state.sector) * size);
             e.maxHp = e.hp;
+            e.strength = size;
+            e.body.thrustMult = 0.65f; // fleet-wide slowdown (#153)
+            e.body.turnMult = 0.85f;
             enemies.add(e);
         }
     }
@@ -987,16 +1049,11 @@ public class GameScreen implements Screen {
                 if (p.shooter == player && MathUtils.random() < ffChance) {
                     Fighter hitF = d.friends.random();
                     hitF.hp -= p.damage * 0.7f;
+                    updateSquadStrength(hitF);
                     showHudToast("FRIENDLY HIT — CHECK FIRE");
-                    if (hitF.hp <= 0) {
+                    if (hitF.strength <= 0) {
                         d.friends.removeValue(hitF, true);
-                        spawnDeathEffect(hitF.centerX(), hitF.centerY(), hitF.body.vx, hitF.body.vy);
-                        int fi = fighters.indexOf(hitF, true);
-                        if (fi != -1) {
-                            if (controlled == fi) controlled = -1;
-                            else if (controlled > fi) controlled--;
-                            fighters.removeIndex(fi);
-                        }
+                        loseSquad(hitF);
                     }
                 } else {
                     Enemy hitE = d.foes.random();
@@ -1071,11 +1128,15 @@ public class GameScreen implements Screen {
         if (objective == Obj.SURVIVE && !objectiveDone) {
             surviveT -= delta;
             waveT -= delta;
-            if (waveT <= 0 && enemies.size < 6) {
+            if (waveT <= 0 && enemies.size < 4) {
                 waveT = 12f;
+                int size = MathUtils.random(2, 3);
                 Enemy e = new Enemy(MathUtils.randomBoolean() ? 60f : ARENA_WIDTH - 60f,
-                    MathUtils.random(100f, ARENA_HEIGHT - 100f), Difficulty.enemyHp(state.sector));
+                    MathUtils.random(100f, ARENA_HEIGHT - 100f), Difficulty.enemyHp(state.sector) * size);
                 e.maxHp = e.hp;
+                e.strength = size;
+                e.body.thrustMult = 0.65f;
+                e.body.turnMult = 0.85f;
                 enemies.add(e);
             }
             if (surviveT <= 0) {
@@ -1099,16 +1160,18 @@ public class GameScreen implements Screen {
                 }
             } else {
                 waveT -= delta;
-                if (waveT <= 0 && enemies.size < 7) {
-                    // the next launch round rolls out of her hangar
+                if (waveT <= 0 && enemies.size < 4) {
+                    // the next launch round rolls out of her hangar: a full squad
                     waveT = 18f;
-                    for (int k = 0; k < 2 && enemies.size < 7; k++) {
-                        Enemy e = new Enemy(carrier.centerX() + MathUtils.random(-60f, -20f),
-                            carrier.centerY() + MathUtils.random(-70f, 70f),
-                            Difficulty.enemyHp(state.sector));
-                        e.maxHp = e.hp;
-                        enemies.add(e);
-                    }
+                    int size = MathUtils.random(2, 3);
+                    Enemy e = new Enemy(carrier.centerX() + MathUtils.random(-60f, -20f),
+                        carrier.centerY() + MathUtils.random(-70f, 70f),
+                        Difficulty.enemyHp(state.sector) * size);
+                    e.maxHp = e.hp;
+                    e.strength = size;
+                    e.body.thrustMult = 0.65f;
+                    e.body.turnMult = 0.85f;
+                    enemies.add(e);
                     showHudToast("LAUNCH DETECTED — NEW WAVE INBOUND");
                 }
             }
@@ -1408,11 +1471,11 @@ public class GameScreen implements Screen {
         }
     }
 
-    /** One hidden round roll: lead pilot skill, craft condition and weaponry decide. */
+    /** One hidden round roll: lead pilot skill, squad condition and weaponry decide (#151). */
     private void resolveDogfightRound(Dogfight d) {
         float fp = 0f;
         for (Fighter f : d.friends) {
-            fp += 1f + f.hp / FIGHTER_HP + f.rockets * 0.25f;
+            fp += f.strength * (1f + f.rockets * 0.1f);
         }
         // the best involved lead pilot sharpens the whole element
         float leadBonus = 0f;
@@ -1423,41 +1486,40 @@ public class GameScreen implements Screen {
                     0.6f * lead.bonusFor(Skill.COMBAT) + 0.4f * lead.level);
             }
         }
-        fp += leadBonus * d.friends.size * 0.4f;
+        fp += leadBonus * fp * 0.25f;
         float ep = 0f;
         for (Enemy e : d.foes) {
-            ep += 1f + e.hp / e.maxHp + 0.3f * (Difficulty.factor(state.sector) - 1f);
+            ep += e.strength * (1f + 0.3f * (Difficulty.factor(state.sector) - 1f));
         }
         if (MathUtils.random() < fp / (fp + ep)) {
-            // a raider goes down
-            Enemy dead = d.foes.random();
-            d.foes.removeValue(dead, true);
-            int idx = enemies.indexOf(dead, true);
-            if (idx != -1) killEnemy(idx);
+            // a raider craft goes down: one strength point off a random hostile squad
+            Enemy hit = d.foes.random();
+            hit.hp -= hit.maxHp / Math.max(1, FIGHTERS_PER_SQUADRON);
+            updateEnemyStrength(hit);
+            if (hit.hp <= 0) {
+                d.foes.removeValue(hit, true);
+                int idx = enemies.indexOf(hit, true);
+                if (idx != -1) killEnemy(idx);
+            }
         } else {
-            // we lose a craft — the leader's is always the last hull flying (#142)
-            Fighter loss = null;
-            for (Fighter f : d.friends) {
-                boolean leaderCraft = fighterSlot(f) == 0 && state.squadronLeader(f.squadron) != null;
-                if (!leaderCraft) {
-                    loss = f;
-                    break;
+            // we lose a craft — the leader flies the last hull of the squad (#142)
+            Fighter loss = d.friends.random();
+            loss.hp -= FIGHTER_HP;
+            updateSquadStrength(loss);
+            if (loss.strength <= 0) {
+                d.friends.removeValue(loss, true);
+                int idx = fighters.indexOf(loss, true);
+                if (idx != -1) {
+                    if (controlled == idx) controlled = -1;
+                    else if (controlled > idx) controlled--;
+                    fighters.removeIndex(idx);
                 }
-            }
-            if (loss == null) loss = d.friends.first(); // only lead craft left
-            d.friends.removeValue(loss, true);
-            spawnDeathEffect(loss.centerX(), loss.centerY(), loss.body.vx, loss.body.vy);
-            int idx = fighters.indexOf(loss, true);
-            if (idx != -1) {
-                if (controlled == idx) controlled = -1;
-                else if (controlled > idx) controlled--;
-                fighters.removeIndex(idx);
-            }
-            // leadership persists to the final resolution — then goes down with the ship
-            CrewMember lead = state.squadronLeader(loss.squadron);
-            if (lead != null && squadronAlive(loss.squadron) == 0) {
-                lead.hp = 0f;
-                showHudToast(lead.name + " LOST WITH " + state.squadronNames[loss.squadron]);
+                // leadership persisted to the final resolution — now it goes down too
+                CrewMember lead = state.squadronLeader(loss.squadron);
+                if (lead != null) {
+                    lead.hp = 0f;
+                    showHudToast(lead.name + " LOST WITH " + state.squadronNames[loss.squadron]);
+                }
             }
         }
     }
@@ -1605,17 +1667,18 @@ public class GameScreen implements Screen {
                 f.gun.cooldown = f.gun.type.reload * 1.6f; // wingmen shoot calmer than you do
                 float fxv = -MathUtils.sinDeg(f.body.rotation);
                 float fyv = MathUtils.cosDeg(f.body.rotation);
-                projectiles.add(new Projectile(cx + fxv * 20f, cy + fyv * 20f,
-                    f.body.rotation + MathUtils.random(-3f, 3f), f.body,
-                    f.gun.type.speed, f.gun.type.damage, 0f, 0f, false));
+                for (int slot = 0; slot < f.strength; slot++) { // a volley, one per craft
+                    float ang = f.body.rotation;
+                    float ox = formX(slot) * MathUtils.cosDeg(ang) - formY(slot) * MathUtils.sinDeg(ang);
+                    float oy = formX(slot) * MathUtils.sinDeg(ang) + formY(slot) * MathUtils.cosDeg(ang);
+                    projectiles.add(new Projectile(cx + ox + fxv * 16f, cy + oy + fyv * 16f,
+                        f.body.rotation + MathUtils.random(-3f, 3f), f.body,
+                        f.gun.type.speed, f.gun.type.damage, 0f, 0f, false));
+                }
             }
         } else {
             float tx = sq.mode == 1 ? sq.ox : player.x + Player.WIDTH / 2f;
             float ty = sq.mode == 1 ? sq.oy : player.y + Player.HEIGHT / 2f;
-            // small per-fighter spread so the squadron doesn't stack
-            int slot = fighterSlot(f);
-            tx += MathUtils.cosDeg(slot * 120f) * 30f;
-            ty += MathUtils.sinDeg(slot * 120f) * 30f;
             float dx = tx - cx;
             float dy = ty - cy;
             float dist = (float) Math.sqrt(dx * dx + dy * dy);
@@ -1625,8 +1688,8 @@ public class GameScreen implements Screen {
                 gx = -MathUtils.sinDeg(sq.mode == 1 ? sq.orderDir : f.body.rotation);
                 gy = MathUtils.cosDeg(sq.mode == 1 ? sq.orderDir : f.body.rotation);
                 if (sq.mode == 0) {
-                    f.hp = Math.min(FIGHTER_HP, f.hp + 2.5f * delta); // deck crews patch them up
-                    f.rockets = 2; // and rearm the pods
+                    f.hp = Math.min(f.strength * FIGHTER_HP, f.hp + 2.5f * delta); // patched up alongside
+                    f.rockets = 4; // and rearm the pods
                 }
             } else {
                 gx = dx / dist;
@@ -1641,15 +1704,6 @@ public class GameScreen implements Screen {
         if (f.body.throttle < wantThrottle) f.body.throttleUp();
         else if (f.body.throttle > wantThrottle) f.body.throttleDown();
         f.body.updateThrust(delta, true);
-    }
-
-    private int fighterSlot(Fighter f) {
-        int slot = 0;
-        for (Fighter o : fighters) {
-            if (o == f) break;
-            if (o.squadron == f.squadron) slot++;
-        }
-        return slot;
     }
 
     private Player controlledBody() {
@@ -2369,16 +2423,20 @@ public class GameScreen implements Screen {
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < fighters.size; i++) {
             Fighter f = fighters.get(i);
-            if (i == controlled) shapeRenderer.setColor(Color.WHITE);
-            else if (f.squadron == 0) shapeRenderer.setColor(0.25f, 0.85f, 0.4f, 1f);
-            else shapeRenderer.setColor(0.3f, 0.8f, 0.75f, 1f);
-            transform.setToTranslation(f.centerX(), f.centerY(), 0)
-                .rotate(0, 0, 1, f.body.rotation).scale(0.38f, 0.38f, 1f);
-            shapeRenderer.setTransformMatrix(transform);
-            ShipRenderer.drawB2(shapeRenderer);
-            if (f.body.thrustLevel > 0.02f) {
-                shapeRenderer.setColor(1f, 0.55f, 0.15f, 1f);
-                ShipRenderer.drawExhaust(shapeRenderer, f.body.thrustLevel);
+            for (int slot = 0; slot < f.strength; slot++) {
+                if (i == controlled) shapeRenderer.setColor(Color.WHITE);
+                else if (f.squadron == 0) shapeRenderer.setColor(0.25f, 0.85f, 0.4f, 1f);
+                else shapeRenderer.setColor(0.3f, 0.8f, 0.75f, 1f);
+                transform.setToTranslation(f.centerX(), f.centerY(), 0)
+                    .rotate(0, 0, 1, f.body.rotation)
+                    .translate(formX(slot), formY(slot), 0)
+                    .scale(0.38f, 0.38f, 1f);
+                shapeRenderer.setTransformMatrix(transform);
+                ShipRenderer.drawB2(shapeRenderer);
+                if (f.body.thrustLevel > 0.02f) {
+                    shapeRenderer.setColor(1f, 0.55f, 0.15f, 1f);
+                    ShipRenderer.drawExhaust(shapeRenderer, f.body.thrustLevel);
+                }
             }
         }
         shapeRenderer.setTransformMatrix(transform.idt());
@@ -2427,16 +2485,23 @@ public class GameScreen implements Screen {
             if (i == controlled) shapeRenderer.setColor(Color.ORANGE);
             else if (e.runner) shapeRenderer.setColor(1f, 0.75f, 0.2f, 1f);
             else shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
-            transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
-            if (e.boss) transform.scale(2.2f, 2.2f, 1f);
-            else if (!e.mothership) transform.scale(0.7f, 0.7f, 1f); // fighters read small vs capitals
-            shapeRenderer.setTransformMatrix(transform);
-            if (e.mothership) {
-                ShipRenderer.drawCarrier(shapeRenderer);
-            } else {
-                ShipRenderer.drawB2Core(shapeRenderer);
-                if (e.leftWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, true);
-                if (e.rightWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, false);
+            for (int slot = 0; slot < Math.max(1, e.strength); slot++) {
+                transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
+                if (e.boss) transform.scale(2.2f, 2.2f, 1f);
+                else if (!e.mothership) {
+                    transform.translate(formX(slot), formY(slot), 0).scale(0.42f, 0.42f, 1f);
+                }
+                shapeRenderer.setTransformMatrix(transform);
+                if (e.mothership) {
+                    ShipRenderer.drawCarrier(shapeRenderer);
+                } else if (e.boss) {
+                    ShipRenderer.drawB2Core(shapeRenderer);
+                    if (e.leftWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, true);
+                    if (e.rightWingHp > 0) ShipRenderer.drawB2Wing(shapeRenderer, false);
+                } else {
+                    ShipRenderer.drawB2(shapeRenderer);
+                }
+                if (e.boss || e.mothership) break;
             }
             drawDamageMarks(e);
             if (e.body.thrustLevel > 0.02f) {
