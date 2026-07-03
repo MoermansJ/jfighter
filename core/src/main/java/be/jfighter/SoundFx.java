@@ -111,6 +111,11 @@ public class SoundFx {
         if (ready) ping.play(0.35f * masterVolume);
     }
 
+    /** The contact monitor's sonar pulse: the same ping, quiet and regular. */
+    public void playSonar() {
+        if (ready) ping.play(0.1f * masterVolume, 0.75f, 0f); // lower pitch, under the mix
+    }
+
     /** The 155's muzzle blast (#155): a proper artillery report. */
     public void playReport() {
         if (ready) report.play(0.7f * masterVolume);

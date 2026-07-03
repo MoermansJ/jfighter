@@ -64,7 +64,9 @@ public class GameScreen implements Screen {
     private static final float SPLASH_155 = 55f;
     // fired-shot projections (#157): {targetX, targetY, tofLeft, tofTotal, originX, originY}
     private final Array<float[]> shotProjections = new Array<>();
-    private float scopeSweep;    // rotating radar sweep (#161/#162)
+    private float scopeSweep;    // instrument clock (plot scanline)
+    private static final float SONAR_PERIOD = 2.6f; // seconds between pings
+    private float sonarT = SONAR_PERIOD; // pulsing sonar on the contact monitor
     private float viewZoom = 1f; // legacy world-view zoom; the desk view keeps it at 1
 
     // bridge desk monitors (#162)
@@ -652,6 +654,11 @@ public class GameScreen implements Screen {
         if (shake > 0) shake = Math.max(0f, shake - delta * 2.2f); // rattles the desk lamps someday
         if (shieldFlash > 0) shieldFlash -= delta;
         scopeSweep = (scopeSweep + 55f * delta) % 360f;
+        sonarT += delta;
+        if (sonarT >= SONAR_PERIOD) {
+            sonarT -= SONAR_PERIOD;
+            game.sfx.playSonar();
+        }
 
         // the bridge desk (#162): everything is read off instrument monitors
         drawDesk();
@@ -926,7 +933,7 @@ public class GameScreen implements Screen {
         batch.begin();
         Fonts.scale(font, 0.95f);
         Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
-        font.draw(batch, "RADAR", RAD_CX - RAD_R - 10, RAD_CY + RAD_R + 26);
+        font.draw(batch, "SONAR", RAD_CX - RAD_R - 10, RAD_CY + RAD_R + 26);
         font.draw(batch, "PLOT / COMMAND", PLOT_X, PLOT_Y + PLOT_H + 20);
         font.draw(batch, "LIFESIGNS", CREW_X, CREW_Y + 270 * CREW_S + 20);
         Fonts.scale(font, 1.4f);
@@ -959,13 +966,14 @@ public class GameScreen implements Screen {
         radarSeg(-ox, ARENA_HEIGHT - oy, ARENA_WIDTH - ox, ARENA_HEIGHT - oy, k);
         radarSeg(-ox, -oy, -ox, ARENA_HEIGHT - oy, k);
         radarSeg(ARENA_WIDTH - ox, -oy, ARENA_WIDTH - ox, ARENA_HEIGHT - oy, k);
-        // sweep
-        Palette.set(shapeRenderer, 0.12f, 0.32f, 0.3f, 1f);
-        shapeRenderer.line(RAD_CX, RAD_CY, RAD_CX + MathUtils.cosDeg(scopeSweep - 10f) * RAD_R,
-            RAD_CY + MathUtils.sinDeg(scopeSweep - 10f) * RAD_R);
+        // sonar pulse: an expanding ring, bright at the wavefront with a fading wake
+        float pulseR = sonarT / SONAR_PERIOD * RAD_R;
         Palette.set(shapeRenderer, 0.25f, 0.6f, 0.55f, 1f);
-        shapeRenderer.line(RAD_CX, RAD_CY, RAD_CX + MathUtils.cosDeg(scopeSweep) * RAD_R,
-            RAD_CY + MathUtils.sinDeg(scopeSweep) * RAD_R);
+        shapeRenderer.circle(RAD_CX, RAD_CY, pulseR, 44);
+        if (pulseR > 8f) {
+            Palette.set(shapeRenderer, 0.12f, 0.32f, 0.3f, 1f);
+            shapeRenderer.circle(RAD_CX, RAD_CY, pulseR - 6f, 40);
+        }
         // own ship: heading tick at the centre
         Palette.set(shapeRenderer, 0.4f, 0.95f, 0.6f, 1f);
         shapeRenderer.line(RAD_CX, RAD_CY, RAD_CX - MathUtils.sinDeg(player.rotation) * 9f,
@@ -1008,16 +1016,20 @@ public class GameScreen implements Screen {
         }
     }
 
-    /** A phosphor blip: brightness keyed to how recently the sweep passed it. */
+    /** A phosphor blip: lit by the sonar wavefront, decaying until the next ping. */
     private void radarBlip(float relX, float relY, float k, float size, float r, float g, float b) {
         float sx = relX * k;
         float sy = relY * k;
-        if (sx * sx + sy * sy > (RAD_R - 4) * (RAD_R - 4)) return; // beyond scope range
-        float bearing = MathUtils.atan2(sy, sx) * MathUtils.radiansToDegrees;
-        float behind = ((scopeSweep - bearing) % 360f + 360f) % 360f;
-        float glow = Math.max(0.15f, 1f - behind / 360f);
-        shapeRenderer.setColor(r * glow, g * glow, b * glow, 1f);
-        shapeRenderer.circle(RAD_CX + sx, RAD_CY + sy, size, 6);
+        float range = (float) Math.sqrt(sx * sx + sy * sy);
+        if (range > RAD_R - 4) return; // beyond scope range
+        // time since the expanding ring crossed this blip's range
+        float sincePass = sonarT - range / RAD_R * SONAR_PERIOD;
+        if (sincePass < 0) sincePass += SONAR_PERIOD;
+        float glow = Math.max(0.12f, 1f - sincePass / SONAR_PERIOD);
+        // a brief hot flash right on the wavefront
+        if (sincePass < 0.12f) glow = 1.2f;
+        shapeRenderer.setColor(Math.min(1f, r * glow), Math.min(1f, g * glow), Math.min(1f, b * glow), 1f);
+        shapeRenderer.circle(RAD_CX + sx, RAD_CY + sy, size * (sincePass < 0.12f ? 1.35f : 1f), 6);
     }
 
     /** Pool readout for the weapon cards: shared ammo pools, or the energy budget. */
