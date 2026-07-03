@@ -270,7 +270,7 @@ public class LootScreen implements Screen {
         } while (Vector2.dst(hulkX, hulkY, EXIT_X, exitY) < EXIT_RADIUS + hulkRadius + 240f);
 
         mines.clear();
-        int mineCount = MathUtils.random(0, 3);
+        int mineCount = MathUtils.random(0, Difficulty.maxMines(state.sector));
         for (int i = 0; i < mineCount; i++) {
             float x, y;
             do {
@@ -1544,9 +1544,10 @@ public class LootScreen implements Screen {
             lootItems.removeIndex(i);
             pincerHeld.removeValue(crate, true);
             removeFromCatches(crate); // a net delivered empty collapses too
-            state.credits += crate.value;
+            int paid = Math.round(crate.value * Difficulty.rewardFactor(state.sector));
+            state.credits += paid;
             state.cargoDelivered++;
-            lastDeliveredValue = crate.value;
+            lastDeliveredValue = paid;
             catchFlash = CATCH_FLASH_TIME;
             game.sfx.playCatch();
             if (lootItems.isEmpty()) {

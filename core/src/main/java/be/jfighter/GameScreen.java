@@ -112,7 +112,8 @@ public class GameScreen implements Screen {
 
     private static class Enemy {
         final Player body; // reuses ship physics: drag keeps them slowly adrift
-        float hp = ENEMY_HP;
+        float hp;
+        float maxHp;
         final long seed = MathUtils.random.nextLong(); // deterministic damage-mark placement
         boolean onFire;      // crit: damage over time + flames
         boolean engineOut;   // crit: no thrust
@@ -121,7 +122,8 @@ public class GameScreen implements Screen {
         float leftWingHp = 12f;
         float rightWingHp = 12f;
 
-        Enemy(float x, float y) {
+        Enemy(float x, float y, float maxHp) {
+            hp = maxHp;
             body = new Player(x, y);
             body.rotation = MathUtils.random(360f);
             float angle = MathUtils.random(360f);
@@ -162,14 +164,16 @@ public class GameScreen implements Screen {
     }
 
     private void spawnEnemies() {
-        int count = MathUtils.random(3, 5);
+        int count = Difficulty.enemyCount(state.sector);
         for (int i = 0; i < count; i++) {
             float x, y;
             do {
                 x = MathUtils.random(ARENA_WIDTH * 0.45f, ARENA_WIDTH - 80f);
                 y = MathUtils.random(60f, ARENA_HEIGHT - 60f);
             } while (tooCloseToOthers(x, y));
-            enemies.add(new Enemy(x, y));
+            Enemy e = new Enemy(x, y, Difficulty.enemyHp(state.sector));
+            e.maxHp = e.hp;
+            enemies.add(e);
         }
     }
 
@@ -800,7 +804,7 @@ public class GameScreen implements Screen {
         Enemy e = enemies.get(index);
         spawnDeathEffect(e.centerX(), e.centerY(), e.body.vx, e.body.vy);
         enemies.removeIndex(index);
-        state.credits += CREDITS_PER_KILL;
+        state.credits += Math.round(CREDITS_PER_KILL * Difficulty.rewardFactor(state.sector));
         state.hostilesDestroyed++;
         game.sfx.playCatch();
         if (enemies.isEmpty()) {
@@ -954,7 +958,7 @@ public class GameScreen implements Screen {
 
     /** Seeded scorch nicks accumulate as hp drops, so damage is visible and stable. */
     private void drawDamageMarks(Enemy e) {
-        float frac = e.hp / ENEMY_HP;
+        float frac = e.hp / e.maxHp;
         if (frac >= 0.98f) return;
         java.util.Random r = new java.util.Random(e.seed);
         int marks = Math.min(6, 1 + (int) ((1f - frac) * 6f));

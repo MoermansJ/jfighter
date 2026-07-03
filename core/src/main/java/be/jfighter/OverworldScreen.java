@@ -536,8 +536,9 @@ public class OverworldScreen implements Screen {
 
     private float escapeChance() {
         if (Dev.MODE) return 1f;
-        // a manned helm makes slipping past more likely (bridge = room 5)
-        return Math.min(0.95f, COMBAT_ESCAPE_CHANCE + 0.05f * deckView.roomStat(5));
+        // a manned helm makes slipping past more likely; deep sectors are harder to slip
+        return MathUtils.clamp(COMBAT_ESCAPE_CHANCE + 0.05f * deckView.roomStat(5)
+            - Difficulty.escapePenalty(state.sector), 0.1f, 0.95f);
     }
 
     /** Manned-station bonuses ride along into the instance. */
