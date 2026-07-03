@@ -27,6 +27,8 @@ public class SoundFx {
     private Sound clamp;
     private Sound snap;
     private Sound ping;
+    private Sound beamLoop;
+    private long beamId = -1;
     private long thrusterId = -1;
     private boolean ready;
 
@@ -44,6 +46,7 @@ public class SoundFx {
             clamp = load(dir.child("clamp.wav"), synthClamp());
             snap = load(dir.child("snap.wav"), synthSnap());
             ping = load(dir.child("ping.wav"), synthPing());
+            beamLoop = load(dir.child("beamloop.wav"), synthBeamLoop());
             ready = true;
         } catch (Exception e) {
             Gdx.app.error("SoundFx", "audio disabled: " + e.getMessage());
@@ -104,8 +107,20 @@ public class SoundFx {
         if (ready) ping.play(0.35f);
     }
 
+    public void startBeam() {
+        if (ready && beamId == -1) beamId = beamLoop.loop(0.35f);
+    }
+
+    public void stopBeam() {
+        if (ready && beamId != -1) {
+            beamLoop.stop(beamId);
+            beamId = -1;
+        }
+    }
+
     public void dispose() {
         if (!ready) return;
+        stopBeam();
         stopThruster();
         thruster.dispose();
         twang.dispose();
@@ -116,6 +131,7 @@ public class SoundFx {
         clamp.dispose();
         snap.dispose();
         ping.dispose();
+        beamLoop.dispose();
     }
 
     // --- synthesis ---
@@ -248,6 +264,27 @@ public class SoundFx {
             s[i] = (float) (Math.sin(2 * Math.PI * 880 * t) * Math.exp(-t * 26));
         }
         return normalise(s, 0.5f);
+    }
+
+    /** Continuous beam hum: tonal core + crackle, loop-crossfaded like the thruster. */
+    private static float[] synthBeamLoop() {
+        int n = RATE / 2;
+        float[] s = new float[n];
+        float y = 0f;
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            float hum = (float) (Math.sin(2 * Math.PI * 180 * t) * 0.5
+                + Math.sin(2 * Math.PI * 273 * t) * 0.3);
+            float white = MathUtils.random(-1f, 1f);
+            y += 0.5f * (white - y);
+            s[i] = hum + y * 0.25f;
+        }
+        int fkeep = RATE / 24;
+        for (int i = 0; i < fkeep; i++) {
+            float t = i / (float) fkeep;
+            s[n - fkeep + i] = s[n - fkeep + i] * (1f - t) + s[i] * t;
+        }
+        return normalise(s, 0.6f);
     }
 
     private static float[] normalise(float[] s, float peak) {

@@ -107,6 +107,9 @@ public class GameScreen implements Screen {
     private final Array<Spark> sparks = new Array<>();
     private final Array<CritToast> critToasts = new Array<>();
     private final Array<WingDebris> wingDebris = new Array<>();
+    private final Array<float[]> shockwaves = new Array<>(); // {x, y, age, maxR, jitterSeed}
+    private float shake;   // camera trauma, decays fast
+    private boolean beaming;
     private final Array<Shard> shards = new Array<>();
     private final Array<Blast> blasts = new Array<>();
 
@@ -121,6 +124,7 @@ public class GameScreen implements Screen {
         // destructible sections (#73): wings shear off before the core gives out
         float leftWingHp = 12f;
         float rightWingHp = 12f;
+        boolean boss; // heavy multi-section flagship (#106)
         // AI (#95): simple approach/orbit/break-off state machine with a light cannon (#96)
         int ai; // 0 approach, 1 orbit, 2 break off
         float aiT = MathUtils.random(1f, 3f);
@@ -274,6 +278,12 @@ public class GameScreen implements Screen {
         Player followed = controlledBody();
         cam.position.x = MathUtils.clamp(followed.x + Player.WIDTH / 2f, halfW, ARENA_WIDTH - halfW);
         cam.position.y = MathUtils.clamp(followed.y + Player.HEIGHT / 2f, halfH, ARENA_HEIGHT - halfH);
+        if (shake > 0) {
+            float mag = shake * shake * 9f; // trauma curve: small hits barely move it
+            cam.position.x += MathUtils.random(-mag, mag);
+            cam.position.y += MathUtils.random(-mag, mag);
+            shake = Math.max(0f, shake - delta * 2.2f);
+        }
         cam.update();
         shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
 
@@ -283,6 +293,7 @@ public class GameScreen implements Screen {
         drawEnemies();
         drawEffects();
         drawThreatMarkers();
+        drawEdgeArrows();
         drawCritToasts();
         // active mount barrels: turret direction, and reciprocating 155mm barrels
         if (defeatT < 0 && !weapons.isEmpty()) {
@@ -650,6 +661,7 @@ public class GameScreen implements Screen {
         }
         if (dmg > 0) {
             state.hull -= dmg;
+            addShake(0.3f);
             // the hit carries through to the deck: a random room starts leaking (#12)
             int room = MathUtils.random(7);
             state.roomIntegrity[room] = Math.max(0f, state.roomIntegrity[room] - 0.25f);
@@ -707,6 +719,7 @@ public class GameScreen implements Screen {
         e.body.thrustMult *= 0.55f;
         e.body.turnMult *= 0.55f;
         addSparks(wd.x, wd.y, e.body.vx, e.body.vy, 10);
+        addShockwave(wd.x, wd.y, 40f);
         toast(e, left ? "LEFT WING SHEARED" : "WING SHEARED");
         game.sfx.playThud(0.4f);
     }
@@ -747,6 +760,8 @@ public class GameScreen implements Screen {
     private void impact(Projectile p) {
         if (p.rocket) {
             addBlast(p.x, p.y, 0f, 220f, 42f);
+            addShockwave(p.x, p.y, 60f);
+            addShake(0.3f);
             addSparks(p.x, p.y, 0, 0, 14);
             game.sfx.playThud(0.45f);
             for (int j = enemies.size - 1; j >= 0; j--) {
@@ -768,6 +783,10 @@ public class GameScreen implements Screen {
         updateLockTarget();
         if (defeatT >= 0 || weapons.isEmpty()) return;
         Weapon w = weapons.get(activeWeapon);
+        if (beaming && w.type != Weapon.Type.BEAM_LASER) {
+            beaming = false; // switched weapons mid-beam
+            game.sfx.stopBeam();
+        }
         Player body = controlledBody();
         boolean held = Gdx.input.isKeyPressed(Input.Keys.SPACE);
         // turreted mounts track the cursor within their arc; fixed mounts stay on the nose
@@ -790,7 +809,16 @@ public class GameScreen implements Screen {
         float ny = body.y + Player.HEIGHT / 2f + fy * 20f;
         switch (w.type) {
             case BEAM_LASER:
-                if (held) fireBeam(body, nx, ny, fireRotation, w.type.damage * delta, true);
+                if (held) {
+                    fireBeam(body, nx, ny, fireRotation, w.type.damage * delta, true);
+                    if (!beaming) {
+                        beaming = true;
+                        game.sfx.startBeam();
+                    }
+                } else if (beaming) {
+                    beaming = false;
+                    game.sfx.stopBeam();
+                }
                 break;
             case BURST_LASER:
                 if (held && w.ready()) {
@@ -826,6 +854,8 @@ public class GameScreen implements Screen {
                     projectiles.add(new Projectile(bx2, by2, fireRotation, body,
                         w.type.speed, w.type.damage, 0f, 0f, false));
                     addBlast(bx2, by2, 0f, 150f, 16f);
+                    addShockwave(bx2, by2, 20f);
+                    addShake(0.16f);
                     game.sfx.playCannon(2);
                 }
                 break;
@@ -903,6 +933,9 @@ public class GameScreen implements Screen {
     }
 
     private void killEnemy(int index) {
+        addShockwave(enemies.get(index).centerX(), enemies.get(index).centerY(),
+            enemies.get(index).boss ? 160f : 90f);
+        addShake(0.45f);
         for (int i = critToasts.size - 1; i >= 0; i--) {
             if (critToasts.get(i).e == enemies.get(index)) critToasts.removeIndex(i);
         }
@@ -922,6 +955,14 @@ public class GameScreen implements Screen {
             state.map.getCurrentNode().completed = true;
             state.instancesCompleted++;
         }
+    }
+
+    private void addShockwave(float x, float y, float maxR) {
+        shockwaves.add(new float[]{x, y, 0f, maxR, MathUtils.random(1000f)});
+    }
+
+    private void addShake(float amount) {
+        shake = Math.min(1f, shake + amount);
     }
 
     /** Picks a random destruction from the pool, parameters jittered per kill. */
@@ -1029,12 +1070,29 @@ public class GameScreen implements Screen {
             beam[4] -= delta;
             if (beam[4] <= 0) beams.removeIndex(i);
         }
+        for (int i = shockwaves.size - 1; i >= 0; i--) {
+            float[] swv = shockwaves.get(i);
+            swv[2] += delta;
+            if (swv[2] > 0.3f) shockwaves.removeIndex(i);
+        }
     }
 
     private void drawEffects() {
         drawLockMarker();
         if (sparks.size == 0 && shards.size == 0 && blasts.size == 0 && beams.size == 0) return;
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        // mini shockwaves: crisp leading edge + fading trail, slightly off-round
+        for (float[] swv : shockwaves) {
+            float t = swv[2] / 0.3f;
+            float r = swv[3] * t;
+            float a = 1f - t;
+            float jx = 1f + 0.06f * MathUtils.sin(swv[4]);
+            shapeRenderer.setColor(1f, 0.9f * a + 0.1f, 0.5f * a, 1f);
+            shapeRenderer.ellipse(swv[0] - r * jx, swv[1] - r / jx, r * 2 * jx, r * 2 / jx);
+            shapeRenderer.setColor(0.7f * a, 0.4f * a, 0.2f * a, 1f);
+            float r2 = Math.max(0f, r - 4f);
+            shapeRenderer.ellipse(swv[0] - r2 * jx, swv[1] - r2 / jx, r2 * 2 * jx, r2 * 2 / jx);
+        }
         // laser flashes: dim glow + bright core
         for (float[] beam : beams) {
             float a = beam[4] / beam[5];
@@ -1154,6 +1212,45 @@ public class GameScreen implements Screen {
         if (began) shapeRenderer.end();
     }
 
+    /** Screen-edge chevrons pointing at off-screen enemies and incoming ordnance (#108). */
+    private void drawEdgeArrows() {
+        if (defeatT >= 0) return;
+        com.badlogic.gdx.graphics.OrthographicCamera cam =
+            (com.badlogic.gdx.graphics.OrthographicCamera) viewport.getCamera();
+        float halfW = viewport.getWorldWidth() * cam.zoom / 2f - 26f;
+        float halfH = viewport.getWorldHeight() * cam.zoom / 2f - 26f;
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        for (Enemy e : enemies) {
+            drawEdgeArrow(cam, halfW, halfH, e.centerX(), e.centerY(), 0.55f, 0.15f, 0.12f);
+        }
+        for (Projectile p : projectiles) {
+            if (p.shooter == player || !p.rocket) continue;
+            drawEdgeArrow(cam, halfW, halfH, p.x, p.y, 1f, 0.2f, 0.15f);
+        }
+        shapeRenderer.end();
+    }
+
+    private void drawEdgeArrow(com.badlogic.gdx.graphics.OrthographicCamera cam,
+                               float halfW, float halfH, float tx, float ty,
+                               float r, float gcol, float bcol) {
+        float dx = tx - cam.position.x;
+        float dy = ty - cam.position.y;
+        if (Math.abs(dx) <= halfW && Math.abs(dy) <= halfH) return; // on screen
+        // clamp direction to the view rectangle border
+        float scaleX = Math.abs(dx) > 0.01f ? halfW / Math.abs(dx) : Float.MAX_VALUE;
+        float scaleY = Math.abs(dy) > 0.01f ? halfH / Math.abs(dy) : Float.MAX_VALUE;
+        float s = Math.min(scaleX, scaleY);
+        float ex = cam.position.x + dx * s;
+        float ey = cam.position.y + dy * s;
+        float len = (float) Math.sqrt(dx * dx + dy * dy);
+        float nx = dx / len;
+        float ny = dy / len;
+        shapeRenderer.setColor(r, gcol, bcol, 1f);
+        // chevron pointing outward
+        shapeRenderer.line(ex - nx * 10 - ny * 6, ey - ny * 10 + nx * 6, ex, ey);
+        shapeRenderer.line(ex - nx * 10 + ny * 6, ey - ny * 10 - nx * 6, ex, ey);
+    }
+
     /** Lock-on brackets around the homing target, so auto-aim shows its hand. */
     private void drawLockMarker() {
         if (lockTarget == null) return;
@@ -1213,6 +1310,7 @@ public class GameScreen implements Screen {
 
     @Override
     public void dispose() {
+        game.sfx.stopBeam();
         game.sfx.stopThruster();
         shapeRenderer.dispose();
         batch.dispose();
