@@ -12,7 +12,7 @@ public class Weapon {
         LIGHT_CANNON("20MM", 5f, 520f, 0.15f, 60f, AmmoKind.LIGHT, 1),
         AUTOCANNON_20("20MM AC", 6f, 540f, 0.09f, 60f, AmmoKind.LIGHT, 1), // medium-socket autocannon (#135)
         MEDIUM_CANNON("57MM", 12f, 440f, 0.55f, 45f, AmmoKind.LIGHT, 2),
-        CANNON_155("155MM", 34f, 380f, 2.2f, 180f, AmmoKind.HEAVY, 1), // tiered multi-barrel (#91)
+        CANNON_155("155MM", 34f, 700f, 2.2f, 180f, AmmoKind.HEAVY, 1), // tiered multi-barrel (#91), fast shells (#155)
         ROCKET("RKT", 40f, 240f, 2.2f, 0f, AmmoKind.ROCKET, 1),
         HOMING_ROCKET("H-RKT", 35f, 220f, 3.0f, 0f, AmmoKind.ROCKET, 1),
         BEAM_LASER("BEAM", 25f, 0f, 0f, 40f, AmmoKind.ENERGY, 12),    // cost = energy per second

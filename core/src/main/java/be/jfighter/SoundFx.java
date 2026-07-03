@@ -30,6 +30,7 @@ public class SoundFx {
     private Sound snap;
     private Sound ping;
     private Sound beamLoop;
+    private Sound report;
     private long beamId = -1;
     private long thrusterId = -1;
     private boolean ready;
@@ -49,6 +50,7 @@ public class SoundFx {
             snap = load(dir.child("snap.wav"), synthSnap());
             ping = load(dir.child("ping.wav"), synthPing());
             beamLoop = load(dir.child("beamloop2.wav"), synthBeamLoop()); // v2: seamless loop (#133)
+            report = load(dir.child("report155.wav"), synthReport());
             ready = true;
         } catch (Exception e) {
             Gdx.app.error("SoundFx", "audio disabled: " + e.getMessage());
@@ -109,6 +111,11 @@ public class SoundFx {
         if (ready) ping.play(0.35f * masterVolume);
     }
 
+    /** The 155's muzzle blast (#155): a proper artillery report. */
+    public void playReport() {
+        if (ready) report.play(0.7f * masterVolume);
+    }
+
     public void startBeam() {
         if (ready && beamId == -1) beamId = beamLoop.loop(0.35f * masterVolume);
     }
@@ -134,6 +141,7 @@ public class SoundFx {
         snap.dispose();
         ping.dispose();
         beamLoop.dispose();
+        report.dispose();
     }
 
     // --- synthesis ---
@@ -301,6 +309,23 @@ public class SoundFx {
                 + Math.sin(2 * Math.PI * f2 * t) * 0.3) + ns * 0.25f;
         }
         return normalise(s, 0.6f);
+    }
+
+    /** Artillery muzzle blast: sharp crack into a rolling low boom. */
+    private static float[] synthReport() {
+        int n = (int) (RATE * 0.7f);
+        float[] s = new float[n];
+        float y = 0f;
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            float crack = t < 0.03f ? MathUtils.random(-1f, 1f) * (1f - t / 0.03f) : 0f;
+            float white = MathUtils.random(-1f, 1f);
+            y += 0.06f * (white - y);
+            float boom = (float) (y * Math.exp(-t * 5.0)
+                + Math.sin(2 * Math.PI * 55 * t) * 0.5 * Math.exp(-t * 6.0));
+            s[i] = crack * 0.9f + boom;
+        }
+        return normalise(s, 0.95f);
     }
 
     private static float[] normalise(float[] s, float peak) {

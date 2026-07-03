@@ -19,6 +19,7 @@ public class Projectile {
     public int failMode;
     public float failT;   // time until the failed rocket fizzles/detonates
     public float smokeT;  // smoke-puff emission clock
+    public float fuseT = -1f; // timed fuse (#157): >=0 counts down to an air-burst
 
     private float speed;
     private float accel;

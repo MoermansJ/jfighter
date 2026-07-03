@@ -60,7 +60,25 @@ public class GameScreen implements Screen {
     private ShipDeckView deckView;
     private boolean deckOpen;
     private CrewMember deckSelected;
-    private float tacticalZoom = 1.4f; // wide default; Z cycles 1.0 / 1.4 / 1.9 (#146)
+    private float tacticalZoom = 1.4f; // Z cycles 1.0 / 1.4 / 1.9 / 10 (#146/#160)
+    private static final float SPLASH_155 = 55f;
+    // fired-shot projections (#157): {targetX, targetY, tofLeft, tofTotal, originX, originY}
+    private final Array<float[]> shotProjections = new Array<>();
+    private float viewZoom = 1f; // final camera zoom this frame (LOD + HUD maths)
+    private float camX;
+    private float camY;
+
+    private float worldToHudX(float wx) {
+        return (wx - camX) / (viewport.getWorldWidth() * viewZoom) * HUD_W + HUD_W / 2f;
+    }
+
+    private float worldToHudY(float wy) {
+        return (wy - camY) / (viewport.getWorldHeight() * viewZoom) * HUD_H + HUD_H / 2f;
+    }
+
+    private boolean strategicView() {
+        return tacticalZoom >= 4f; // icons instead of wireframes at the 10x step (#160)
+    }
     private float cupolaCd;      // MG-46 cupolas share a cadence clock (#119)
     private float fireCritT;     // fighter ablaze: hull dot (#99)
     private float helmCritT;     // fighter helm crippled: poor turning
@@ -613,8 +631,10 @@ public class GameScreen implements Screen {
         float halfW = viewport.getWorldWidth() * cam.zoom / 2f;
         float halfH = viewport.getWorldHeight() * cam.zoom / 2f;
         Player followed = controlledBody();
-        cam.position.x = MathUtils.clamp(followed.x + Player.WIDTH / 2f, halfW, ARENA_WIDTH - halfW);
-        cam.position.y = MathUtils.clamp(followed.y + Player.HEIGHT / 2f, halfH, ARENA_HEIGHT - halfH);
+        if (halfW * 2 >= ARENA_WIDTH) cam.position.x = ARENA_WIDTH / 2f; // view wider than the arena
+        else cam.position.x = MathUtils.clamp(followed.x + Player.WIDTH / 2f, halfW, ARENA_WIDTH - halfW);
+        if (halfH * 2 >= ARENA_HEIGHT) cam.position.y = ARENA_HEIGHT / 2f;
+        else cam.position.y = MathUtils.clamp(followed.y + Player.HEIGHT / 2f, halfH, ARENA_HEIGHT - halfH);
         if (shake > 0) {
             float mag = shake * shake * 9f; // trauma curve: small hits barely move it
             cam.position.x += MathUtils.random(-mag, mag);
@@ -622,6 +642,9 @@ public class GameScreen implements Screen {
             shake = Math.max(0f, shake - delta * 2.2f);
         }
         cam.update();
+        viewZoom = cam.zoom;
+        camX = cam.position.x;
+        camY = cam.position.y;
         shapeRenderer.setProjectionMatrix(viewport.getCamera().combined);
 
         effects.renderBackground(shapeRenderer);
@@ -656,21 +679,16 @@ public class GameScreen implements Screen {
                         bx + rxv * lat + fxv * (30f - recoil),
                         by + ryv * lat + fyv * (30f - recoil));
                 }
-                if (!aw.selected) continue; // aids are for the manual group only
-                float range = weaponRange(aw.type);
-                shapeRenderer.setColor(0.25f, 0.65f, 0.75f, 1f);
-                float arcHalf = aw.type.turretArc > 0 ? aw.type.turretArc : 5f;
-                float a0 = player.rotation - arcHalf + 90f; // shape arc() is x-axis based
-                // reach arc at max range across the slew limits
-                shapeRenderer.arc(bx, by, range, a0, arcHalf * 2f, Math.max(8, (int) (arcHalf / 6f)));
-                if (aw.type.turretArc > 0 && aw.type.turretArc < 180f) {
-                    // arc limit spokes
-                    for (int sgn = -1; sgn <= 1; sgn += 2) {
-                        float lr = player.rotation + sgn * arcHalf;
-                        shapeRenderer.line(bx, by,
-                            bx - MathUtils.sinDeg(lr) * range, by + MathUtils.cosDeg(lr) * range);
-                    }
+                if (aw.auto) continue; // autos show as aureola rings below
+                if (aw.type == Weapon.Type.CANNON_155) {
+                    // artillery fire control (#157): faded grey line to the cursor + splash zone
+                    Vector2 aimAt = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+                    shapeRenderer.setColor(0.4f, 0.42f, 0.45f, 1f);
+                    shapeRenderer.line(bx + fxv * 40f, by + fyv * 40f, aimAt.x, aimAt.y);
+                    shapeRenderer.circle(aimAt.x, aimAt.y, SPLASH_155, 28);
+                    continue;
                 }
+                float range = weaponRange(aw.type);
                 // aim line out to reach, capped with a crosshair where the round lands
                 float ex = bx + fxv * range;
                 float ey = by + fyv * range;
@@ -678,6 +696,28 @@ public class GameScreen implements Screen {
                 shapeRenderer.line(bx + fxv * 34f, by + fyv * 34f, ex, ey);
                 shapeRenderer.line(ex - 6, ey, ex + 6, ey);
                 shapeRenderer.line(ex, ey - 6, ex, ey + 6);
+            }
+            // auto-engagement aureola (#156): one faint ring per distinct auto reach
+            shapeRenderer.setColor(0.16f, 0.34f, 0.4f, 1f);
+            float bxA = player.x + Player.WIDTH / 2f;
+            float byA = player.y + Player.HEIGHT / 2f;
+            float lastR = -1f;
+            for (Weapon aw : weapons) {
+                if (!aw.auto) continue;
+                float r = autoRange(aw.type);
+                if (Math.abs(r - lastR) < 1f) continue;
+                lastR = r;
+                shapeRenderer.circle(bxA, byA, r, 64);
+            }
+            if (state.mothership.countMounts(Mothership.MOUNT_MG46) > 0) {
+                shapeRenderer.circle(bxA, byA, 380f * 3.5f, 64); // the cupola screen
+            }
+            // fired-shot projections stay live until the shell lands (#157)
+            for (float[] sp : shotProjections) {
+                float fade = sp[2] > 0 ? 1f : 1f + sp[2] / 0.4f;
+                shapeRenderer.setColor(0.38f * fade, 0.4f * fade, 0.42f * fade, 1f);
+                shapeRenderer.line(sp[4], sp[5], sp[0], sp[1]);
+                shapeRenderer.circle(sp[0], sp[1], SPLASH_155, 24);
             }
             shapeRenderer.end();
         }
@@ -926,6 +966,32 @@ public class GameScreen implements Screen {
             GlyphLayout sr = new GlyphLayout(font, "WARNING: Solar activity detected");
             font.draw(batch, sr, (HUD_W - sr.width) / 2f, 46);
         }
+        // artillery readouts (#157): range and time-of-flight at the cursor
+        boolean heavySelected = false;
+        for (Weapon aw : weapons) {
+            if (aw.selected && aw.type == Weapon.Type.CANNON_155) heavySelected = true;
+        }
+        if (heavySelected && defeatT < 0) {
+            Vector2 hm = hudMouse();
+            Vector2 aimAt = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+            float dist = Vector2.dst(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
+                aimAt.x, aimAt.y);
+            Fonts.scale(font, 0.95f);
+            font.setColor(0.62f, 0.64f, 0.66f, 1f);
+            font.draw(batch, "DST " + Math.round(dist), hm.x + 18, hm.y + 4);
+            font.draw(batch, "ToF " + String.format("%.1fs", dist / Weapon.Type.CANNON_155.speed),
+                hm.x + 18, hm.y - 10);
+            Fonts.scale(font, 1.4f);
+        }
+        // live shells: impact countdown over each projected burst point
+        Fonts.scale(font, 0.95f);
+        font.setColor(0.62f, 0.64f, 0.66f, 1f);
+        for (float[] sp : shotProjections) {
+            if (sp[2] <= 0) continue;
+            font.draw(batch, String.format("%.1f", sp[2]),
+                worldToHudX(sp[0]) + 8, worldToHudY(sp[1]) + 4);
+        }
+        Fonts.scale(font, 1.4f);
         if (hudToastT > 0) {
             font.setColor(1f, 0.5f, 0.2f, 1f);
             GlyphLayout ht = new GlyphLayout(font, hudToast);
@@ -971,7 +1037,8 @@ public class GameScreen implements Screen {
             }
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.Z)) {
-            tacticalZoom = tacticalZoom > 1.7f ? 1f : tacticalZoom > 1.2f ? 1.9f : 1.4f;
+            tacticalZoom = tacticalZoom > 5f ? 1f : tacticalZoom > 1.7f ? 10f
+                : tacticalZoom > 1.2f ? 1.9f : 1.4f; // 10x strategic step (#160)
         }
         if (Gdx.input.isKeyJustPressed(Input.Keys.V)) {
             deckOpen = !deckOpen;
@@ -1092,7 +1159,37 @@ public class GameScreen implements Screen {
         }
     }
 
+    /** Timed 155 air-burst (#157): splash at the fuse point. */
+    private void burstShell(Projectile p) {
+        addBlast(p.x, p.y, 0f, 240f, 40f);
+        addShockwave(p.x, p.y, SPLASH_155);
+        addShake(0.25f);
+        addSparks(p.x, p.y, 0, 0, 10);
+        game.sfx.playThud(0.5f);
+        for (int j = enemies.size - 1; j >= 0; j--) {
+            Enemy e = enemies.get(j);
+            if (Vector2.dst(p.x, p.y, e.centerX(), e.centerY()) < SPLASH_155 + e.radius()) {
+                damageEnemyAt(e, p.damage, e.centerX(), e.centerY());
+            }
+        }
+    }
+
     private void updateProjectiles(float delta) {
+        for (int i = shotProjections.size - 1; i >= 0; i--) {
+            float[] sp = shotProjections.get(i);
+            sp[2] -= delta;
+            if (sp[2] <= -0.4f) shotProjections.removeIndex(i); // lingers a beat after impact
+        }
+        for (int i = projectiles.size - 1; i >= 0; i--) {
+            Projectile p = projectiles.get(i);
+            if (p.fuseT >= 0) {
+                p.fuseT -= delta;
+                if (p.fuseT <= 0) {
+                    projectiles.removeIndex(i);
+                    burstShell(p);
+                }
+            }
+        }
         interceptRockets(delta);
         // firing into a dogfight is a gamble (#143)
         outer:
@@ -1956,7 +2053,7 @@ public class GameScreen implements Screen {
         float cx = player.x + Player.WIDTH / 2f;
         float cy = player.y + Player.HEIGHT / 2f;
         Enemy target = null;
-        float best = 380f;
+        float best = 380f * 3.5f; // cupolas defend the full aureola too (#156)
         for (Enemy e : enemies) {
             float d = Vector2.dst(cx, cy, e.centerX(), e.centerY());
             if (d < best) {
@@ -2034,6 +2131,11 @@ public class GameScreen implements Screen {
         return t.speed > 0 ? t.speed * 0.85f : 420f;
     }
 
+    /** AUTO engagement reach (#156): light/medium feeders defend a much larger bubble. */
+    private static float autoRange(Weapon.Type t) {
+        return weaponRange(t) * (t.ammoKind == Weapon.AmmoKind.LIGHT ? 3.5f : 1f);
+    }
+
     /** Slews the mount toward a desired bearing within its arc; returns the barrel rotation. */
     private float slewMount(Weapon w, Player body, float desired, float delta) {
         if (w.type.turretArc <= 0) return body.rotation;
@@ -2050,7 +2152,7 @@ public class GameScreen implements Screen {
         float cx = body.x + Player.WIDTH / 2f;
         float cy = body.y + Player.HEIGHT / 2f;
         Enemy target = null;
-        float best = weaponRange(w.type);
+        float best = autoRange(w.type);
         for (Enemy e : enemies) {
             float d = Vector2.dst(cx, cy, e.centerX(), e.centerY());
             if (d < best) {
@@ -2115,12 +2217,21 @@ public class GameScreen implements Screen {
                     float ryv = MathUtils.sinDeg(fireRotation);
                     float bx2 = nx + rxv * lat;
                     float by2 = ny + ryv * lat;
-                    projectiles.add(new Projectile(bx2, by2, fireRotation, body,
-                        w.type.speed, w.type.damage, 0f, 0f, false));
+                    Projectile shell = new Projectile(bx2, by2, fireRotation, body,
+                        w.type.speed, w.type.damage, 0f, 0f, false);
+                    // timed fuse (#157): the shell bursts at the aimed point
+                    Vector2 aimAt = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+                    float aimDist = Vector2.dst(bx2, by2, aimAt.x, aimAt.y);
+                    shell.fuseT = aimDist / w.type.speed;
+                    projectiles.add(shell);
+                    shotProjections.add(new float[]{
+                        bx2 + -MathUtils.sinDeg(fireRotation) * aimDist,
+                        by2 + MathUtils.cosDeg(fireRotation) * aimDist,
+                        shell.fuseT, shell.fuseT, bx2, by2});
                     addBlast(bx2, by2, 0f, 150f, 16f);
                     addShockwave(bx2, by2, 20f);
-                    addShake(0.16f);
-                    game.sfx.playCannon(2);
+                    addShake(0.22f);
+                    game.sfx.playReport();
                 }
                 break;
             }
@@ -2560,6 +2671,24 @@ public class GameScreen implements Screen {
     /** Friendly squadrons: green hulls, squadron tint, selection rings and order markers. */
     private void drawFighters() {
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        if (strategicView()) {
+            // 10x view (#160): squads read as chevrons, hostiles as diamonds
+            float ms = 6f * viewZoom;
+            for (Fighter f : fighters) {
+                if (f.dock == 2) continue;
+                shapeRenderer.setColor(f.squadron == 0
+                    ? new Color(0.25f, 0.85f, 0.4f, 1f) : new Color(0.3f, 0.8f, 0.75f, 1f));
+                float ang = f.body.rotation;
+                float fxm = -MathUtils.sinDeg(ang);
+                float fym = MathUtils.cosDeg(ang);
+                float rxm = MathUtils.cosDeg(ang);
+                float rym = MathUtils.sinDeg(ang);
+                shapeRenderer.line(f.centerX() - rxm * ms - fxm * ms, f.centerY() - rym * ms - fym * ms,
+                    f.centerX() + fxm * ms, f.centerY() + fym * ms);
+                shapeRenderer.line(f.centerX() + rxm * ms - fxm * ms, f.centerY() + rym * ms - fym * ms,
+                    f.centerX() + fxm * ms, f.centerY() + fym * ms);
+            }
+        } else {
         for (int i = 0; i < fighters.size; i++) {
             Fighter f = fighters.get(i);
             if (f.dock == 2) continue; // tucked away in the hangar
@@ -2581,6 +2710,7 @@ public class GameScreen implements Screen {
                     ShipRenderer.drawExhaust(shapeRenderer, f.body.thrustLevel);
                 }
             }
+        }
         }
         shapeRenderer.setTransformMatrix(transform.idt());
         // command cursor (#154): stow/launch state beside the pointer
@@ -2648,6 +2778,18 @@ public class GameScreen implements Screen {
     /** Hostile wireframes, drawn in red; same hull as the player until variants exist. */
     private void drawEnemies() {
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        if (strategicView()) {
+            float ms = 6f * viewZoom;
+            for (Enemy e : enemies) {
+                if (e.mothership || e.boss) continue; // capitals keep their silhouettes
+                shapeRenderer.setColor(e.arms == SquadArms.TORPEDO
+                    ? new Color(1f, 0.4f, 0.5f, 1f) : new Color(0.95f, 0.25f, 0.2f, 1f));
+                shapeRenderer.line(e.centerX() - ms, e.centerY(), e.centerX(), e.centerY() + ms);
+                shapeRenderer.line(e.centerX(), e.centerY() + ms, e.centerX() + ms, e.centerY());
+                shapeRenderer.line(e.centerX() + ms, e.centerY(), e.centerX(), e.centerY() - ms);
+                shapeRenderer.line(e.centerX(), e.centerY() - ms, e.centerX() - ms, e.centerY());
+            }
+        }
         for (int i = 0; i < enemies.size; i++) {
             Enemy e = enemies.get(i);
             if (i == controlled) shapeRenderer.setColor(Color.ORANGE);
@@ -2655,6 +2797,7 @@ public class GameScreen implements Screen {
             else if (e.arms == SquadArms.TORPEDO) shapeRenderer.setColor(1f, 0.4f, 0.5f, 1f); // priority!
             else if (e.arms == SquadArms.HOMING) shapeRenderer.setColor(1f, 0.3f, 0.35f, 1f);
             else shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
+            if (strategicView() && !e.boss && !e.mothership) continue; // glyph drawn above
             for (int slot = 0; slot < Math.max(1, e.strength); slot++) {
                 transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
                 if (e.boss) transform.scale(2.2f, 2.2f, 1f);
@@ -2680,6 +2823,20 @@ public class GameScreen implements Screen {
                 ShipRenderer.drawExhaust(shapeRenderer, e.body.thrustLevel * flick);
                 shapeRenderer.setColor(1f, 0.85f, 0.4f, 1f);
                 ShipRenderer.drawExhaust(shapeRenderer, e.body.thrustLevel * flick * 0.55f);
+            }
+        }
+        // standing shield bubble (#158): presence tracks the shield fraction
+        if (defeatT < 0 && state.maxShield > 0) {
+            float frac = state.shield / state.maxShield;
+            if (frac > 0.01f) {
+                float glow = 0.12f + 0.4f * frac + 0.4f * Math.max(0f, shieldFlash);
+                float flick = 1f + 0.04f * MathUtils.sin(shieldSince * 7f);
+                shapeRenderer.setColor(0.25f * glow, 0.55f * glow, 0.9f * glow, 1f);
+                shapeRenderer.circle(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
+                    96f * flick, 40);
+                shapeRenderer.setColor(0.15f * glow, 0.35f * glow, 0.6f * glow, 1f);
+                shapeRenderer.circle(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f,
+                    101f * flick, 40);
             }
         }
         // the carrier's persistent battle scars (#123)
