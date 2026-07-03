@@ -62,8 +62,6 @@ public class GameScreen implements Screen {
     private CrewMember deckSelected;
     private float tacticalZoom = 1.4f; // Z cycles 1.0 / 1.4 / 1.9 / 10 (#146/#160)
     private static final float SPLASH_155 = 55f;
-    // fired-shot projections (#157): {targetX, targetY, tofLeft, tofTotal, originX, originY}
-    private final Array<float[]> shotProjections = new Array<>();
     private float scopeSweep;    // instrument clock (plot scanline)
     private static final float SONAR_PERIOD = 2.6f; // seconds between pings
     private float sonarT = SONAR_PERIOD; // pulsing sonar on the contact monitor
@@ -728,38 +726,44 @@ public class GameScreen implements Screen {
             shapeRenderer.setColor(0.1f + 0.2f * frac, 0.25f + 0.35f * frac, 0.5f + 0.4f * frac, 1f);
             shapeRenderer.circle(plotPX(ox), plotPY(oy), 96f * kx + 3f, 20);
         }
-        // trajectory projections for every live round (#162)
+        // trajectory projections for other calibers (#162); 155 shells trail instead
         for (Projectile p : projectiles) {
             float vx = p.velX();
             float vy = p.velY();
             float spd = Math.max(1f, (float) Math.sqrt(vx * vx + vy * vy));
-            float reach = p.fuseT >= 0 ? spd * p.fuseT : spd * Math.min(p.life, 3.5f);
+            boolean hostile = p.shooter != player;
+            if (p.fuseT >= 0) {
+                // fired shell: the line draws BEHIND it, launch point to here
+                shapeRenderer.setColor(0.38f, 0.4f, 0.42f, 1f);
+                shapeRenderer.line(plotPX(p.originX), plotPY(p.originY), plotPX(p.x), plotPY(p.y));
+                // predicted burst point + splash forecast
+                float exw = p.x + vx / spd * spd * p.fuseT;
+                float eyw = p.y + vy / spd * spd * p.fuseT;
+                shapeRenderer.circle(plotPX(exw), plotPY(eyw), SPLASH_155 * kx, 12);
+                continue;
+            }
+            float reach = spd * Math.min(p.life, 3.5f);
             float exw = p.x + vx / spd * reach;
             float eyw = p.y + vy / spd * reach;
-            boolean hostile = p.shooter != player;
             if (hostile) shapeRenderer.setColor(0.4f, 0.14f, 0.12f, 1f);
             else shapeRenderer.setColor(0.16f, 0.3f, 0.34f, 1f);
             shapeRenderer.line(plotPX(p.x), plotPY(p.y), plotPX(exw), plotPY(eyw));
-            if (p.fuseT >= 0 || p.rocket) { // splash forecast at the terminal point
+            if (p.rocket) {
                 shapeRenderer.circle(plotPX(exw), plotPY(eyw), SPLASH_155 * kx, 12);
             }
         }
-        // fired 155 solutions persist until impact (#157)
-        for (float[] sp : shotProjections) {
-            float fade = sp[2] > 0 ? 1f : 1f + sp[2] / 0.4f;
-            shapeRenderer.setColor(0.38f * fade, 0.4f * fade, 0.42f * fade, 1f);
-            shapeRenderer.line(plotPX(sp[4]), plotPY(sp[5]), plotPX(sp[0]), plotPY(sp[1]));
-            shapeRenderer.circle(plotPX(sp[0]), plotPY(sp[1]), SPLASH_155 * kx, 14);
-        }
-        // 155 fire-control line to the current aim point (#157)
+        // 155 fire control (#157): the LANDING ZONE the salvo could scatter into
         boolean heavySel = false;
         for (Weapon aw : weapons) {
             if (aw.selected && aw.type == Weapon.Type.CANNON_155) heavySel = true;
         }
         if (heavySel && defeatT < 0) {
-            shapeRenderer.setColor(0.4f, 0.42f, 0.45f, 1f);
-            shapeRenderer.line(plotPX(ox), plotPY(oy), plotPX(lastAim.x), plotPY(lastAim.y));
-            shapeRenderer.circle(plotPX(lastAim.x), plotPY(lastAim.y), SPLASH_155 * kx, 14);
+            float dist = Vector2.dst(ox, oy, lastAim.x, lastAim.y);
+            float zone = dispersion155(dist);
+            shapeRenderer.setColor(0.45f, 0.47f, 0.5f, 1f);
+            shapeRenderer.circle(plotPX(lastAim.x), plotPY(lastAim.y), zone * kx, 20);
+            shapeRenderer.setColor(0.28f, 0.3f, 0.32f, 1f); // worst case: zone edge + splash
+            shapeRenderer.circle(plotPX(lastAim.x), plotPY(lastAim.y), (zone + SPLASH_155) * kx, 24);
         }
         // dogfight furballs
         Palette.set(shapeRenderer, 0.8f, 0.6f, 0.25f, 1f);
@@ -882,9 +886,9 @@ public class GameScreen implements Screen {
         batch.begin();
         Fonts.scale(font, 0.85f);
         font.setColor(0.62f, 0.64f, 0.66f, 1f);
-        for (float[] sp : shotProjections) {
-            if (sp[2] <= 0) continue;
-            font.draw(batch, String.format("%.1f", sp[2]), plotPX(sp[0]) + 5, plotPY(sp[1]) + 4);
+        for (Projectile p : projectiles) {
+            if (p.fuseT < 0) continue;
+            font.draw(batch, String.format("%.1f", p.fuseT), plotPX(p.x) + 5, plotPY(p.y) + 4);
         }
         Fonts.scale(font, 1.4f);
         batch.end();
@@ -1390,6 +1394,11 @@ public class GameScreen implements Screen {
         }
     }
 
+    /** Shell dispersion radius: long shots scatter wider. */
+    private static float dispersion155(float dist) {
+        return 30f + dist * 0.055f;
+    }
+
     /** Timed 155 air-burst (#157): splash at the fuse point. */
     private void burstShell(Projectile p) {
         addBlast(p.x, p.y, 0f, 240f, 40f);
@@ -1406,11 +1415,6 @@ public class GameScreen implements Screen {
     }
 
     private void updateProjectiles(float delta) {
-        for (int i = shotProjections.size - 1; i >= 0; i--) {
-            float[] sp = shotProjections.get(i);
-            sp[2] -= delta;
-            if (sp[2] <= -0.4f) shotProjections.removeIndex(i); // lingers a beat after impact
-        }
         for (int i = projectiles.size - 1; i >= 0; i--) {
             Projectile p = projectiles.get(i);
             if (p.fuseT >= 0) {
@@ -2439,23 +2443,27 @@ public class GameScreen implements Screen {
                     // ripple fire: one round per barrel, left to right
                     int barrel = tier - w.burstLeft;
                     w.burstLeft--;
-                    w.burstTimer = 0.09f;
+                    w.burstTimer = 0.18f; // measured salvo cadence
                     w.barrelRecoil[barrel] = 1f;
                     float lat = (barrel - (tier - 1) / 2f) * 7f;
                     float rxv = MathUtils.cosDeg(fireRotation);
                     float ryv = MathUtils.sinDeg(fireRotation);
                     float bx2 = nx + rxv * lat;
                     float by2 = ny + ryv * lat;
-                    Projectile shell = new Projectile(bx2, by2, fireRotation, body,
+                    // dispersion: the shell actually splashes somewhere in the landing zone
+                    float aimDist0 = Vector2.dst(bx2, by2, lastAim.x, lastAim.y);
+                    float disp = dispersion155(aimDist0);
+                    float offA = MathUtils.random(360f);
+                    float offR = (float) Math.sqrt(MathUtils.random()) * disp;
+                    float tx = lastAim.x + MathUtils.cosDeg(offA) * offR;
+                    float ty = lastAim.y + MathUtils.sinDeg(offA) * offR;
+                    float shotRot = MathUtils.atan2(-(tx - bx2), ty - by2) * MathUtils.radiansToDegrees;
+                    Projectile shell = new Projectile(bx2, by2, shotRot, body,
                         w.type.speed, w.type.damage, 0f, 0f, false);
-                    // timed fuse (#157): the shell bursts at the plotted point
-                    float aimDist = Vector2.dst(bx2, by2, lastAim.x, lastAim.y);
-                    shell.fuseT = aimDist / w.type.speed;
+                    shell.originX = bx2;
+                    shell.originY = by2;
+                    shell.fuseT = Vector2.dst(bx2, by2, tx, ty) / w.type.speed;
                     projectiles.add(shell);
-                    shotProjections.add(new float[]{
-                        bx2 + -MathUtils.sinDeg(fireRotation) * aimDist,
-                        by2 + MathUtils.cosDeg(fireRotation) * aimDist,
-                        shell.fuseT, shell.fuseT, bx2, by2});
                     addBlast(bx2, by2, 0f, 150f, 16f);
                     addShockwave(bx2, by2, 20f);
                     addShake(0.22f);
