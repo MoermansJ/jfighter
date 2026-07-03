@@ -144,10 +144,6 @@ public class OverworldScreen implements Screen {
             Palette.set(shapes, 0.8f, 0.85f, 1f, a);
             shapes.circle(mapStarX[i], mapStarY[i], mapStarB[i] > 0.25f ? 1.3f : 0.9f, 6);
         }
-        // slow scan-line sweep drifting up the console
-        float sweepY = MSCR_Y1 + (mapTime * 18f) % (MSCR_Y2 - MSCR_Y1);
-        Palette.set(shapes, 0.3f, 0.8f, 1f, 0.05f);
-        shapes.rect(MSCR_X1, sweepY, MSCR_X2 - MSCR_X1, 2f);
         shapes.end();
 
         // section divider + bezel edges
@@ -163,6 +159,9 @@ public class OverworldScreen implements Screen {
                                        {MBEZ_X1 + 6, MBEZ_Y2 - 6}, {MBEZ_X2 - 6, MBEZ_Y2 - 6}}) {
             shapes.circle(c[0], c[1], 2.5f, 8); // corner screws
         }
+
+        // same scanline treatment as the deck monitor: the console scans as one unit
+        ShipDeckView.drawScanline(shapes, mapTime, MSCR_X1 + 4, MSCR_X2 - 4, MSCR_Y1 + 4, MSCR_Y2 - 4);
 
         drawMapDecals();
 

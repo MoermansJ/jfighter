@@ -696,6 +696,16 @@ public class ShipDeckView {
         return ((v % span) + span) % span;
     }
 
+    /** Shared console scanline: a double line sweeping top to bottom (both monitor screens use it). */
+    public static void drawScanline(ShapeRenderer shapes, float time,
+                                    float x1, float x2, float yBottom, float yTop) {
+        float scan = yTop - (time % SCAN_PERIOD) / SCAN_PERIOD * (yTop - yBottom);
+        Palette.set(shapes, 0.3f, 0.9f, 1f, 0.10f);
+        shapes.line(x1, scan + 2, x2, scan + 2);
+        Palette.set(shapes, 0.3f, 0.9f, 1f, 0.22f);
+        shapes.line(x1, scan, x2, scan);
+    }
+
     /** Deck-space line on the floor (z = 0). */
     private static void dl(ShapeRenderer shapes, float x1, float y1, float x2, float y2) {
         shapes.line(px(x1), py(y1, 0), px(x2), py(y2, 0));
@@ -995,11 +1005,7 @@ public class ShipDeckView {
             drawFigure(shapes, c, sim);
         }
         // scanline sweep, top to bottom of the monitor screen
-        float scan = (SCR_Y2 - 4) - (time % SCAN_PERIOD) / SCAN_PERIOD * (SCR_Y2 - SCR_Y1 - 8);
-        Palette.set(shapes, 0.3f, 0.9f, 1f, 0.10f);
-        shapes.line(SCR_X1 + 4, scan + 2, SCR_X2 - 4, scan + 2);
-        Palette.set(shapes, 0.3f, 0.9f, 1f, 0.22f);
-        shapes.line(SCR_X1 + 4, scan, SCR_X2 - 4, scan);
+        drawScanline(shapes, time, SCR_X1 + 4, SCR_X2 - 4, SCR_Y1 + 4, SCR_Y2 - 4);
         shapes.end();
 
         // pass 3, filled: heads + REC dot
