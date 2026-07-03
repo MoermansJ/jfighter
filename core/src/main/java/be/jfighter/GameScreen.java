@@ -663,6 +663,12 @@ public class GameScreen implements Screen {
             }
             if (helmCritT > 0) helmCritT -= delta;
             if (hudToastT > 0) hudToastT -= delta;
+            if (state.ammoLight != lastAmmoL) { ammoFlashL = 0.3f; lastAmmoL = state.ammoLight; }
+            if (state.ammoHeavy != lastAmmoH) { ammoFlashH = 0.3f; lastAmmoH = state.ammoHeavy; }
+            if (state.ammoRockets != lastAmmoR) { ammoFlashR = 0.3f; lastAmmoR = state.ammoRockets; }
+            if (ammoFlashL > 0) ammoFlashL -= delta;
+            if (ammoFlashH > 0) ammoFlashH -= delta;
+            if (ammoFlashR > 0) ammoFlashR -= delta;
             if (carrierWaypoint.x >= 0 && Vector2.dst(carrierWaypoint.x, carrierWaypoint.y,
                     player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f) < 60f) {
                 carrierWaypoint.set(-1, -1);
@@ -1621,13 +1627,28 @@ public class GameScreen implements Screen {
         shapeRenderer.line(cx, cy, cx + MathUtils.cosDeg(90f) * 2f, cy + MathUtils.sinDeg(90f) * 2f);
     }
 
-    /** Pool readout for the weapon cards: shared ammo pools, or the energy budget. */
-    private String ammoLabel(Weapon.Type t) {
+    /** Mechanical drum counter (#189): boxed digits that rattle while the pool drains. */
+    private void drawDrumCounter(Weapon.Type t, float x, float y) {
+        int value;
+        float flash;
+        char tag;
         switch (t.ammoKind) {
-            case LIGHT: return "L " + state.ammoLight;
-            case HEAVY: return "H " + state.ammoHeavy;
-            case ROCKET: return "R " + state.ammoRockets;
-            default: return "E " + Math.round(state.weaponEnergy / state.maxWeaponEnergy * 100) + "%";
+            case LIGHT: value = state.ammoLight; flash = ammoFlashL; tag = 'L'; break;
+            case HEAVY: value = state.ammoHeavy; flash = ammoFlashH; tag = 'H'; break;
+            case ROCKET: value = state.ammoRockets; flash = ammoFlashR; tag = 'R'; break;
+            default:
+                font.setColor(state.weaponEnergy < 5f ? Color.RED : Color.GRAY);
+                font.draw(batch, "E " + Math.round(state.weaponEnergy / state.maxWeaponEnergy * 100)
+                    + "%", x, y + 11);
+                return;
+        }
+        String digits = String.format("%04d", Math.min(9999, Math.max(0, value)));
+        font.setColor(Color.GRAY);
+        font.draw(batch, String.valueOf(tag), x, y + 11);
+        for (int dIdx = 0; dIdx < 4; dIdx++) {
+            float jit = flash > 0 ? MathUtils.random(-1.2f, 1.2f) : 0f; // drums rolling
+            font.setColor(value == 0 ? Color.RED : new Color(0.8f, 0.82f, 0.85f, 1f));
+            font.draw(batch, String.valueOf(digits.charAt(dIdx)), x + 10 + dIdx * 8f, y + 11 + jit);
         }
     }
 
@@ -1712,9 +1733,7 @@ public class GameScreen implements Screen {
             String cardLabel = (i + 1) + " " + w.type.label + (w.auto ? " A" : "");
             if (w.type == Weapon.Type.CANNON_155) cardLabel += " T" + state.cannon155Tier();
             font.draw(batch, cardLabel, x + 4, 38);
-            String ammoText = ammoLabel(w.type);
-            font.setColor(ammoText.endsWith(" 0") ? Color.RED : Color.GRAY);
-            font.draw(batch, ammoText, x + 4, 26);
+            drawDrumCounter(w.type, x + 4, 15);
             if (w.cooldown > 1.2f) { // countdown beside the clockwatch
                 font.setColor(0.85f, 0.75f, 0.35f, 1f);
                 font.draw(batch, String.format("%.1f", w.cooldown), x + cardW - 34, 26);

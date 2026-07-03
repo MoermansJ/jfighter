@@ -94,16 +94,23 @@ public class SoundFx {
     }
 
     /** Snappy cannon report; caliber 0 = light, 2 = heavy. */
+    // #187: the player sits inside the hull — exterior reports arrive muffled
+    private static final float EXT_VOL = 0.7f;
+    private static final float EXT_PITCH = 0.8f;
+
     public void playCannon(int caliber) {
-        if (ready) cannons[MathUtils.clamp(caliber, 0, 2)].play((0.4f + 0.2f * caliber) * masterVolume);
+        if (ready) {
+            cannons[MathUtils.clamp(caliber, 0, 2)]
+                .play((0.4f + 0.2f * caliber) * EXT_VOL * masterVolume, EXT_PITCH, 0f);
+        }
     }
 
     public void playLaser() {
-        if (ready) laser.play(0.4f * masterVolume);
+        if (ready) laser.play(0.4f * EXT_VOL * masterVolume, EXT_PITCH, 0f);
     }
 
     public void playRocket() {
-        if (ready) rocket.play(0.55f * masterVolume);
+        if (ready) rocket.play(0.55f * EXT_VOL * masterVolume, EXT_PITCH, 0f);
     }
 
     public void playClamp() {
@@ -139,8 +146,9 @@ public class SoundFx {
     public void playExplosion(float strength) {
         if (!ready) return;
         Sound s = explosions[MathUtils.random(explosions.length - 1)];
+        // hull hits are structural: felt more than heard, deep through the deck (#187)
         s.play(MathUtils.clamp(strength, 0.3f, 0.85f) * masterVolume,
-            MathUtils.random(0.85f, 1.15f), MathUtils.random(-0.3f, 0.3f));
+            MathUtils.random(0.65f, 0.85f), MathUtils.random(-0.3f, 0.3f));
     }
 
     /** The 155's muzzle blast (#155): a proper artillery report. */
