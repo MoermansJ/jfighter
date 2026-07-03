@@ -155,6 +155,9 @@ public class GameScreen implements Screen {
         int rockets = 4;      // pod rounds per sortie (#126), restocked at the carrier
         float rocketCd;
         Enemy engaging; // current dogfight target
+        // embark cycle (#154): 0 deployed, 1 stowing, 2 embarked, 3 launching
+        int dock;
+        float dockAnimT;
 
         Fighter(float x, float y, int squadron) {
             body = new Player(x, y);
@@ -180,6 +183,22 @@ public class GameScreen implements Screen {
 
     private static float formY(int slot) {
         return -((slot + 1) / 2) * 13f;
+    }
+
+    /** Deploy an embarked squad out of the hangar notch (#154). */
+    private void launchSquad(Fighter f) {
+        f.dock = 3;
+        f.dockAnimT = 0.8f;
+        // roll out of the portside hangar notch
+        float ang = player.rotation;
+        float ox = -34f * MathUtils.cosDeg(ang) - (-14f) * MathUtils.sinDeg(ang);
+        float oy = -34f * MathUtils.sinDeg(ang) + (-14f) * MathUtils.cosDeg(ang);
+        f.body.x = player.x + ox;
+        f.body.y = player.y + oy;
+        f.body.rotation = player.rotation - 90f;
+        f.body.vx = player.vx;
+        f.body.vy = player.vy;
+        game.sfx.playClamp();
     }
 
     /** A squad wiped outside the round system: remove it and settle the leader's fate. */
@@ -877,7 +896,10 @@ public class GameScreen implements Screen {
             if (alive == 0) continue;
             com.badlogic.gdx.math.Rectangle tr = squadronTabRect(s);
             String mode = squadrons[s] == null ? "" : squadrons[s].mode == 2 ? " ATK"
-                : squadrons[s].mode == 1 ? " MOV" : " ESC";
+                : squadrons[s].mode == 1 ? " MOV" : squadrons[s].mode == 3 ? " DOCK" : " ESC";
+            for (Fighter f : fighters) {
+                if (f.squadron == s && f.dock == 2) mode = " DOCKED";
+            }
             font.setColor(s == selectedSquadron ? Color.WHITE : Color.GRAY);
             font.draw(batch, state.squadronNames[s] + " " + alive + "/" + FIGHTERS_PER_SQUADRON + mode,
                 tr.x + 5, tr.y + 29);
@@ -1271,6 +1293,7 @@ public class GameScreen implements Screen {
         float py = player.y + Player.HEIGHT / 2f;
         float best = Vector2.dst(cx, cy, px, py);
         for (Fighter f : fighters) {
+            if (f.dock != 0) continue; // can't chase what's in the hangar
             float d = Vector2.dst(cx, cy, f.centerX(), f.centerY());
             if (d < best) {
                 best = d;
@@ -1483,7 +1506,7 @@ public class GameScreen implements Screen {
     private void updateDogfights(float delta) {
         // latch on contact
         for (Fighter f : fighters) {
-            if (latched(f)) continue;
+            if (latched(f) || f.dock != 0) continue;
             for (Enemy e : enemies) {
                 if (e.boss || e.mothership || latched(e)) continue;
                 if (Vector2.dst(f.centerX(), f.centerY(), e.centerX(), e.centerY()) > 55f) continue;
@@ -1643,6 +1666,9 @@ public class GameScreen implements Screen {
         Squadron sq = squadrons[selectedSquadron];
         for (Enemy e : enemies) {
             if (Vector2.dst(x, y, e.centerX(), e.centerY()) < e.radius() + 14f) {
+                for (Fighter f : fighters) {
+                    if (f.squadron == selectedSquadron && f.dock == 2) launchSquad(f);
+                }
                 sq.mode = 2;
                 sq.target = e;
                 game.sfx.playPing();
@@ -1651,9 +1677,15 @@ public class GameScreen implements Screen {
         }
         if (Vector2.dst(x, y, player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f)
                 < CARRIER_HIT_RADIUS + 16f) {
-            sq.mode = 0; // return to the carrier: escort + repair
+            sq.mode = 3; // stow order (#154): fly home and embark
             game.sfx.playPing();
             return;
+        }
+        // an order into open space launches an embarked squad first (#154)
+        for (Fighter f : fighters) {
+            if (f.squadron == selectedSquadron && f.dock == 2) {
+                launchSquad(f);
+            }
         }
         sq.mode = 1;
         // remember the direction of travel so the squadron holds it after arriving
@@ -1678,11 +1710,37 @@ public class GameScreen implements Screen {
         for (int i = fighters.size - 1; i >= 0; i--) {
             Fighter f = fighters.get(i);
             f.gun.update(delta);
+            // embark cycle (#154)
+            if (f.dock == 1) { // stowing: shrink into the hangar
+                f.dockAnimT -= delta;
+                if (f.dockAnimT <= 0) f.dock = 2;
+                continue;
+            }
+            if (f.dock == 2) { // safe aboard: fast repair and rearm, rides with the carrier
+                f.body.x = player.x;
+                f.body.y = player.y;
+                f.hp = Math.min(f.strength * FIGHTER_HP, f.hp + 8f * delta);
+                f.rockets = 4;
+                continue;
+            }
+            if (f.dock == 3) { // launching: roll out of the hangar notch
+                f.dockAnimT -= delta;
+                if (f.dockAnimT <= 0) f.dock = 0;
+                continue;
+            }
             if (latched(f)) continue; // the dogfight owns this craft (#141)
             if (i != controlled) flyFighter(f, delta);
             f.body.updatePosition(delta);
             bounceOffWalls(f.body);
             effects.spawnExhaust(f.body, delta);
+            // stow order: arriving at the carrier tucks the squad in
+            Squadron sq = squadrons[f.squadron];
+            if (sq.mode == 3 && Vector2.dst(f.centerX(), f.centerY(),
+                    player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f) < CARRIER_HIT_RADIUS) {
+                f.dock = 1;
+                f.dockAnimT = 0.8f;
+                game.sfx.playClamp();
+            }
         }
     }
 
@@ -1756,6 +1814,10 @@ public class GameScreen implements Screen {
         } else {
             float tx = sq.mode == 1 ? sq.ox : player.x + Player.WIDTH / 2f;
             float ty = sq.mode == 1 ? sq.oy : player.y + Player.HEIGHT / 2f;
+            if (sq.mode == 3) { // heading in to embark: aim for the hangar itself
+                tx = player.x + Player.WIDTH / 2f;
+                ty = player.y + Player.HEIGHT / 2f;
+            }
             float dx = tx - cx;
             float dy = ty - cy;
             float dist = (float) Math.sqrt(dx * dx + dy * dy);
@@ -2500,6 +2562,10 @@ public class GameScreen implements Screen {
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < fighters.size; i++) {
             Fighter f = fighters.get(i);
+            if (f.dock == 2) continue; // tucked away in the hangar
+            float dockScale = 1f;
+            if (f.dock == 1) dockScale = f.dockAnimT / 0.8f;           // shrinking in
+            else if (f.dock == 3) dockScale = 1f - f.dockAnimT / 0.8f; // growing out
             for (int slot = 0; slot < f.strength; slot++) {
                 if (i == controlled) shapeRenderer.setColor(Color.WHITE);
                 else if (f.squadron == 0) shapeRenderer.setColor(0.25f, 0.85f, 0.4f, 1f);
@@ -2507,7 +2573,7 @@ public class GameScreen implements Screen {
                 transform.setToTranslation(f.centerX(), f.centerY(), 0)
                     .rotate(0, 0, 1, f.body.rotation)
                     .translate(formX(slot), formY(slot), 0)
-                    .scale(0.38f, 0.38f, 1f);
+                    .scale(0.38f * dockScale, 0.38f * dockScale, 1f);
                 shapeRenderer.setTransformMatrix(transform);
                 ShipRenderer.drawB2(shapeRenderer);
                 if (f.body.thrustLevel > 0.02f) {
@@ -2517,6 +2583,31 @@ public class GameScreen implements Screen {
             }
         }
         shapeRenderer.setTransformMatrix(transform.idt());
+        // command cursor (#154): stow/launch state beside the pointer
+        if (selectedSquadron != -1 && defeatT < 0) {
+            Vector2 cur = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+            boolean overCarrier = Vector2.dst(cur.x, cur.y, player.x + Player.WIDTH / 2f,
+                player.y + Player.HEIGHT / 2f) < CARRIER_HIT_RADIUS + 16f;
+            boolean docked = false;
+            for (Fighter f : fighters) {
+                if (f.squadron == selectedSquadron && f.dock == 2) docked = true;
+            }
+            if (overCarrier) { // stow: arrow down into a bracket
+                shapeRenderer.setColor(0.4f, 0.9f, 1f, 1f);
+                shapeRenderer.line(cur.x + 16, cur.y + 20, cur.x + 16, cur.y + 8);
+                shapeRenderer.line(cur.x + 12, cur.y + 12, cur.x + 16, cur.y + 8);
+                shapeRenderer.line(cur.x + 20, cur.y + 12, cur.x + 16, cur.y + 8);
+                shapeRenderer.line(cur.x + 9, cur.y + 8, cur.x + 9, cur.y + 4);
+                shapeRenderer.line(cur.x + 9, cur.y + 4, cur.x + 23, cur.y + 4);
+                shapeRenderer.line(cur.x + 23, cur.y + 4, cur.x + 23, cur.y + 8);
+            } else if (docked) { // launch: arrow up out of a bracket
+                shapeRenderer.setColor(0.4f, 1f, 0.6f, 1f);
+                shapeRenderer.line(cur.x + 16, cur.y + 6, cur.x + 16, cur.y + 18);
+                shapeRenderer.line(cur.x + 12, cur.y + 14, cur.x + 16, cur.y + 18);
+                shapeRenderer.line(cur.x + 20, cur.y + 14, cur.x + 16, cur.y + 18);
+                shapeRenderer.line(cur.x + 9, cur.y + 6, cur.x + 23, cur.y + 6);
+            }
+        }
         // dogfight furballs: faint engagement ring + snapping tracer exchanges (#141)
         for (Dogfight d : dogfights) {
             shapeRenderer.setColor(0.8f, 0.6f, 0.25f, 1f);
