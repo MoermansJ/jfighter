@@ -88,6 +88,7 @@ public class GameScreen implements Screen {
 
     private static class Spark {
         float x, y, vx, vy, life, maxLife;
+        boolean gray; // smoke instead of fire (#125 trails)
     }
 
     private static class Shard {
@@ -713,7 +714,59 @@ public class GameScreen implements Screen {
         shapeRenderer.end();
     }
 
+    /** Point defence (#125): friendly rounds can clip hostile rockets out of the air. */
+    private void interceptRockets(float delta) {
+        for (int i = projectiles.size - 1; i >= 0; i--) {
+            Projectile p = projectiles.get(i);
+            if (!p.rocket || p.failMode != 0) continue;
+            for (int j = projectiles.size - 1; j >= 0; j--) {
+                if (i == j) continue;
+                Projectile q = projectiles.get(j);
+                if (q.rocket || q.shooter == p.shooter) continue;
+                float dx = q.x - p.x;
+                float dy = q.y - p.y;
+                if (dx * dx + dy * dy > 10f * 10f) continue;
+                projectiles.removeIndex(j);
+                if (j < i) i--;
+                float roll = MathUtils.random();
+                if (roll < 0.4f) { // clean detonation
+                    impact(p);
+                    projectiles.removeIndex(i);
+                } else {
+                    p.cripple(roll < 0.7f ? 1 : 2);
+                    addSparks(p.x, p.y, p.velX() * 0.3f, p.velY() * 0.3f, 5);
+                }
+                break;
+            }
+        }
+        // failure clocks + smoke trails
+        for (int i = projectiles.size - 1; i >= 0; i--) {
+            Projectile p = projectiles.get(i);
+            if (p.failMode == 0) continue;
+            p.failT -= delta;
+            p.smokeT -= delta;
+            if (p.smokeT <= 0) {
+                p.smokeT = 0.05f;
+                Spark s = new Spark();
+                s.x = p.x;
+                s.y = p.y;
+                s.vx = MathUtils.random(-12f, 12f);
+                s.vy = MathUtils.random(-12f, 12f);
+                s.life = p.failMode == 1 ? 0.9f : 0.5f;
+                s.maxLife = s.life;
+                s.gray = true; // sputtering smoke, not fire
+                sparks.add(s);
+            }
+            if (p.failT <= 0) {
+                if (p.failMode == 2) impact(p); // the diverted rocket still goes off
+                else addSparks(p.x, p.y, 0, 0, 4); // engine-out just fizzles
+                projectiles.removeIndex(i);
+            }
+        }
+    }
+
     private void updateProjectiles(float delta) {
+        interceptRockets(delta);
         for (int i = projectiles.size - 1; i >= 0; i--) {
             Projectile p = projectiles.get(i);
             p.update(delta);
@@ -1589,7 +1642,8 @@ public class GameScreen implements Screen {
         }
         for (Spark s : sparks) {
             float f = s.life / s.maxLife;
-            shapeRenderer.setColor(1f, 0.65f * f + 0.1f, 0.15f * f, 1f);
+            if (s.gray) shapeRenderer.setColor(0.55f * f + 0.1f, 0.55f * f + 0.1f, 0.58f * f + 0.1f, 1f);
+            else shapeRenderer.setColor(1f, 0.65f * f + 0.1f, 0.15f * f, 1f);
             shapeRenderer.line(s.x, s.y, s.x - s.vx * 0.05f, s.y - s.vy * 0.05f);
         }
         for (Shard f : shards) {

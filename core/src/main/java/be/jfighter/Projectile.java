@@ -15,10 +15,14 @@ public class Projectile {
     public final boolean rocket; // rockets trail flame and splash on impact
     public Player target;        // homing target, or null
     public float life = 7f;
+    // interception failure modes (#125): 0 = healthy, 1 = engine-out drift, 2 = guidance-hit corkscrew
+    public int failMode;
+    public float failT;   // time until the failed rocket fizzles/detonates
+    public float smokeT;  // smoke-puff emission clock
 
     private float speed;
-    private final float accel;
-    private final float turnRate; // deg/s toward the target; 0 = dumb-fire
+    private float accel;
+    private float turnRate; // deg/s toward the target; 0 = dumb-fire
 
     /** Classic cannon shell. */
     public Projectile(float originX, float originY, float rotation, Object shooter) {
@@ -38,7 +42,24 @@ public class Projectile {
         this.rocket = rocket;
     }
 
+    /** An intercepting hit cripples the rocket instead of always killing it. */
+    public void cripple(int mode) {
+        failMode = mode;
+        if (mode == 1) { // engine-out: thrust dies, it drifts off ballistically and fizzles
+            accel = -60f;
+            turnRate = 0f;
+            target = null;
+            failT = MathUtils.random(1.5f, 3f);
+        } else { // guidance-hit: veers into a corkscrew, then detonates
+            turnRate = 0f;
+            target = null;
+            failT = MathUtils.random(0.6f, 1.4f);
+        }
+    }
+
     public void update(float delta) {
+        if (failMode == 2) rotation += 260f * delta; // corkscrewing off course
+        if (failMode == 1) speed = Math.max(40f, speed);
         if (turnRate > 0 && target != null) {
             float dx = target.x + Player.WIDTH / 2f - x;
             float dy = target.y + Player.HEIGHT / 2f - y;
