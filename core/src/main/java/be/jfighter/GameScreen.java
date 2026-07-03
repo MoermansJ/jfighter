@@ -664,6 +664,7 @@ public class GameScreen implements Screen {
         drawPlotMonitor();
         drawCrewMonitor();
         drawShieldGauge();
+        drawThrustLever();
 
         drawHud();
 
@@ -922,6 +923,65 @@ public class GameScreen implements Screen {
         batch.setProjectionMatrix(hudMatrix);
     }
 
+    // thrust lever geometry (#desk): a real handle you grab and set
+    private static final float LEV_X = 915f;
+    private static final float LEV_Y0 = 240f;
+    private static final float LEV_H = 180f;
+
+    /** Grabbing the lever (mouse held on it) sets the carrier's throttle step directly. */
+    private void handleThrustLever() {
+        if (!Gdx.input.isButtonPressed(Input.Buttons.LEFT) || controlled >= 0 || defeatT >= 0) return;
+        Vector2 hm = hudMouse();
+        if (hm.x < LEV_X - 26f || hm.x > LEV_X + 26f
+                || hm.y < LEV_Y0 - 16f || hm.y > LEV_Y0 + LEV_H + 16f) return;
+        float frac = MathUtils.clamp((hm.y - LEV_Y0) / LEV_H, 0f, 1f);
+        player.throttle = Math.round(frac * Player.THROTTLE_STEPS);
+    }
+
+    /** The thrust lever: a slotted quadrant with a grip handle riding the throttle step. */
+    private void drawThrustLever() {
+        shapeRenderer.setProjectionMatrix(hudMatrix);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
+        // slot
+        Palette.set(shapeRenderer, 0.25f, 0.42f, 0.5f, 1f);
+        shapeRenderer.line(LEV_X - 3f, LEV_Y0, LEV_X - 3f, LEV_Y0 + LEV_H);
+        shapeRenderer.line(LEV_X + 3f, LEV_Y0, LEV_X + 3f, LEV_Y0 + LEV_H);
+        shapeRenderer.line(LEV_X - 3f, LEV_Y0, LEV_X + 3f, LEV_Y0);
+        shapeRenderer.line(LEV_X - 3f, LEV_Y0 + LEV_H, LEV_X + 3f, LEV_Y0 + LEV_H);
+        // step notches; the burn zone reads hotter
+        for (int i = 0; i <= Player.THROTTLE_STEPS; i++) {
+            float y = LEV_Y0 + LEV_H * i / (float) Player.THROTTLE_STEPS;
+            if (i >= 8) shapeRenderer.setColor(0.8f, 0.45f, 0.2f, 1f);
+            else Palette.set(shapeRenderer, 0.18f, 0.3f, 0.36f, 1f);
+            shapeRenderer.line(LEV_X - (i % 5 == 0 ? 14f : 9f), y, LEV_X - 5f, y);
+        }
+        shapeRenderer.end();
+        // handle: filled grip riding the current step; actual thrust ghost behind it
+        float hy = LEV_Y0 + LEV_H * player.throttle / (float) Player.THROTTLE_STEPS;
+        float ghostY = LEV_Y0 + LEV_H * player.thrustLevel; // the engines catching up
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
+        Palette.set(shapeRenderer, 0.12f, 0.24f, 0.28f, 1f);
+        shapeRenderer.rect(LEV_X - 8f, ghostY - 1.5f, 16f, 3f);
+        Palette.set(shapeRenderer, 0.35f, 0.7f, 0.8f, 1f);
+        shapeRenderer.rect(LEV_X - 16f, hy - 5f, 32f, 10f);
+        shapeRenderer.setColor(0.05f, 0.1f, 0.12f, 1f);
+        for (int i = 0; i < 3; i++) { // grip lines
+            shapeRenderer.rect(LEV_X - 12f, hy - 3f + i * 3f, 24f, 1f);
+        }
+        shapeRenderer.end();
+        batch.setProjectionMatrix(hudMatrix);
+        batch.begin();
+        Fonts.scale(font, 0.95f);
+        Palette.set(font, 0.4f, 0.62f, 0.7f, 1f);
+        GlyphLayout tl = new GlyphLayout(font, "THRUST");
+        font.draw(batch, tl, LEV_X - tl.width / 2f, LEV_Y0 + LEV_H + 26f);
+        font.setColor(Color.GRAY);
+        GlyphLayout pv = new GlyphLayout(font, (player.throttle * 10) + "%");
+        font.draw(batch, pv, LEV_X - pv.width / 2f, LEV_Y0 - 12f);
+        Fonts.scale(font, 1.4f);
+        batch.end();
+    }
+
     /** Shield flask on the desk: a vertical vial of plasma that drains as the charge falls. */
     private void drawShieldGauge() {
         float fx = 845f;   // tube centre line
@@ -1122,7 +1182,6 @@ public class GameScreen implements Screen {
 
     private void drawHud() {
         shapeRenderer.setProjectionMatrix(hudMatrix);
-        effects.renderThrottleHud(shapeRenderer, player);
 
         // radar: arena at a glance
         shapeRenderer.begin(ShapeRenderer.ShapeType.Filled);
@@ -1265,11 +1324,6 @@ public class GameScreen implements Screen {
             GlyphLayout gl = new GlyphLayout(font, msg);
             font.draw(batch, msg, (HUD_W - gl.width) / 2f, HUD_H / 2f);
         }
-        font.setColor(Color.WHITE);
-        font.draw(batch, (player.throttle * 10) + "%",
-            HUD_W - SpaceEffects.THROTTLE_HUD_MARGIN - SpaceEffects.THROTTLE_BLOCK_W,
-            SpaceEffects.THROTTLE_HUD_MARGIN
-                + Player.THROTTLE_STEPS * (SpaceEffects.THROTTLE_BLOCK_H + SpaceEffects.THROTTLE_BLOCK_GAP) + 20);
         // #147: one quiet line at the bottom, fading in through the long build-up
         if (state.map.getCurrentNode().stormy && stormTimer < STORM_BUILDUP && defeatT < 0) {
             float ramp = 1f - stormTimer / STORM_BUILDUP;
@@ -1382,6 +1436,7 @@ public class GameScreen implements Screen {
                 game.sfx.playPing();
             }
         }
+        handleThrustLever();
         // the plot cursor is the standing aim point for manual gunnery
         {
             Vector2 hmAim = hudMouse();
