@@ -79,6 +79,7 @@ public class GameScreen implements Screen {
         {"LMB", "select squadron / give order"},
         {"RMB", "carrier waypoint / deselect"},
         {"TAB", "take a fighter's stick"},
+        {"R", "fighter rocket pod (on the stick)"},
         {"ESC", "pause menu"},
     });
 
@@ -136,6 +137,8 @@ public class GameScreen implements Screen {
         float hp = FIGHTER_HP;
         final int squadron;
         final Weapon gun = new Weapon(Weapon.Type.LIGHT_CANNON);
+        int rockets = 2;      // pod rounds per sortie (#126), restocked at the carrier
+        float rocketCd;
         Enemy engaging; // current dogfight target
 
         Fighter(float x, float y, int squadron) {
@@ -1109,9 +1112,22 @@ public class GameScreen implements Screen {
                 gy = dx / dist + dy / dist * 0.2f;
                 wantThrottle = 6;
             }
-            // gunnery
+            // rocket pod (#126): saved for big or standoff targets
+            f.rocketCd -= delta;
             float aimErr = (((MathUtils.atan2(-dx, dy) * MathUtils.radiansToDegrees)
                 - f.body.rotation) % 360f + 540f) % 360f - 180f;
+            if (f.rockets > 0 && f.rocketCd <= 0 && Math.abs(aimErr) < 5f
+                    && dist > 280f && dist < 620f && (fight.boss || dist > 400f)) {
+                f.rockets--;
+                f.rocketCd = 2.5f;
+                float fxv = -MathUtils.sinDeg(f.body.rotation);
+                float fyv = MathUtils.cosDeg(f.body.rotation);
+                projectiles.add(new Projectile(cx + fxv * 22f, cy + fyv * 22f,
+                    f.body.rotation, f.body, Weapon.Type.ROCKET.speed,
+                    Weapon.Type.ROCKET.damage, 160f, 0f, true));
+                game.sfx.playRocket();
+            }
+            // gunnery
             if (f.gun.ready() && dist < 480f && Math.abs(aimErr) < 8f) {
                 f.gun.fire();
                 f.gun.cooldown = f.gun.type.reload * 1.6f; // wingmen shoot calmer than you do
@@ -1135,7 +1151,10 @@ public class GameScreen implements Screen {
                 wantThrottle = 0;
                 gx = -MathUtils.sinDeg(f.body.rotation);
                 gy = MathUtils.cosDeg(f.body.rotation);
-                if (sq.mode == 0) f.hp = Math.min(FIGHTER_HP, f.hp + 2.5f * delta); // deck crews patch them up
+                if (sq.mode == 0) {
+                    f.hp = Math.min(FIGHTER_HP, f.hp + 2.5f * delta); // deck crews patch them up
+                    f.rockets = 2; // and rearm the pods
+                }
             } else {
                 gx = dx / dist;
                 gy = dy / dist;
@@ -1296,6 +1315,15 @@ public class GameScreen implements Screen {
         if (controlled >= 0 && controlled < fighters.size) {
             // on the stick of a fighter: fly and shoot its own cannon
             Fighter f = fighters.get(controlled);
+            if (Gdx.input.isKeyJustPressed(Input.Keys.R) && f.rockets > 0) {
+                f.rockets--;
+                float rxv = -MathUtils.sinDeg(f.body.rotation);
+                float ryv = MathUtils.cosDeg(f.body.rotation);
+                projectiles.add(new Projectile(f.centerX() + rxv * 22f, f.centerY() + ryv * 22f,
+                    f.body.rotation, f.body, Weapon.Type.ROCKET.speed,
+                    Weapon.Type.ROCKET.damage, 160f, 0f, true));
+                game.sfx.playRocket();
+            }
             if (Gdx.input.isKeyPressed(Input.Keys.SPACE) && f.gun.ready()) {
                 f.gun.fire();
                 float fxv = -MathUtils.sinDeg(f.body.rotation);
