@@ -2565,7 +2565,9 @@ public class GameScreen implements Screen {
                 int tier = state.cannon155Tier();
                 if (held && w.ready() && state.spendAmmo(w.type, tier)) {
                     w.fire();
-                    w.cooldown = w.type.reload / ((1f + 0.08f * state.roomStats[4])
+                    // the reload clock runs on its own — shells in the air don't gate it.
+                    // gunnery crew work the hoists: each stat point shaves the cycle
+                    w.cooldown = w.type.reload / ((1f + 0.12f * state.roomStats[4])
                         * (0.7f + 0.15f * state.power[GameState.PWR_WEAPONS]));
                     w.burstLeft = tier;
                 }
