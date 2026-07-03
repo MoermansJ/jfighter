@@ -1081,6 +1081,7 @@ public class GameScreen implements Screen {
         }
         if (dmg > 0) {
             state.hull -= dmg;
+            state.addDamageMark(); // the hit stays visible until repaired (#123)
             addShake(0.3f);
             if (MathUtils.random() < 0.1f) {
                 if (MathUtils.randomBoolean()) {
@@ -2013,6 +2014,17 @@ public class GameScreen implements Screen {
                 ShipRenderer.drawExhaust(shapeRenderer, e.body.thrustLevel * flick);
                 shapeRenderer.setColor(1f, 0.85f, 0.4f, 1f);
                 ShipRenderer.drawExhaust(shapeRenderer, e.body.thrustLevel * flick * 0.55f);
+            }
+        }
+        // the carrier's persistent battle scars (#123)
+        if (!state.damageMarks.isEmpty() && defeatT < 0) {
+            shapeRenderer.setColor(0.32f, 0.22f, 0.14f, 1f);
+            transform.setToTranslation(player.x + Player.WIDTH / 2f, player.y + Player.HEIGHT / 2f, 0)
+                .rotate(0, 0, 1, player.rotation);
+            shapeRenderer.setTransformMatrix(transform);
+            for (float[] mk : state.damageMarks) {
+                shapeRenderer.circle(mk[0], mk[1], mk[2], 8);
+                shapeRenderer.circle(mk[0] + mk[2] * 0.4f, mk[1] - mk[2] * 0.3f, mk[2] * 0.5f, 6);
             }
         }
         shapeRenderer.setTransformMatrix(transform.idt());

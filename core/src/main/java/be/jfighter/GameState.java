@@ -72,10 +72,19 @@ public class GameState {
     // fighter wing sections (#99): shear off under fire, restored by repairs
     public float leftWingHp = 15f;
     public float rightWingHp = 15f;
+    // persistent battle scars (#123): carrier-local scorch marks {x, y, size}, kept until repaired
+    public final List<float[]> damageMarks = new ArrayList<>();
+
+    public void addDamageMark() {
+        if (damageMarks.size() >= 40) return;
+        damageMarks.add(new float[]{MathUtils.random(-28f, 28f),
+            MathUtils.random(-62f, 105f), MathUtils.random(2.5f, 6.5f)});
+    }
 
     public void repairWings() {
         leftWingHp = 15f;
         rightWingHp = 15f;
+        damageMarks.clear(); // repairs scrub the scars too
     }
     // run stats for the end-of-run summary
     public int nodesVisited;

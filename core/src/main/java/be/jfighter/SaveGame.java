@@ -90,6 +90,13 @@ public final class SaveGame {
                 first = false;
             }
             b.append("},");
+            b.append("\"damageMarks\":[");
+            for (int i = 0; i < s.damageMarks.size(); i++) {
+                if (i > 0) b.append(',');
+                float[] mk = s.damageMarks.get(i);
+                b.append('[').append(mk[0]).append(',').append(mk[1]).append(',').append(mk[2]).append(']');
+            }
+            b.append("],");
             b.append("\"loadout\":[");
             for (int i = 0; i < s.loadout.size(); i++) {
                 if (i > 0) b.append(',');
@@ -260,6 +267,11 @@ public final class SaveGame {
             }
             for (JsonValue u = r.get("upgrades").child; u != null; u = u.next) {
                 s.upgrades.put(ShipUpgrade.valueOf(u.name), u.asInt());
+            }
+            if (r.has("damageMarks")) {
+                for (JsonValue mk = r.get("damageMarks").child; mk != null; mk = mk.next) {
+                    s.damageMarks.add(new float[]{mk.getFloat(0), mk.getFloat(1), mk.getFloat(2)});
+                }
             }
             if (r.has("loadout")) {
                 s.loadout.clear();
