@@ -104,6 +104,10 @@ public class GameScreen implements Screen {
             && hy >= CREW_Y && hy <= CREW_Y + 270f * CREW_S;
     }
     private float cupolaCd;      // MG-46 cupolas share a cadence clock (#119)
+    private int cupolaBurstLeft; // rounds left in the current 5-8 round burst
+    private float cupolaGapT;    // one-second breath between bursts
+    private int cupolaBursts;    // bursts fired from the current belt
+    private float cupolaReloadT; // 5s belt change
     private float fireCritT;     // fighter ablaze: hull dot (#99)
     private float helmCritT;     // fighter helm crippled: poor turning
     private String hudToast;
@@ -791,6 +795,41 @@ public class GameScreen implements Screen {
             shapeRenderer.setColor(0.28f, 0.3f, 0.32f, 1f); // worst case: zone edge + splash
             shapeRenderer.circle(plotPX(lastAim.x), plotPY(lastAim.y), (zone + SPLASH_155) * kx, 24);
         }
+        // aim cones for the light/medium batteries
+        for (Weapon aw : weapons) {
+            if (aw.type.ammoKind != Weapon.AmmoKind.LIGHT || (!aw.auto && !aw.selected)) continue;
+            float reach = (aw.auto ? autoRange(aw.type) : weaponRange(aw.type)) * kx;
+            float bearing = player.rotation + (aw.type.turretArc > 0 ? aw.turret : 0f);
+            Palette.set(shapeRenderer, 0.16f, 0.36f, 0.42f, 1f);
+            for (int sgn = -1; sgn <= 1; sgn += 2) {
+                float a = bearing + sgn * 7f;
+                shapeRenderer.line(plotPX(ox), plotPY(oy),
+                    plotPX(ox) - MathUtils.sinDeg(a) * reach, plotPY(oy) + MathUtils.cosDeg(a) * reach);
+            }
+        }
+        // the cupolas' cone follows whatever they're tracking
+        if (state.mothership.countMounts(Mothership.MOUNT_MG46) > 0 && cupolaReloadT <= 0) {
+            Enemy near = null;
+            float bestD = 380f * 1.75f;
+            for (Enemy e : enemies) {
+                float dd = Vector2.dst(ox, oy, e.centerX(), e.centerY());
+                if (dd < bestD) {
+                    bestD = dd;
+                    near = e;
+                }
+            }
+            if (near != null) {
+                float bearing = MathUtils.atan2(-(near.centerX() - ox), near.centerY() - oy)
+                    * MathUtils.radiansToDegrees;
+                float reach = 380f * 1.75f * kx;
+                Palette.set(shapeRenderer, 0.2f, 0.42f, 0.38f, 1f);
+                for (int sgn = -1; sgn <= 1; sgn += 2) {
+                    float a = bearing + sgn * 5f;
+                    shapeRenderer.line(plotPX(ox), plotPY(oy),
+                        plotPX(ox) - MathUtils.sinDeg(a) * reach, plotPY(oy) + MathUtils.cosDeg(a) * reach);
+                }
+            }
+        }
         // dogfight furballs
         Palette.set(shapeRenderer, 0.8f, 0.6f, 0.25f, 1f);
         for (Dogfight d : dogfights) {
@@ -1271,6 +1310,16 @@ public class GameScreen implements Screen {
         shapeRenderer.circle(RAD_CX + sx, RAD_CY + sy, size * (sincePass < 0.12f ? 1.35f : 1f), 6);
     }
 
+    /** A small clockwatch: face + a minute hand that sweeps down with the timer. */
+    private void drawClockIcon(float cx, float cy, float remaining, float total) {
+        shapeRenderer.setColor(0.85f, 0.75f, 0.35f, 1f);
+        shapeRenderer.circle(cx, cy, 4.5f, 12);
+        shapeRenderer.line(cx, cy + 4.5f, cx, cy + 6f); // crown
+        float hand = 90f + 360f * (1f - MathUtils.clamp(remaining / Math.max(0.01f, total), 0f, 1f));
+        shapeRenderer.line(cx, cy, cx + MathUtils.cosDeg(hand) * 3.5f, cy + MathUtils.sinDeg(hand) * 3.5f);
+        shapeRenderer.line(cx, cy, cx + MathUtils.cosDeg(90f) * 2f, cy + MathUtils.sinDeg(90f) * 2f);
+    }
+
     /** Pool readout for the weapon cards: shared ammo pools, or the energy budget. */
     private String ammoLabel(Weapon.Type t) {
         switch (t.ammoKind) {
@@ -1336,6 +1385,19 @@ public class GameScreen implements Screen {
             if (cw.auto) shapeRenderer.setColor(0.3f, 0.9f, 0.4f, 1f);
             else shapeRenderer.setColor(0.2f, 0.24f, 0.26f, 1f);
             shapeRenderer.rect(x + cardW - 12, 8 + cardH - 8, 8, 4);
+            // reloading: a clockwatch face, hands ticking down
+            if (cw.cooldown > 1.2f) {
+                drawClockIcon(x + cardW - 10, 22, cw.cooldown, cw.type == Weapon.Type.AUTOCANNON_20
+                    ? 5f : cw.type.reload);
+            }
+        }
+        // MG-46 status chip beside the cards
+        if (state.mothership.countMounts(Mothership.MOUNT_MG46) > 0) {
+            float chipX = cardsX + weapons.size * (cardW + 6f);
+            if (cupolaReloadT > 0) shapeRenderer.setColor(0.7f, 0.3f, 0.2f, 1f);
+            else shapeRenderer.setColor(0.3f, 0.32f, 0.35f, 1f);
+            shapeRenderer.rect(chipX, 8, 60, cardH);
+            if (cupolaReloadT > 0) drawClockIcon(chipX + 50, 22, cupolaReloadT, 5f);
         }
         shapeRenderer.end();
 
@@ -1352,6 +1414,22 @@ public class GameScreen implements Screen {
             String ammoText = ammoLabel(w.type);
             font.setColor(ammoText.endsWith(" 0") ? Color.RED : Color.GRAY);
             font.draw(batch, ammoText, x + 4, 26);
+            if (w.cooldown > 1.2f) { // countdown beside the clockwatch
+                font.setColor(0.85f, 0.75f, 0.35f, 1f);
+                font.draw(batch, String.format("%.1f", w.cooldown), x + cardW - 34, 26);
+            }
+        }
+        if (state.mothership.countMounts(Mothership.MOUNT_MG46) > 0) {
+            float chipX = cardsX + weapons.size * (cardW + 6f);
+            font.setColor(cupolaReloadT > 0 ? new Color(0.95f, 0.5f, 0.35f, 1f) : Color.GRAY);
+            font.draw(batch, "MG-46", chipX + 4, 38);
+            if (cupolaReloadT > 0) {
+                font.setColor(0.85f, 0.75f, 0.35f, 1f);
+                font.draw(batch, String.format("%.1f", cupolaReloadT), chipX + 4, 26);
+            } else {
+                font.setColor(Color.GRAY);
+                font.draw(batch, cupolaGapT > 0 ? "..." : "AUTO", chipX + 4, 26);
+            }
         }
         font.setColor(Color.GRAY);
         font.draw(batch, "HULL", 136, HUD_H - 78);
@@ -2505,7 +2583,16 @@ public class GameScreen implements Screen {
      */
     private void updateCupolas(float delta) {
         int cupolas = state.mothership.countMounts(Mothership.MOUNT_MG46);
-        if (cupolas == 0 || defeatT >= 0 || enemies.isEmpty()) return;
+        if (cupolas == 0 || defeatT >= 0) return;
+        if (cupolaReloadT > 0) { // belt change
+            cupolaReloadT -= delta;
+            return;
+        }
+        if (cupolaGapT > 0) { // breath between bursts
+            cupolaGapT -= delta;
+            return;
+        }
+        if (enemies.isEmpty()) return;
         cupolaCd -= delta;
         if (cupolaCd > 0) return;
         float cx = player.x + Player.WIDTH / 2f;
@@ -2520,12 +2607,23 @@ public class GameScreen implements Screen {
             }
         }
         if (target == null || !state.spendAmmo(Weapon.Type.LIGHT_CANNON, 1)) return;
+        if (cupolaBurstLeft <= 0) cupolaBurstLeft = MathUtils.random(5, 8); // new burst
         cupolaCd = 60f / (1200f * cupolas); // combined rate of fire across mounted cupolas
+        cupolaBurstLeft--;
         float aim = MathUtils.atan2(-(target.centerX() - cx), target.centerY() - cy)
             * MathUtils.radiansToDegrees + MathUtils.random(-3.5f, 3.5f);
         projectiles.add(new Projectile(cx - MathUtils.sinDeg(aim) * 22f,
             cy + MathUtils.cosDeg(aim) * 22f, aim, player, 560f, 1.5f, 0f, 0f, false));
         if (MathUtils.randomBoolean(0.2f)) game.sfx.playCannon(0);
+        if (cupolaBurstLeft == 0) {
+            cupolaBursts++;
+            if (cupolaBursts >= 4) { // the belt runs dry
+                cupolaBursts = 0;
+                cupolaReloadT = 5f;
+            } else {
+                cupolaGapT = 1f;
+            }
+        }
     }
 
     /** Per-frame weapon step: cooldowns, lock-on, and firing the active weapon while SPACE is held. */
@@ -2654,6 +2752,28 @@ public class GameScreen implements Screen {
                     w.burstTimer = 0.07f;
                     fireBeam(body, nx, ny, fireRotation + MathUtils.random(-2f, 2f), w.type.damage, false);
                     game.sfx.playLaser();
+                }
+                break;
+            case AUTOCANNON_20:
+                if (w.burstGap > 0) break;
+                if (held && w.ready() && w.burstLeft == 0) w.burstLeft = 3;
+                if (w.burstLeft > 0 && w.burstTimer <= 0 && state.spendAmmo(w.type, 1)) {
+                    w.burstTimer = 0.09f;
+                    w.burstLeft--;
+                    projectiles.add(new Projectile(nx, ny,
+                        fireRotation + MathUtils.random(-2.5f, 2.5f), body,
+                        w.type.speed, w.type.damage, 0f, 0f, false));
+                    addBlast(nx, ny, 0f, 150f, 6f);
+                    game.sfx.playCannon(0);
+                    if (w.burstLeft == 0) {
+                        w.magCount += 3;
+                        if (w.magCount >= 9) { // three bursts, then a fresh magazine
+                            w.magCount = 0;
+                            w.cooldown = 5f;
+                        } else {
+                            w.burstGap = 1f;
+                        }
+                    }
                 }
                 break;
             case CANNON_155: {

@@ -50,7 +50,9 @@ public class Weapon {
     public float cooldown;
     public boolean selected; // part of the manual fire group (#139)
     public boolean auto;     // aims and fires itself at enemies in range (#139)
-    public int burstLeft;  // queued pulses for BURST_LASER
+    public int burstLeft;  // queued pulses for burst-firing weapons
+    public float burstGap; // pause between bursts within a magazine
+    public int magCount;   // shots fired from the current magazine
     public float burstTimer;
     public float turret;   // current mount offset from the nose, clamped to the arc
     public final float[] barrelRecoil = new float[3]; // 155mm barrels slide back on firing
@@ -66,6 +68,7 @@ public class Weapon {
     public void update(float delta) {
         if (cooldown > 0) cooldown -= delta;
         if (burstTimer > 0) burstTimer -= delta;
+        if (burstGap > 0) burstGap -= delta;
         for (int i = 0; i < barrelRecoil.length; i++) {
             if (barrelRecoil[i] > 0) barrelRecoil[i] = Math.max(0f, barrelRecoil[i] - 4f * delta);
         }
