@@ -268,6 +268,53 @@ public class GameScreen implements Screen {
             HUD_H - Gdx.input.getY() / (float) Gdx.graphics.getHeight() * HUD_H);
     }
 
+    /** Enemy squad armaments (#152): rolled per squad from the instance's available pool. */
+    private enum SquadArms {
+        MG(0.12f, 2f, 560f, 380f),
+        AUTOCANNON(0.35f, 5f, 540f, 480f),
+        CANNON(1.8f, 12f, 460f, 540f),
+        ROCKETS(4f, 30f, 240f, 620f),
+        HOMING(5f, 28f, 220f, 700f),
+        TORPEDO(9f, 45f, 150f, 1400f);
+
+        final float reload;
+        final float damage;
+        final float speed;
+        final float range;
+
+        SquadArms(float reload, float damage, float speed, float range) {
+            this.reload = reload;
+            this.damage = damage;
+            this.speed = speed;
+            this.range = range;
+        }
+
+        boolean rocket() {
+            return this == ROCKETS || this == HOMING || this == TORPEDO;
+        }
+    }
+
+    private final Array<SquadArms> instanceArms = new Array<>(); // this battle's arms market
+
+    /** Random availability (#152): each instance fields a different slice of the arsenal. */
+    private void rollInstanceArms() {
+        instanceArms.clear();
+        Array<SquadArms> pool = new Array<>(SquadArms.values());
+        // deep sectors unlock the fancy ordnance more often
+        if (state.sector < 2 && MathUtils.randomBoolean(0.6f)) pool.removeValue(SquadArms.TORPEDO, true);
+        if (state.sector < 2 && MathUtils.randomBoolean(0.5f)) pool.removeValue(SquadArms.HOMING, true);
+        pool.shuffle();
+        int keep = MathUtils.random(3, Math.min(5, pool.size));
+        for (int i = 0; i < keep; i++) {
+            instanceArms.add(pool.get(i));
+        }
+    }
+
+    private SquadArms rollArms() {
+        if (instanceArms.isEmpty()) rollInstanceArms();
+        return instanceArms.random();
+    }
+
     private static class Enemy {
         final Player body; // reuses ship physics: drag keeps them slowly adrift
         float hp;
@@ -280,6 +327,8 @@ public class GameScreen implements Screen {
         float leftWingHp = 12f;
         float rightWingHp = 12f;
         int strength = 1;   // squads pool craft into one unit (#151); capitals stay 1
+        SquadArms arms = SquadArms.MG; // rolled loadout (#152)
+        float armsCd;
         boolean boss;       // heavy multi-section flagship (#106)
         boolean mothership; // hostile carrier fielding its own fighters (#145)
         boolean runner;     // intercept objective: flees for the arena edge (#104)
@@ -415,6 +464,7 @@ public class GameScreen implements Screen {
             Enemy e = new Enemy(x, y, Difficulty.enemyHp(state.sector) * size);
             e.maxHp = e.hp;
             e.strength = size;
+            e.arms = rollArms();
             e.body.thrustMult = 0.65f; // fleet-wide slowdown (#153)
             e.body.turnMult = 0.85f;
             enemies.add(e);
@@ -1135,6 +1185,7 @@ public class GameScreen implements Screen {
                     MathUtils.random(100f, ARENA_HEIGHT - 100f), Difficulty.enemyHp(state.sector) * size);
                 e.maxHp = e.hp;
                 e.strength = size;
+                e.arms = rollArms();
                 e.body.thrustMult = 0.65f;
                 e.body.turnMult = 0.85f;
                 enemies.add(e);
@@ -1169,6 +1220,7 @@ public class GameScreen implements Screen {
                         Difficulty.enemyHp(state.sector) * size);
                     e.maxHp = e.hp;
                     e.strength = size;
+                    e.arms = rollArms();
                     e.body.thrustMult = 0.65f;
                     e.body.turnMult = 0.85f;
                     enemies.add(e);
@@ -1274,6 +1326,10 @@ public class GameScreen implements Screen {
             e.aiT = MathUtils.random(3f, 5f);
         } else if (e.ai == 2 && e.aiT <= 0) {
             e.ai = 0;
+        } else if (e.ai == 0 && e.arms == SquadArms.TORPEDO && dist < 950f) {
+            e.ai = 1; // torpedo boats hold the stand-off ring
+            e.aiT = MathUtils.random(4f, 7f);
+            e.orbitDir = MathUtils.randomSign();
         } else if (e.ai == 0 && dist < 420f) {
             e.ai = 1;
             e.aiT = MathUtils.random(3f, 6f);
@@ -1304,19 +1360,40 @@ public class GameScreen implements Screen {
         else if (e.body.throttle > wantThrottle) e.body.throttleDown();
         e.body.updateThrust(delta, true);
 
-        // gunnery (#96): fire when roughly on target and in range
+        // gunnery (#96/#152): the squad's rolled loadout decides cadence, reach and ordnance
         float aimErr = (((MathUtils.atan2(-dx, dy) * MathUtils.radiansToDegrees)
             - e.body.rotation) % 360f + 540f) % 360f - 180f;
-        if (e.gun.ready() && dist < 520f && Math.abs(aimErr) < 9f && MathUtils.random() < 0.85f) {
-            e.gun.fire();
-            e.gun.cooldown = e.gun.type.reload * MathUtils.random(1.6f, 2.4f); // slower than the player
-            float jitter = MathUtils.random(-4f, 4f);
+        e.armsCd -= delta;
+        SquadArms arms = e.arms;
+        boolean inRange = dist < arms.range && (arms != SquadArms.TORPEDO || dist > 500f);
+        if (e.armsCd <= 0 && inRange && Math.abs(aimErr) < (arms.rocket() ? 14f : 9f)
+                && MathUtils.random() < 0.85f) {
+            e.armsCd = arms.reload * MathUtils.random(1.1f, 1.6f);
             float fx = -MathUtils.sinDeg(e.body.rotation);
             float fy = MathUtils.cosDeg(e.body.rotation);
-            projectiles.add(new Projectile(cx + fx * 20f, cy + fy * 20f,
-                e.body.rotation + jitter, e.body,
-                e.gun.type.speed, e.gun.type.damage, 0f, 0f, false));
-            game.sfx.playCannon(0);
+            if (arms.rocket()) {
+                Projectile p = new Projectile(cx + fx * 22f, cy + fy * 22f,
+                    e.body.rotation + MathUtils.random(-3f, 3f), e.body,
+                    arms.speed, arms.damage,
+                    arms == SquadArms.TORPEDO ? 60f : 200f,
+                    arms == SquadArms.HOMING ? 120f : 0f, true);
+                if (arms == SquadArms.HOMING) p.target = player;
+                if (arms == SquadArms.TORPEDO) p.life = 14f; // long, slow run at the carrier
+                projectiles.add(p);
+                game.sfx.playRocket();
+            } else {
+                int volley = arms == SquadArms.MG ? 1 : e.strength; // MGs stream, guns volley
+                for (int k = 0; k < volley; k++) {
+                    float jitter = MathUtils.random(-4f, 4f);
+                    projectiles.add(new Projectile(
+                        cx + formX(k) + fx * 20f, cy + formY(k) + fy * 20f,
+                        e.body.rotation + jitter, e.body,
+                        arms.speed, arms.damage, 0f, 0f, false));
+                }
+                if (MathUtils.randomBoolean(arms == SquadArms.MG ? 0.25f : 1f)) {
+                    game.sfx.playCannon(arms == SquadArms.CANNON ? 1 : 0);
+                }
+            }
         }
     }
 
@@ -2484,6 +2561,8 @@ public class GameScreen implements Screen {
             Enemy e = enemies.get(i);
             if (i == controlled) shapeRenderer.setColor(Color.ORANGE);
             else if (e.runner) shapeRenderer.setColor(1f, 0.75f, 0.2f, 1f);
+            else if (e.arms == SquadArms.TORPEDO) shapeRenderer.setColor(1f, 0.4f, 0.5f, 1f); // priority!
+            else if (e.arms == SquadArms.HOMING) shapeRenderer.setColor(1f, 0.3f, 0.35f, 1f);
             else shapeRenderer.setColor(0.95f, 0.25f, 0.2f, 1f);
             for (int slot = 0; slot < Math.max(1, e.strength); slot++) {
                 transform.setToTranslation(e.centerX(), e.centerY(), 0).rotate(0, 0, 1, e.body.rotation);
