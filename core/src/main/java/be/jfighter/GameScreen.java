@@ -2110,6 +2110,7 @@ public class GameScreen implements Screen {
             state.hull -= dmg;
             state.addDamageMark(); // the hit stays visible until repaired (#123)
             addShake(0.3f);
+            game.sfx.playExplosion(0.3f + dmg * 0.02f); // unshielded hits land loud
             if (MathUtils.random() < 0.1f) {
                 if (MathUtils.randomBoolean()) {
                     fireCritT = 6f;

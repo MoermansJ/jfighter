@@ -31,6 +31,7 @@ public class SoundFx {
     private Sound ping;
     private Sound beamLoop;
     private Sound report;
+    private final Sound[] explosions = new Sound[3];
     private long beamId = -1;
     private long thrusterId = -1;
     private boolean ready;
@@ -51,6 +52,9 @@ public class SoundFx {
             ping = load(dir.child("ping.wav"), synthPing());
             beamLoop = load(dir.child("beamloop2.wav"), synthBeamLoop()); // v2: seamless loop (#133)
             report = load(dir.child("report155.wav"), synthReport());
+            explosions[0] = load(dir.child("boom_a.wav"), synthExplosion(0.55f, 45f, 7f));
+            explosions[1] = load(dir.child("boom_b.wav"), synthExplosion(0.8f, 32f, 4.5f));
+            explosions[2] = load(dir.child("boom_c.wav"), synthExplosion(0.4f, 60f, 10f));
             ready = true;
         } catch (Exception e) {
             Gdx.app.error("SoundFx", "audio disabled: " + e.getMessage());
@@ -116,6 +120,14 @@ public class SoundFx {
         if (ready) ping.play(0.1f * masterVolume, 0.75f, 0f); // lower pitch, under the mix
     }
 
+    /** Hull hit with the shield down: one of a few different blasts, varied per impact. */
+    public void playExplosion(float strength) {
+        if (!ready) return;
+        Sound s = explosions[MathUtils.random(explosions.length - 1)];
+        s.play(MathUtils.clamp(strength, 0.3f, 0.85f) * masterVolume,
+            MathUtils.random(0.85f, 1.15f), MathUtils.random(-0.3f, 0.3f));
+    }
+
     /** The 155's muzzle blast (#155): a proper artillery report. */
     public void playReport() {
         if (ready) report.play(0.7f * masterVolume);
@@ -147,6 +159,7 @@ public class SoundFx {
         ping.dispose();
         beamLoop.dispose();
         report.dispose();
+        for (Sound s : explosions) s.dispose();
     }
 
     // --- synthesis ---
@@ -314,6 +327,24 @@ public class SoundFx {
                 + Math.sin(2 * Math.PI * f2 * t) * 0.3) + ns * 0.25f;
         }
         return normalise(s, 0.6f);
+    }
+
+    /** Parameterised explosion: crackle attack, rumbling body, tonal thump. */
+    private static float[] synthExplosion(float dur, float thumpHz, float decay) {
+        int n = (int) (RATE * dur);
+        float[] s = new float[n];
+        float y = 0f;
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            float white = MathUtils.random(-1f, 1f);
+            y += 0.12f * (white - y);
+            float rumble = (float) (y * Math.exp(-t * decay));
+            float thump = (float) (Math.sin(2 * Math.PI * thumpHz * t)
+                * 0.6 * Math.exp(-t * decay * 1.4));
+            float crackle = t < 0.05f ? white * (1f - t / 0.05f) * 0.7f : 0f;
+            s[i] = rumble + thump + crackle;
+        }
+        return normalise(s, 0.95f);
     }
 
     /** Artillery muzzle blast: sharp crack into a rolling low boom. */
