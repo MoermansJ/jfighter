@@ -28,6 +28,37 @@ public class GameState {
     public final List<Weapon.Type> loadout = new ArrayList<>(List.of(
         Weapon.Type.LIGHT_CANNON, Weapon.Type.ROCKET));
 
+    // ammunition pools (#120): ballistic weapons burn these, bought at the trader
+    public int ammoLight = 600;
+    public int ammoHeavy = 24;
+    public int ammoRockets = 12;
+    // ship energy budget for energy weapons; recharge scales with WEAPONS power
+    public float weaponEnergy = 100f;
+    public float maxWeaponEnergy = 100f;
+
+    /** Spends ballistic ammo or ship energy; returns false when dry. */
+    public boolean spendAmmo(Weapon.Type t, int shots) {
+        int cost = t.ammoCost * shots;
+        switch (t.ammoKind) {
+            case LIGHT:
+                if (ammoLight < cost) return false;
+                ammoLight -= cost;
+                return true;
+            case HEAVY:
+                if (ammoHeavy < cost) return false;
+                ammoHeavy -= cost;
+                return true;
+            case ROCKET:
+                if (ammoRockets < cost) return false;
+                ammoRockets -= cost;
+                return true;
+            default:
+                if (weaponEnergy < cost) return false;
+                weaponEnergy -= cost;
+                return true;
+        }
+    }
+
     /** 155mm barrel count: 1 stock, up to 3 via trader barrel upgrades (#91). */
     public int cannon155Tier() {
         return 1 + Math.min(2, upgradeLevel(ShipUpgrade.M155_BARRELS));

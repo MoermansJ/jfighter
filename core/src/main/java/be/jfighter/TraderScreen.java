@@ -132,6 +132,12 @@ public class TraderScreen implements Screen {
                 int missing = Math.round(state.maxHull - state.hull);
                 int repairPrice = Math.max(10, missing);
                 boolean wingsTorn = state.leftWingHp <= 0 || state.rightWingHp <= 0;
+                list.add(new Item("Light ballistic x200", "MG and light cannon feed", 30,
+                    true, () -> state.ammoLight += 200));
+                list.add(new Item("Heavy shells x8", "155mm rounds", 40,
+                    true, () -> state.ammoHeavy += 8));
+                list.add(new Item("Rockets x6", "rack reload", 50,
+                    true, () -> state.ammoRockets += 6));
                 list.add(new Item("Hull repairs", "restore full hull and wings", repairPrice,
                     missing > 0 || wingsTorn, () -> {
                         state.hull = state.maxHull;

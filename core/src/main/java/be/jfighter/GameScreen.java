@@ -183,6 +183,7 @@ public class GameScreen implements Screen {
         effects = new SpaceEffects(ARENA_WIDTH, ARENA_HEIGHT);
         hudMatrix.setToOrtho2D(0, 0, HUD_W, HUD_H);
         for (Weapon.Type t : state.loadout) weapons.add(new Weapon(t));
+        state.weaponEnergy = state.maxWeaponEnergy; // fresh capacitors each engagement
         boolean bossFight = state.sector >= 3
             && state.map.getCurrentNode().id == state.map.lastNodeId;
         if (bossFight) {
@@ -304,6 +305,13 @@ public class GameScreen implements Screen {
             }
             if (helmCritT > 0) helmCritT -= delta;
             if (hudToastT > 0) hudToastT -= delta;
+            state.weaponEnergy = Math.min(state.maxWeaponEnergy,
+                state.weaponEnergy + (2f + 4f * state.power[GameState.PWR_WEAPONS]) * delta);
+            if (Dev.MODE) {
+                state.ammoLight = Math.max(state.ammoLight, 600);
+                state.ammoHeavy = Math.max(state.ammoHeavy, 24);
+                state.ammoRockets = Math.max(state.ammoRockets, 12);
+            }
             float wingMult = (state.leftWingHp > 0 ? 1f : 0.75f) * (state.rightWingHp > 0 ? 1f : 0.75f);
             player.thrustMult = state.thrustMult() * (1f + 0.04f * state.roomStats[0])
                 * (0.6f + 0.2f * state.power[GameState.PWR_ENGINES]) * wingMult;
@@ -439,6 +447,16 @@ public class GameScreen implements Screen {
         }
     }
 
+    /** Pool readout for the weapon cards: shared ammo pools, or the energy budget. */
+    private String ammoLabel(Weapon.Type t) {
+        switch (t.ammoKind) {
+            case LIGHT: return "L " + state.ammoLight;
+            case HEAVY: return "H " + state.ammoHeavy;
+            case ROCKET: return "R " + state.ammoRockets;
+            default: return "E " + Math.round(state.weaponEnergy / state.maxWeaponEnergy * 100) + "%";
+        }
+    }
+
     private void drawHud() {
         shapeRenderer.setProjectionMatrix(hudMatrix);
         effects.renderThrottleHud(shapeRenderer, player);
@@ -515,8 +533,9 @@ public class GameScreen implements Screen {
             String cardLabel = (i + 1) + " " + w.type.label;
             if (w.type == Weapon.Type.CANNON_155) cardLabel += " T" + state.cannon155Tier();
             font.draw(batch, cardLabel, x + 4, 38);
-            font.setColor(w.ammo == 0 ? Color.RED : Color.GRAY);
-            font.draw(batch, w.ammo < 0 ? "\u221E" : String.valueOf(w.ammo), x + 4, 26);
+            String ammoText = ammoLabel(w.type);
+            font.setColor(ammoText.endsWith(" 0") ? Color.RED : Color.GRAY);
+            font.draw(batch, ammoText, x + 4, 26);
         }
         font.setColor(Color.GRAY);
         font.draw(batch, "HULL", 136, HUD_H - 78);
@@ -1003,7 +1022,8 @@ public class GameScreen implements Screen {
         float ny = body.y + Player.HEIGHT / 2f + fy * 20f;
         switch (w.type) {
             case BEAM_LASER:
-                if (held) {
+                if (held && state.weaponEnergy > 0f) {
+                    state.weaponEnergy = Math.max(0f, state.weaponEnergy - w.type.ammoCost * delta);
                     fireBeam(body, nx, ny, fireRotation, w.type.damage * delta, true);
                     if (!beaming) {
                         beaming = true;
@@ -1015,7 +1035,7 @@ public class GameScreen implements Screen {
                 }
                 break;
             case BURST_LASER:
-                if (held && w.ready()) {
+                if (held && w.ready() && state.spendAmmo(w.type, 3)) {
                     w.fire();
                     w.burstLeft = 3;
                 }
@@ -1028,7 +1048,7 @@ public class GameScreen implements Screen {
                 break;
             case CANNON_155: {
                 int tier = state.cannon155Tier();
-                if (held && w.ready()) {
+                if (held && w.ready() && state.spendAmmo(w.type, tier)) {
                     w.fire();
                     w.cooldown = w.type.reload / ((1f + 0.08f * state.roomStats[4])
                         * (0.7f + 0.15f * state.power[GameState.PWR_WEAPONS]));
@@ -1055,7 +1075,7 @@ public class GameScreen implements Screen {
                 break;
             }
             default:
-                if (held && w.ready()) {
+                if (held && w.ready() && state.spendAmmo(w.type, 1)) {
                     w.fire();
                     // gunnery crew and weapons power shorten the cycle
                     w.cooldown = w.type.reload / ((1f + 0.08f * state.roomStats[4])

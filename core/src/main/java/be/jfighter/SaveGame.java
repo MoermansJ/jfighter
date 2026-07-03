@@ -39,6 +39,9 @@ public final class SaveGame {
             num(b, "maxHull", s.maxHull);
             num(b, "shield", s.shield);
             num(b, "maxShield", s.maxShield);
+            num(b, "ammoLight", s.ammoLight);
+            num(b, "ammoHeavy", s.ammoHeavy);
+            num(b, "ammoRockets", s.ammoRockets);
             num(b, "leftWingHp", s.leftWingHp);
             num(b, "rightWingHp", s.rightWingHp);
             num(b, "sector", s.sector);
@@ -203,6 +206,9 @@ public final class SaveGame {
             s.maxHull = r.getFloat("maxHull");
             s.shield = r.getFloat("shield");
             s.maxShield = r.getFloat("maxShield");
+            s.ammoLight = r.getInt("ammoLight", 600);
+            s.ammoHeavy = r.getInt("ammoHeavy", 24);
+            s.ammoRockets = r.getInt("ammoRockets", 12);
             s.leftWingHp = r.getFloat("leftWingHp", 15f);
             s.rightWingHp = r.getFloat("rightWingHp", 15f);
             s.sector = r.getInt("sector");
