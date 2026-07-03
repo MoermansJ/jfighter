@@ -461,6 +461,10 @@ public class GameScreen implements Screen {
         shapeRenderer.end();
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         radar.border(shapeRenderer);
+        com.badlogic.gdx.graphics.OrthographicCamera rcam =
+            (com.badlogic.gdx.graphics.OrthographicCamera) viewport.getCamera();
+        radar.viewRect(shapeRenderer, rcam.position.x, rcam.position.y,
+            viewport.getWorldWidth() * rcam.zoom, viewport.getWorldHeight() * rcam.zoom);
         shapeRenderer.end();
 
         // hull + shield bars

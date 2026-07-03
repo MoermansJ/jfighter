@@ -46,6 +46,22 @@ public class Radar {
         shapes.rect(x, y, w, h);
     }
 
+    /** The camera's view window, as a live rectangle on the radar; call in a Line pass. */
+    public void viewRect(ShapeRenderer shapes, float camX, float camY, float viewW, float viewH) {
+        float rx = px(camX - viewW / 2f);
+        float ry = py(camY - viewH / 2f);
+        float rw = viewW / arenaW * w;
+        float rh = viewH / arenaH * h;
+        // clamp inside the radar frame
+        float x1 = Math.max(x, rx);
+        float y1 = Math.max(y, ry);
+        float x2 = Math.min(x + w, rx + rw);
+        float y2 = Math.min(y + h, ry + rh);
+        if (x2 <= x1 || y2 <= y1) return;
+        shapes.setColor(0.75f, 0.85f, 0.9f, 1f);
+        shapes.rect(x1, y1, x2 - x1, y2 - y1);
+    }
+
     private float px(float wx) {
         return x + wx / arenaW * w;
     }

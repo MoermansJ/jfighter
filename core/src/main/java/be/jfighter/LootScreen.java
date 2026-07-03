@@ -2055,6 +2055,10 @@ public class LootScreen implements Screen {
         shapes.end();
         shapes.begin(ShapeRenderer.ShapeType.Line);
         radar.border(shapes);
+        com.badlogic.gdx.graphics.OrthographicCamera rcam =
+            (com.badlogic.gdx.graphics.OrthographicCamera) viewport.getCamera();
+        radar.viewRect(shapes, rcam.position.x, rcam.position.y,
+            viewport.getWorldWidth() * rcam.zoom, viewport.getWorldHeight() * rcam.zoom);
         shapes.setColor(0.3f, 0.9f, 0.4f, 1f);
         radar.ring(shapes, EXIT_X, exitY, 3.4f);
         shapes.end();
