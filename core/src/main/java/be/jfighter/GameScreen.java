@@ -702,6 +702,12 @@ public class GameScreen implements Screen {
         shapeRenderer.setColor(0.008f, 0.022f, 0.03f, 1f);
         shapeRenderer.rect(PLOT_X, PLOT_Y, PLOT_W, PLOT_H);
         shapeRenderer.end();
+        // everything on the glass stays on the glass (#166)
+        float sx = Gdx.graphics.getWidth() / (float) HUD_W;
+        float sy = Gdx.graphics.getHeight() / (float) HUD_H;
+        Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_SCISSOR_TEST);
+        Gdx.gl.glScissor((int) (PLOT_X * sx), (int) (PLOT_Y * sy),
+            (int) (PLOT_W * sx) + 1, (int) (PLOT_H * sy) + 1);
         shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         // plotting grid
         Palette.set(shapeRenderer, 0.05f, 0.1f, 0.12f, 1f);
@@ -794,6 +800,42 @@ public class GameScreen implements Screen {
             shapeRenderer.circle(plotPX(lastAim.x), plotPY(lastAim.y), zone * kx, 20);
             shapeRenderer.setColor(0.28f, 0.3f, 0.32f, 1f); // worst case: zone edge + splash
             shapeRenderer.circle(plotPX(lastAim.x), plotPY(lastAim.y), (zone + SPLASH_155) * kx, 24);
+            // heavy barrel bearing (#173): watch the slow slew walk onto the zone
+            for (Weapon aw : weapons) {
+                if (!aw.selected || aw.type != Weapon.Type.CANNON_155) continue;
+                float barrel = player.rotation + aw.turret;
+                shapeRenderer.setColor(0.75f, 0.7f, 0.45f, 1f);
+                shapeRenderer.line(plotPX(ox), plotPY(oy),
+                    plotPX(ox) - MathUtils.sinDeg(barrel) * dist * kx,
+                    plotPY(oy) + MathUtils.cosDeg(barrel) * dist * kx);
+            }
+        }
+        // carrier course projection (#183): dashed track along the velocity, time ticks
+        if (defeatT < 0) {
+            float cvx = player.vx;
+            float cvy = player.vy;
+            float cspd = (float) Math.sqrt(cvx * cvx + cvy * cvy);
+            if (cspd > 6f) {
+                Palette.set(shapeRenderer, 0.25f, 0.6f, 0.5f, 1f);
+                for (int seg = 0; seg < 12; seg++) { // dashed: 10s of track
+                    float t1 = seg * 10f / 12f;
+                    float t2 = t1 + 10f / 24f;
+                    shapeRenderer.line(plotPX(ox + cvx * t1), plotPY(oy + cvy * t1),
+                        plotPX(ox + cvx * t2), plotPY(oy + cvy * t2));
+                }
+                for (int tick = 1; tick <= 2; tick++) { // 5s marks
+                    float tt = tick * 5f;
+                    float txp = plotPX(ox + cvx * tt);
+                    float typ = plotPY(oy + cvy * tt);
+                    shapeRenderer.line(txp - 2.5f, typ - 2.5f, txp + 2.5f, typ + 2.5f);
+                    shapeRenderer.line(txp - 2.5f, typ + 2.5f, txp + 2.5f, typ - 2.5f);
+                }
+                if (carrierWaypoint.x >= 0) { // the helm's intent bends toward the waypoint
+                    Palette.set(shapeRenderer, 0.18f, 0.4f, 0.36f, 1f);
+                    shapeRenderer.line(plotPX(ox + cvx * 3f), plotPY(oy + cvy * 3f),
+                        plotPX(carrierWaypoint.x), plotPY(carrierWaypoint.y));
+                }
+            }
         }
         // aim cones for the light/medium batteries
         for (Weapon aw : weapons) {
@@ -807,16 +849,27 @@ public class GameScreen implements Screen {
                     plotPX(ox) - MathUtils.sinDeg(a) * reach, plotPY(oy) + MathUtils.cosDeg(a) * reach);
             }
         }
-        // the cupolas' cone follows whatever they're tracking
+        // the cupolas' cone follows whatever they're tracking, inside the 170-degree mask (#171)
         if (state.mothership.countMounts(Mothership.MOUNT_MG46) > 0 && cupolaReloadT <= 0) {
+            float reachM = 380f * 1.75f * kx;
+            Palette.set(shapeRenderer, 0.1f, 0.22f, 0.26f, 1f);
+            for (int sgn = -1; sgn <= 1; sgn += 2) { // mask edges
+                float a = player.rotation + sgn * 85f;
+                shapeRenderer.line(plotPX(ox), plotPY(oy),
+                    plotPX(ox) - MathUtils.sinDeg(a) * 380f * 1.75f * 0.4f,
+                    plotPY(oy) + MathUtils.cosDeg(a) * 380f * 1.75f * 0.4f);
+            }
             Enemy near = null;
             float bestD = 380f * 1.75f;
             for (Enemy e : enemies) {
                 float dd = Vector2.dst(ox, oy, e.centerX(), e.centerY());
-                if (dd < bestD) {
-                    bestD = dd;
-                    near = e;
-                }
+                if (dd >= bestD) continue;
+                float bearing2 = MathUtils.atan2(-(e.centerX() - ox), e.centerY() - oy)
+                    * MathUtils.radiansToDegrees;
+                float off2 = ((bearing2 - player.rotation) % 360f + 540f) % 360f - 180f;
+                if (Math.abs(off2) > 85f) continue;
+                bestD = dd;
+                near = e;
             }
             if (near != null) {
                 float bearing = MathUtils.atan2(-(near.centerX() - ox), near.centerY() - oy)
@@ -915,6 +968,9 @@ public class GameScreen implements Screen {
             ShipRenderer.drawCarrier(shapeRenderer);
             shapeRenderer.setProjectionMatrix(hudMatrix);
         }
+        shapeRenderer.end();
+        Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_SCISSOR_TEST);
+        shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
         // frame + scanline
         Palette.set(shapeRenderer, 0.2f, 0.4f, 0.5f, 1f);
         shapeRenderer.rect(PLOT_X, PLOT_Y, PLOT_W, PLOT_H);
@@ -2601,6 +2657,17 @@ public class GameScreen implements Screen {
      * MG-46 cupolas (#119): automatic close-defence turrets. Each mounted cupola
      * streams 1200 rpm at the nearest hostile in range, one light round per shot.
      */
+    /** Burst size (#172): green gunners hold the trigger, veterans fire tight salvos. */
+    private int mgBurstSize() {
+        int sloppy = Math.max(0, 2 - state.roomStats[4]); // unmanned/low-skill gunnery wastes belt
+        return MathUtils.random(5, 8) + sloppy * 3;
+    }
+
+    /** Round jitter (#172): tighter dispersion under a skilled gunnery hand (#171 cone). */
+    private float lightJitter() {
+        return Math.max(1.2f, 2.4f - 0.35f * state.roomStats[4]);
+    }
+
     private void updateCupolas(float delta) {
         int cupolas = state.mothership.countMounts(Mothership.MOUNT_MG46);
         if (cupolas == 0 || defeatT >= 0) return;
@@ -2621,17 +2688,21 @@ public class GameScreen implements Screen {
         float best = 380f * 1.75f; // cupola screen, halved to a close-in net
         for (Enemy e : enemies) {
             float d = Vector2.dst(cx, cy, e.centerX(), e.centerY());
-            if (d < best) {
-                best = d;
-                target = e;
-            }
+            if (d >= best) continue;
+            // the superstructure masks the cupolas to a 170-degree forward arc (#171)
+            float bearing = MathUtils.atan2(-(e.centerX() - cx), e.centerY() - cy)
+                * MathUtils.radiansToDegrees;
+            float off = ((bearing - player.rotation) % 360f + 540f) % 360f - 180f;
+            if (Math.abs(off) > 85f) continue;
+            best = d;
+            target = e;
         }
         if (target == null || !state.spendAmmo(Weapon.Type.LIGHT_CANNON, 1)) return;
-        if (cupolaBurstLeft <= 0) cupolaBurstLeft = MathUtils.random(5, 8); // new burst
+        if (cupolaBurstLeft <= 0) cupolaBurstLeft = mgBurstSize(); // new burst
         cupolaCd = 60f / (1200f * cupolas); // combined rate of fire across mounted cupolas
         cupolaBurstLeft--;
         float aim = MathUtils.atan2(-(target.centerX() - cx), target.centerY() - cy)
-            * MathUtils.radiansToDegrees + MathUtils.random(-3.5f, 3.5f);
+            * MathUtils.radiansToDegrees + MathUtils.random(-lightJitter(), lightJitter());
         projectiles.add(new Projectile(cx - MathUtils.sinDeg(aim) * 22f,
             cy + MathUtils.cosDeg(aim) * 22f, aim, player, 560f, 1.5f, 0f, 0f, false));
         if (MathUtils.randomBoolean(0.2f)) game.sfx.playCannon(0);
@@ -2786,12 +2857,14 @@ public class GameScreen implements Screen {
                 break;
             case AUTOCANNON_20:
                 if (w.burstGap > 0) break;
-                if (held && w.ready() && w.burstLeft == 0) w.burstLeft = 3;
+                if (held && w.ready() && w.burstLeft == 0) {
+                    w.burstLeft = 3 + Math.max(0, 2 - state.roomStats[4]); // sloppier hands overshoot (#172)
+                }
                 if (w.burstLeft > 0 && w.burstTimer <= 0 && state.spendAmmo(w.type, 1)) {
                     w.burstTimer = 0.09f;
                     w.burstLeft--;
                     projectiles.add(new Projectile(nx, ny,
-                        fireRotation + MathUtils.random(-2.5f, 2.5f), body,
+                        fireRotation + MathUtils.random(-lightJitter(), lightJitter()), body,
                         w.type.speed, w.type.damage, 0f, 0f, false));
                     addBlast(nx, ny, 0f, 150f, 6f);
                     game.sfx.playCannon(0);
