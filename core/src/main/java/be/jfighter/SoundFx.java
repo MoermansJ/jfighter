@@ -37,7 +37,7 @@ public class SoundFx {
     public SoundFx() {
         try {
             FileHandle dir = Gdx.files.external(".jfighter/sfx/");
-            thruster = load(dir.child("thruster.wav"), synthThruster());
+            thruster = load(dir.child("thruster2.wav"), synthThruster()); // v2: seamless loop (#133)
             twang = load(dir.child("twang.wav"), synthTwang());
             thud = load(dir.child("thud.wav"), synthThud());
             cannons[0] = load(dir.child("cannon0.wav"), synthCannon(0.09f, 340f, 60f));
@@ -48,7 +48,7 @@ public class SoundFx {
             clamp = load(dir.child("clamp.wav"), synthClamp());
             snap = load(dir.child("snap.wav"), synthSnap());
             ping = load(dir.child("ping.wav"), synthPing());
-            beamLoop = load(dir.child("beamloop.wav"), synthBeamLoop());
+            beamLoop = load(dir.child("beamloop2.wav"), synthBeamLoop()); // v2: seamless loop (#133)
             ready = true;
         } catch (Exception e) {
             Gdx.app.error("SoundFx", "audio disabled: " + e.getMessage());
@@ -140,19 +140,25 @@ public class SoundFx {
 
     /** 1s loop of low-passed noise: an engine rumble with no tonal seam. */
     private static float[] synthThruster() {
-        int n = RATE;
-        float[] s = new float[n];
+        // seamless loop (#133): synthesise past the end, then equal-power blend the
+        // natural continuation over the head — the seam carries the same character
+        // on both sides instead of the old short linear fade's pitch dip
+        int n = RATE * 2;
+        int f = RATE / 2;
+        float[] raw = new float[n + f];
         float y = 0f;
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < raw.length; i++) {
             float white = MathUtils.random(-1f, 1f);
             y += 0.08f * (white - y); // low-pass: keeps only the low rumble
-            s[i] = y;
+            raw[i] = y;
         }
-        // crossfade the tail into the head so the loop point doesn't click
-        int f = RATE / 20;
+        float[] s = new float[n];
+        System.arraycopy(raw, 0, s, 0, n);
         for (int i = 0; i < f; i++) {
             float t = i / (float) f;
-            s[n - f + i] = s[n - f + i] * (1f - t) + s[i] * t;
+            float head = (float) Math.sin(t * Math.PI / 2);
+            float cont = (float) Math.cos(t * Math.PI / 2);
+            s[i] = s[i] * head + raw[n + i] * cont;
         }
         return normalise(s, 0.9f);
     }
@@ -268,23 +274,31 @@ public class SoundFx {
         return normalise(s, 0.5f);
     }
 
-    /** Continuous beam hum: tonal core + crackle, loop-crossfaded like the thruster. */
+    /** Continuous beam hum: whole tone cycles so the sines loop exactly; noise blended seamlessly. */
     private static float[] synthBeamLoop() {
         int n = RATE / 2;
-        float[] s = new float[n];
+        int f = RATE / 8;
+        // frequencies snapped to whole cycles per buffer: the tonal core loops perfectly
+        double f1 = Math.round(180.0 * n / RATE) * (double) RATE / n;
+        double f2 = Math.round(273.0 * n / RATE) * (double) RATE / n;
+        float[] noise = new float[n + f];
         float y = 0f;
-        for (int i = 0; i < n; i++) {
-            float t = i / (float) RATE;
-            float hum = (float) (Math.sin(2 * Math.PI * 180 * t) * 0.5
-                + Math.sin(2 * Math.PI * 273 * t) * 0.3);
+        for (int i = 0; i < noise.length; i++) {
             float white = MathUtils.random(-1f, 1f);
             y += 0.5f * (white - y);
-            s[i] = hum + y * 0.25f;
+            noise[i] = y;
         }
-        int fkeep = RATE / 24;
-        for (int i = 0; i < fkeep; i++) {
-            float t = i / (float) fkeep;
-            s[n - fkeep + i] = s[n - fkeep + i] * (1f - t) + s[i] * t;
+        float[] s = new float[n];
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) RATE;
+            float ns = noise[i];
+            if (i < f) { // equal-power blend of the noise continuation over the head
+                float tt = i / (float) f;
+                ns = noise[i] * (float) Math.sin(tt * Math.PI / 2)
+                    + noise[n + i] * (float) Math.cos(tt * Math.PI / 2);
+            }
+            s[i] = (float) (Math.sin(2 * Math.PI * f1 * t) * 0.5
+                + Math.sin(2 * Math.PI * f2 * t) * 0.3) + ns * 0.25f;
         }
         return normalise(s, 0.6f);
     }
